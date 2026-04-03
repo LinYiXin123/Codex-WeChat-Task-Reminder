@@ -2,6 +2,7 @@ node_modules/
 .npm-cache/
 dist/
 dist-cli/
+artifacts*/
 output/
 .playwright-cli/
 *.tsbuildinfo

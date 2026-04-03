@@ -14,6 +14,8 @@
 >
 > This fork focuses on Windows server deployment, LAN access, stable browser entry points, and config-driven self-hosting.
 
+![Three-step Windows install](docs/one-command-windows.svg)
+
 ```text
  ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗██╗   ██╗██╗
 ██╔════╝██╔═══██╗██╔══██╗██╔════╝╚██╗██╔╝██║   ██║██║
@@ -63,6 +65,20 @@ After it finishes, open the printed LAN or local URL and use the password shown 
 If Codex is not logged in yet, the installer will launch the official login flow once in the current console before starting the background entry point.
 
 You can safely run the same install command again later. It will refresh the same config and launcher, then replace the previous managed instance with the new settings.
+
+### Three Steps, In Plain English
+
+1. Run the PowerShell one-liner.
+2. Complete Codex login once if the installer asks for it.
+3. Open the printed local or LAN URL in your browser or phone.
+
+### Prefer Downloading A Zip?
+
+If you would rather download a bundle instead of using the one-liner, use the latest asset from [Releases](https://github.com/Qjzn/codexui-server-bridge/releases) and then run:
+
+```powershell
+.\setup.ps1
+```
 
 ### Custom Port Or Password
 
@@ -194,6 +210,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-windows-server.ps1 `
 More details:
 
 - [`docs/windows-server.md`](./docs/windows-server.md)
+- [`RELEASE.md`](./RELEASE.md)
 
 The installer defaults to server-friendly settings:
 

@@ -30,6 +30,12 @@ If you want custom options such as a fixed password:
   -Password 'change-me'
 ```
 
+If you prefer a downloadable bundle, grab the latest zip from [GitHub Releases](https://github.com/Qjzn/codexui-server-bridge/releases), extract it anywhere, and run:
+
+```powershell
+.\setup.ps1
+```
+
 ## 2. Build from source
 
 ```powershell
@@ -76,6 +82,8 @@ By default the installer writes `tunnel: false` and `open: false`, which is usua
 4. `%USERPROFILE%\.codexui\config.json`
 
 See [codexui.config.example.json](../codexui.config.example.json) for the supported keys.
+
+Release process notes for maintainers live in [RELEASE.md](../RELEASE.md).
 
 ## 6. Reverse proxy notes
 

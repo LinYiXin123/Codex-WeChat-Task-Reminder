@@ -1,0 +1,77 @@
+<svg width="1200" height="720" viewBox="0 0 1200 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="80" y1="40" x2="1120" y2="680" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1220"/>
+      <stop offset="1" stop-color="#112B3C"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="160" y1="180" x2="1010" y2="620" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#182B3A"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#4ADE80"/>
+      <stop offset="1" stop-color="#22C55E"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="720" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="20" stdDeviation="30" flood-color="#020617" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="720" rx="36" fill="url(#bg)"/>
+  <circle cx="1050" cy="110" r="180" fill="#16A34A" opacity="0.12"/>
+  <circle cx="180" cy="630" r="200" fill="#38BDF8" opacity="0.08"/>
+  <circle cx="980" cy="620" r="120" fill="#F59E0B" opacity="0.08"/>
+
+  <g filter="url(#shadow)">
+    <rect x="74" y="72" width="1052" height="576" rx="28" fill="url(#panel)" stroke="#334155" stroke-width="1.5"/>
+  </g>
+
+  <rect x="110" y="108" width="138" height="34" rx="17" fill="#163029"/>
+  <text x="179" y="131" text-anchor="middle" fill="#86EFAC" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">Windows One-Command</text>
+
+  <text x="110" y="190" fill="white" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="800">Deploy Codex Web Bridge</text>
+  <text x="110" y="250" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="500">One command, one login, one browser URL.</text>
+
+  <rect x="110" y="288" width="980" height="76" rx="18" fill="#09111D" stroke="#233248" stroke-width="1.5"/>
+  <circle cx="148" cy="326" r="16" fill="#22C55E"/>
+  <text x="148" y="332" text-anchor="middle" fill="#052E16" font-family="Consolas, Menlo, monospace" font-size="18" font-weight="700">$</text>
+  <text x="176" y="334" fill="#E2E8F0" font-family="Consolas, Menlo, monospace" font-size="19">irm https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1 | iex</text>
+
+  <g transform="translate(110 410)">
+    <rect width="280" height="182" rx="22" fill="#0B1322" stroke="#26374B" stroke-width="1.5"/>
+    <circle cx="44" cy="44" r="24" fill="url(#accent)"/>
+    <text x="44" y="52" text-anchor="middle" fill="#052E16" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="900">1</text>
+    <text x="82" y="52" fill="white" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">Run It</text>
+    <text x="28" y="94" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="20">Copy the PowerShell command.</text>
+    <text x="28" y="124" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="20">Node gets installed automatically</text>
+    <text x="28" y="154" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="20">if your machine does not have it.</text>
+  </g>
+
+  <g transform="translate(460 410)">
+    <rect width="280" height="182" rx="22" fill="#0B1322" stroke="#26374B" stroke-width="1.5"/>
+    <circle cx="44" cy="44" r="24" fill="url(#accent)"/>
+    <text x="44" y="52" text-anchor="middle" fill="#052E16" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="900">2</text>
+    <text x="82" y="52" fill="white" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">Login Once</text>
+    <text x="28" y="94" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="20">If Codex is not logged in yet,</text>
+    <text x="28" y="124" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="20">the installer opens the official</text>
+    <text x="28" y="154" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="20">login flow for you.</text>
+  </g>
+
+  <g transform="translate(810 410)">
+    <rect width="280" height="182" rx="22" fill="#0B1322" stroke="#26374B" stroke-width="1.5"/>
+    <circle cx="44" cy="44" r="24" fill="url(#accent)"/>
+    <text x="44" y="52" text-anchor="middle" fill="#052E16" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="900">3</text>
+    <text x="82" y="52" fill="white" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">Open URL</text>
+    <text x="28" y="94" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="20">Use the printed localhost or LAN</text>
+    <text x="28" y="124" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="20">address in your phone or browser.</text>
+    <text x="28" y="154" fill="#CBD5E1" font-family="Segoe UI, Arial, sans-serif" font-size="20">Rerun the same command anytime.</text>
+  </g>
+
+  <rect x="822" y="118" width="268" height="176" rx="24" fill="#08111C" stroke="#2F4157" stroke-width="1.5"/>
+  <rect x="848" y="144" width="216" height="132" rx="18" fill="#101D2A" stroke="#2B3D52" stroke-width="1.5"/>
+  <rect x="868" y="166" width="176" height="12" rx="6" fill="#334155"/>
+  <rect x="868" y="192" width="112" height="12" rx="6" fill="#22C55E" opacity="0.9"/>
+  <rect x="868" y="218" width="142" height="12" rx="6" fill="#64748B"/>
+  <rect x="868" y="244" width="132" height="12" rx="6" fill="#64748B"/>
+  <text x="956" y="309" text-anchor="middle" fill="#94A3B8" font-family="Segoe UI, Arial, sans-serif" font-size="18">Browser on desktop or phone</text>
+</svg>
