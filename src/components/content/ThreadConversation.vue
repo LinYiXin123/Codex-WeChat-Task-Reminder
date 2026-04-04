@@ -1,15 +1,21 @@
 <template>
   <section class="conversation-root">
-    <p v-if="isLoading" class="conversation-loading">Loading messages...</p>
+    <p v-if="showBlockingLoading" class="conversation-loading">Loading messages...</p>
 
     <p
-      v-else-if="messages.length === 0 && pendingRequests.length === 0 && !liveOverlay"
+      v-else-if="!hasRenderableConversation"
       class="conversation-empty"
     >
       No messages in this thread yet.
     </p>
 
-    <ul v-else ref="conversationListRef" class="conversation-list" @scroll="onConversationScroll">
+    <template v-else>
+      <div v-if="showInlineLoading" class="conversation-inline-loading" aria-live="polite">
+        <span class="conversation-inline-loading-bar" />
+        <span class="conversation-inline-loading-text">Syncing latest messages...</span>
+      </div>
+
+      <ul ref="conversationListRef" class="conversation-list" @scroll="onConversationScroll">
       <li
         v-for="request in pendingRequests"
         :key="`server-request:${request.id}`"
@@ -277,7 +283,23 @@
         </div>
       </li>
       <li ref="bottomAnchorRef" class="conversation-bottom-anchor" />
-    </ul>
+      </ul>
+
+      <button
+        v-if="showJumpToLatestButton"
+        class="conversation-jump-to-latest"
+        :class="{ 'has-pending-updates': hasPendingBelowFoldUpdates }"
+        type="button"
+        :title="jumpToLatestTitle"
+        @click="jumpToLatest"
+      >
+        <IconTablerArrowUp class="conversation-jump-to-latest-icon" />
+        <span class="conversation-jump-to-latest-label">
+          {{ hasPendingBelowFoldUpdates ? 'Latest output' : 'Bottom' }}
+        </span>
+        <span v-if="hasPendingBelowFoldUpdates" class="conversation-jump-to-latest-badge" />
+      </button>
+    </template>
 
     <div v-if="modalImageUrl.length > 0" class="image-modal-backdrop" @click="closeImageModal">
       <div class="image-modal-content" @click.stop>
@@ -318,6 +340,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import type { ThreadScrollState, UiLiveOverlay, UiMessage, UiServerRequest } from '../../types/codex'
 import IconTablerX from '../icons/IconTablerX.vue'
 import IconTablerArrowBackUp from '../icons/IconTablerArrowBackUp.vue'
+import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
 import IconTablerCopy from '../icons/IconTablerCopy.vue'
 
 const expandedCommandIds = ref<Set<string>>(new Set())
@@ -424,6 +447,7 @@ const modalImageUrl = ref('')
 const fileLinkContextMenuRef = ref<HTMLElement | null>(null)
 const toolQuestionAnswers = ref<Record<string, string>>({})
 const toolQuestionOtherAnswers = ref<Record<string, string>>({})
+const hasPendingBelowFoldUpdates = ref(false)
 const BOTTOM_THRESHOLD_PX = 16
 type InlineSegment =
   | { kind: 'text'; value: string }
@@ -445,6 +469,21 @@ const fileLinkContextMenuX = ref(0)
 const fileLinkContextMenuY = ref(0)
 const fileLinkContextBrowseUrl = ref('')
 const fileLinkContextEditUrl = ref('')
+const hasRenderableConversation = computed(() => (
+  props.messages.length > 0 ||
+  props.pendingRequests.length > 0 ||
+  props.liveOverlay !== null
+))
+const showBlockingLoading = computed(() => props.isLoading && !hasRenderableConversation.value)
+const showInlineLoading = computed(() => props.isLoading && hasRenderableConversation.value)
+const showJumpToLatestButton = computed(() => (
+  hasRenderableConversation.value &&
+  !showBlockingLoading.value &&
+  !shouldLockToBottom()
+))
+const jumpToLatestTitle = computed(() => (
+  hasPendingBelowFoldUpdates.value ? 'Jump to the latest output' : 'Back to the bottom'
+))
 
 type ParsedToolQuestion = {
   id: string
@@ -580,21 +619,79 @@ function parseFileReference(value: string): { path: string; line: number | null 
   return { path: pathValue, line }
 }
 
+const LEADING_LINK_WRAPPER_PATTERN = /^['"`“‘<(\[{（【《「『]/u
+const TRAILING_LINK_WRAPPER_PATTERN = /['"`”’>)\]}）】》」』]$/u
+const TRAILING_LINK_PUNCTUATION_PATTERN = /[.,;:!?，。；：！？]$/u
+const TRAILING_LINK_DELIMITER_PAIRS = [
+  ['(', ')'],
+  ['[', ']'],
+  ['{', '}'],
+  ['<', '>'],
+  ['（', '）'],
+  ['【', '】'],
+  ['《', '》'],
+  ['「', '」'],
+  ['『', '』'],
+] as const
+
 function trimLinkWrappers(value: string): { core: string; leading: string; trailing: string } {
   let core = value
   let leading = ''
   let trailing = ''
 
-  while (/^['"`“‘]/u.test(core)) {
+  while (LEADING_LINK_WRAPPER_PATTERN.test(core)) {
     leading += core[0]
     core = core.slice(1)
   }
-  while (/['"`”’]$/u.test(core)) {
+  while (TRAILING_LINK_WRAPPER_PATTERN.test(core)) {
     trailing = core.slice(-1) + trailing
     core = core.slice(0, -1)
   }
 
   return { core, leading, trailing }
+}
+
+function countCharacter(value: string, character: string): number {
+  let count = 0
+  for (const part of value) {
+    if (part === character) count += 1
+  }
+  return count
+}
+
+function hasUnbalancedTrailingDelimiter(value: string): boolean {
+  if (!value) return false
+  const lastCharacter = value.slice(-1)
+  for (const [opening, closing] of TRAILING_LINK_DELIMITER_PAIRS) {
+    if (lastCharacter !== closing) continue
+    return countCharacter(value, closing) > countCharacter(value, opening)
+  }
+  return false
+}
+
+function splitTrailingLinkSuffix(value: string): { core: string; trailing: string } {
+  let core = value
+  let trailing = ''
+
+  while (core.length > 0) {
+    if (TRAILING_LINK_PUNCTUATION_PATTERN.test(core) || hasUnbalancedTrailingDelimiter(core)) {
+      trailing = core.slice(-1) + trailing
+      core = core.slice(0, -1)
+      continue
+    }
+    break
+  }
+
+  return { core, trailing }
+}
+
+function toExternalHref(value: string): string | null {
+  const normalized = value.trim()
+  if (!normalized) return null
+  if (/^https?:\/\//iu.test(normalized)) return normalized
+  if (/^mailto:/iu.test(normalized)) return normalized
+  if (/^www\./iu.test(normalized)) return `https://${normalized}`
+  return null
 }
 
 function parseMarkdownLinkToken(value: string): { label: string; target: string } | null {
@@ -642,7 +739,7 @@ function readMarkdownLinkAt(
 
 function splitPlainTextByLinks(text: string): InlineSegment[] {
   const segments: InlineSegment[] = []
-  const pattern = /https?:\/\/\S+|file:\/\/\S+|\S*[\\/]\S+/gu
+  const pattern = /https?:\/\/\S+|mailto:\S+|www\.\S+|file:\/\/\S+|\S*[\\/]\S+/gu
   let cursor = 0
 
   for (const match of text.matchAll(pattern)) {
@@ -655,15 +752,12 @@ function splitPlainTextByLinks(text: string): InlineSegment[] {
     }
 
     let token = match[0]
-    let trailingPunctuation = ''
-    while (/[.,;:]$/u.test(token)) {
-      trailingPunctuation = token.slice(-1) + trailingPunctuation
-      token = token.slice(0, -1)
-    }
+    const trailingSplit = splitTrailingLinkSuffix(token)
+    token = trailingSplit.core
     const wrapped = trimLinkWrappers(token)
     token = wrapped.core
     const leading = wrapped.leading
-    const trailing = wrapped.trailing + trailingPunctuation
+    const trailing = wrapped.trailing + trailingSplit.trailing
 
     if (leading) {
       segments.push({ kind: 'text', value: leading })
@@ -674,26 +768,29 @@ function splitPlainTextByLinks(text: string): InlineSegment[] {
       if (trailing) {
         segments.push({ kind: 'text', value: trailing })
       }
-    } else if (/^https?:\/\//u.test(token)) {
-      segments.push({ kind: 'url', value: token, href: token })
-      if (trailing) {
-        segments.push({ kind: 'text', value: trailing })
-      }
     } else {
-      const ref = parseFileReference(token)
-      if (ref) {
-        segments.push({
-          kind: 'file',
-          value: token,
-          path: ref.path,
-          displayPath: token,
-          downloadName: getBasename(ref.path),
-        })
+      const externalHref = toExternalHref(token)
+      if (externalHref) {
+        segments.push({ kind: 'url', value: token, href: externalHref })
         if (trailing) {
           segments.push({ kind: 'text', value: trailing })
         }
       } else {
-        segments.push({ kind: 'text', value: match[0] })
+        const ref = parseFileReference(token)
+        if (ref) {
+          segments.push({
+            kind: 'file',
+            value: token,
+            path: ref.path,
+            displayPath: token,
+            downloadName: getBasename(ref.path),
+          })
+          if (trailing) {
+            segments.push({ kind: 'text', value: trailing })
+          }
+        } else {
+          segments.push({ kind: 'text', value: match[0] })
+        }
       }
     }
 
@@ -705,6 +802,38 @@ function splitPlainTextByLinks(text: string): InlineSegment[] {
   }
 
   return applyBoldMarkersAcrossTextSegments(segments)
+}
+
+function pushMarkdownLinkSegment(
+  segments: InlineSegment[],
+  label: string,
+  target: string,
+  fallbackText: string,
+): boolean {
+  const externalHref = toExternalHref(target)
+  if (externalHref) {
+    segments.push({ kind: 'url', value: label || target, href: externalHref })
+    return true
+  }
+
+  const ref = parseFileReference(target)
+  if (ref) {
+    segments.push({
+      kind: 'file',
+      value: target,
+      path: ref.path,
+      displayPath: label || target,
+      downloadName: getBasename(ref.path),
+    })
+    return true
+  }
+
+  if (fallbackText) {
+    segments.push({ kind: 'text', value: fallbackText })
+    return true
+  }
+
+  return false
 }
 
 function applyBoldMarkersAcrossTextSegments(segments: InlineSegment[]): InlineSegment[] {
@@ -778,23 +907,7 @@ function splitTextByFileUrls(text: string): InlineSegment[] {
 
     const label = trimLinkWrappers(markdownToken.label.trim()).core.trim() || markdownToken.label.trim()
     const target = trimLinkWrappers(markdownToken.target.trim()).core.trim()
-
-    if (/^https?:\/\//u.test(target)) {
-      segments.push({ kind: 'url', value: label || target, href: target })
-    } else {
-      const ref = parseFileReference(target)
-      if (ref) {
-        segments.push({
-          kind: 'file',
-          value: target,
-          path: ref.path,
-          displayPath: label || target,
-          downloadName: getBasename(ref.path),
-        })
-      } else {
-        segments.push({ kind: 'text', value: text.slice(openBracket, markdownToken.end) })
-      }
-    }
+    pushMarkdownLinkSegment(segments, label, target, text.slice(openBracket, markdownToken.end))
 
     cursor = markdownToken.end
   }
@@ -888,25 +1001,9 @@ function parseInlineSegments(text: string): InlineSegment[] {
     if (token.length > 0) {
       const markdownLink = parseMarkdownLinkToken(token)
       if (markdownLink) {
-        if (/^https?:\/\//u.test(markdownLink.target)) {
-          segments.push({
-            kind: 'url',
-            value: markdownLink.label || markdownLink.target,
-            href: markdownLink.target,
-          })
-        } else {
-          const markdownFileReference = parseFileReference(markdownLink.target)
-          if (markdownFileReference) {
-            segments.push({
-              kind: 'file',
-              value: markdownLink.target,
-              path: markdownFileReference.path,
-              displayPath: markdownLink.label || markdownLink.target,
-              downloadName: getBasename(markdownFileReference.path),
-            })
-          } else {
-            segments.push({ kind: 'code', value: token })
-          }
+        const pushed = pushMarkdownLinkSegment(segments, markdownLink.label, markdownLink.target, '')
+        if (!pushed) {
+          segments.push({ kind: 'code', value: token })
         }
       } else {
         const fileReference = parseFileReference(token)
@@ -1337,6 +1434,15 @@ function emitScrollState(container: HTMLElement): void {
   })
 }
 
+function markBelowFoldUpdate(): void {
+  if (shouldLockToBottom()) return
+  hasPendingBelowFoldUpdates.value = true
+}
+
+function clearBelowFoldUpdates(): void {
+  hasPendingBelowFoldUpdates.value = false
+}
+
 function applySavedScrollState(): void {
   const container = conversationListRef.value
   if (!container) return
@@ -1361,6 +1467,7 @@ function enforceBottomState(): void {
   if (!container) return
   scrollToBottom()
   emitScrollState(container)
+  clearBelowFoldUpdates()
 }
 
 function shouldLockToBottom(): boolean {
@@ -1427,7 +1534,7 @@ async function scheduleScrollRestore(): Promise<void> {
 
 watch(
   () => props.messages,
-  async (next) => {
+  async (next, previous) => {
     if (props.isLoading) return
 
     for (const m of next) {
@@ -1440,6 +1547,10 @@ watch(
       prevCommandStatuses.value[m.id] = cur
     }
 
+    if (previous.length > 0) {
+      markBelowFoldUpdate()
+    }
+
     await scheduleScrollRestore()
   },
 )
@@ -1448,7 +1559,9 @@ watch(
   () => props.liveOverlay,
   async (overlay) => {
     if (!overlay) return
+    markBelowFoldUpdate()
     await nextTick()
+    if (!shouldLockToBottom()) return
     enforceBottomState()
     scheduleBottomLock(8)
   },
@@ -1469,6 +1582,7 @@ watch(
     modalImageUrl.value = ''
     closeFileLinkContextMenu()
     failedMarkdownImageKeys.value = new Set()
+    clearBelowFoldUpdates()
   },
   { flush: 'post' },
 )
@@ -1490,6 +1604,14 @@ function onConversationScroll(): void {
   const container = conversationListRef.value
   if (!container || props.isLoading) return
   emitScrollState(container)
+  if (isAtBottom(container)) {
+    clearBelowFoldUpdates()
+  }
+}
+
+function jumpToLatest(): void {
+  enforceBottomState()
+  scheduleBottomLock(4)
 }
 
 function openImageModal(imageUrl: string): void {
@@ -1546,7 +1668,7 @@ onBeforeUnmount(() => {
 @reference "tailwindcss";
 
 .conversation-root {
-  @apply h-full min-h-0 p-0 flex flex-col overflow-y-hidden overflow-x-visible bg-transparent border-none rounded-none;
+  @apply relative h-full min-h-0 p-0 flex flex-col overflow-y-hidden overflow-x-visible bg-transparent border-none rounded-none;
 }
 
 .conversation-loading {
@@ -1557,8 +1679,62 @@ onBeforeUnmount(() => {
   @apply m-0 px-2 sm:px-6 text-sm text-slate-500;
 }
 
+.conversation-inline-loading {
+  @apply sticky top-0 z-10 mx-2 sm:mx-6 mb-2 mt-2 flex items-center gap-3 rounded-full border border-slate-200/70 bg-white/90 px-3 py-2 text-xs text-slate-500 shadow-sm backdrop-blur;
+}
+
+.conversation-inline-loading-bar {
+  @apply block h-1.5 w-16 overflow-hidden rounded-full bg-slate-200;
+  position: relative;
+}
+
+.conversation-inline-loading-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 42%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.2) 0%, rgba(37, 99, 235, 0.95) 100%);
+  animation: conversation-loading-slide 1.1s ease-in-out infinite;
+}
+
+.conversation-inline-loading-text {
+  @apply font-medium tracking-[0.01em];
+}
+
 .conversation-list {
   @apply h-full min-h-0 list-none m-0 px-2 sm:px-6 py-0 overflow-y-auto overflow-x-visible flex flex-col gap-2 sm:gap-3;
+}
+
+.conversation-jump-to-latest {
+  @apply absolute bottom-4 right-4 z-20 inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/95 px-3 py-2 text-xs font-medium text-slate-700 shadow-lg shadow-slate-900/10 backdrop-blur transition hover:-translate-y-0.5 hover:border-slate-400 hover:text-slate-900;
+}
+
+.conversation-jump-to-latest.has-pending-updates {
+  @apply border-blue-300 bg-blue-50/95 text-blue-700;
+}
+
+.conversation-jump-to-latest-icon {
+  @apply h-4 w-4;
+  transform: rotate(180deg);
+}
+
+.conversation-jump-to-latest-label {
+  @apply hidden sm:inline;
+}
+
+.conversation-jump-to-latest-badge {
+  @apply h-2.5 w-2.5 rounded-full bg-blue-500 shadow-[0_0_0_4px_rgba(59,130,246,0.16)];
+}
+
+@keyframes conversation-loading-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(220%);
+  }
 }
 
 .conversation-item {

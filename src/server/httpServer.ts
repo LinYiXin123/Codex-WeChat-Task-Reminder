@@ -132,7 +132,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
   // 5. Serve local files by path to preserve relative asset loading for HTML.
   app.get('/codex-local-browse/*path', async (req, res) => {
     const rawPath = readWildcardPathParam(req.params.path)
-    const localPath = decodeBrowsePath(`/${rawPath}`)
+    const localPath = decodeBrowsePath(rawPath)
     if (!localPath || !isAbsolute(localPath)) {
       res.status(400).json({ error: 'Expected absolute local file path.' })
       return
@@ -159,7 +159,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
   // 6. Edit text-like local files.
   app.get('/codex-local-edit/*path', async (req, res) => {
     const rawPath = readWildcardPathParam(req.params.path)
-    const localPath = decodeBrowsePath(`/${rawPath}`)
+    const localPath = decodeBrowsePath(rawPath)
     if (!localPath || !isAbsolute(localPath)) {
       res.status(400).json({ error: 'Expected absolute local file path.' })
       return
@@ -179,7 +179,7 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
   app.put('/codex-local-edit/*path', express.text({ type: '*/*', limit: '10mb' }), async (req, res) => {
     const rawPath = readWildcardPathParam(req.params.path)
-    const localPath = decodeBrowsePath(`/${rawPath}`)
+    const localPath = decodeBrowsePath(rawPath)
     if (!localPath || !isAbsolute(localPath)) {
       res.status(400).json({ error: 'Expected absolute local file path.' })
       return
@@ -233,6 +233,20 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     dispose: () => bridge.dispose(),
     attachWebSocket: (server: HttpServer) => {
       const wss = new WebSocketServer({ noServer: true })
+      const heartbeatState = new WeakMap<WebSocket, boolean>()
+      const heartbeat = setInterval(() => {
+        for (const ws of wss.clients) {
+          if (heartbeatState.get(ws) === false) {
+            ws.terminate()
+            continue
+          }
+
+          heartbeatState.set(ws, false)
+          if (ws.readyState === 1) {
+            ws.ping()
+          }
+        }
+      }, 15000)
 
       server.on('upgrade', (req: IncomingMessage, socket, head) => {
         const url = new URL(req.url ?? '', 'http://localhost')
@@ -252,14 +266,32 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
       })
 
       wss.on('connection', (ws: WebSocket) => {
+        heartbeatState.set(ws, true)
         ws.send(JSON.stringify({ method: 'ready', params: { ok: true }, atIso: new Date().toISOString() }))
         const unsubscribe = bridge.subscribeNotifications((notification) => {
           if (ws.readyState !== 1) return
           ws.send(JSON.stringify(notification))
         })
 
-        ws.on('close', unsubscribe)
-        ws.on('error', unsubscribe)
+        ws.on('pong', () => {
+          heartbeatState.set(ws, true)
+        })
+        ws.on('close', () => {
+          heartbeatState.delete(ws)
+          unsubscribe()
+        })
+        ws.on('error', () => {
+          heartbeatState.delete(ws)
+          unsubscribe()
+        })
+      })
+
+      server.on('close', () => {
+        clearInterval(heartbeat)
+        for (const ws of wss.clients) {
+          ws.terminate()
+        }
+        wss.close()
       })
     },
   }

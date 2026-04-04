@@ -1,6 +1,6 @@
-# 🔥 codexapp
+# codexui-server-bridge
 
-### 🚀 Run Codex App UI Anywhere: Linux, Windows, or Termux on Android 🚀
+### OpenAI Codex web UI and browser bridge for Windows, Linux, Android, Termux, and Windows Server
 
 [![npm](https://img.shields.io/npm/v/codexapp?style=for-the-badge&logo=npm&logoColor=white)](https://www.npmjs.com/package/codexapp)
 [![CI](https://img.shields.io/github/actions/workflow/status/Qjzn/codexui-server-bridge/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/Qjzn/codexui-server-bridge/actions/workflows/ci.yml)
@@ -8,11 +8,36 @@
 [![node](https://img.shields.io/badge/Node-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![license](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](./LICENSE)
 
-> **Codex UI in your browser. No drama. One command.**
+> **Browser-accessible OpenAI Codex UI with one-command Windows install, LAN access, phone access, and self-hosted remote deployment.**
 >  
-> **Yes, that is your Codex desktop app experience exposed over web UI. Yes, it runs cross-platform.**
+> **This fork exposes Codex app-server through a stable web UI for Windows desktops, Windows Server, Linux hosts, Android browsers, and remote development boxes.**
 >
 > This fork focuses on Windows server deployment, LAN access, stable browser entry points, and config-driven self-hosting.
+
+- English README: `README.md`
+- 中文说明: [README.zh-CN.md](./README.zh-CN.md)
+
+## Quick Summary
+
+`codexui-server-bridge` is a self-hosted OpenAI Codex web UI.
+
+Use it when you want to:
+
+- run Codex in a browser on Windows, Linux, or Android
+- keep a stable `7420` web entry point on Windows or Windows Server
+- access Codex from a phone over LAN, Tailscale, reverse proxy, or remote desktop environments
+- expose Codex app-server without building your own bridge layer
+
+## Why This Fork
+
+Choose this fork over the upstream browser shell if you need:
+
+- one-command Windows and Windows Server bootstrap
+- config-driven self-hosting instead of ad-hoc local startup
+- health checks for reverse proxies and process managers
+- better mobile access from Android browsers and iPhone/iPad over private networks
+- local file browse and edit endpoints from Codex replies
+- desktop-app refresh support for mixed web and Windows desktop workflows
 
 ![Three-step Windows install](docs/one-command-windows.svg)
 
@@ -38,6 +63,16 @@ This repository is the server-oriented fork:
 
 - GitHub: [Qjzn/codexui-server-bridge](https://github.com/Qjzn/codexui-server-bridge)
 - Focus: Windows server install, config files, health checks, and browser access from phones or LAN clients
+
+If you are searching for any of these, you are in the right place:
+
+- `OpenAI Codex web UI`
+- `Codex browser UI`
+- `Codex remote access`
+- `Codex on Windows Server`
+- `Codex on Android browser`
+- `Codex Termux web UI`
+- `self-hosted Codex bridge`
 
 ---
 
@@ -294,6 +329,13 @@ Bot commands:
 ## 🧩 Recent Product Features (from main commits)
 > **Not just launch. Actual UX upgrades.**
 
+- ⬇️ Conversation view no longer yanks you to the bottom while you are reading history; auto-follow now resumes only when you are already at the latest output
+- 🛟 Floating "back to latest output" button appears when you scroll up, with a visual cue when fresh output arrives below the fold
+- ⏳ Thread loading is less disruptive: existing messages stay visible and a lightweight inline sync bar replaces the old blocking-only loading state
+- 🔄 Thread status tracking is more robust during long-running tasks, with background reconciliation to reduce false "completed" states in the sidebar
+- 📡 Notification transport is more resilient now, with client-side reconnect handling and server-side WebSocket heartbeats to recover from stale streams
+- 🔗 Web messages now handle local Windows file links and common external hyperlink formats more reliably from the browser UI
+- ⚠️ Refreshing the official desktop app now warns when the current thread still looks busy, to reduce accidental task interruption
 - 🗂️ Searchable project picker in new-thread flow
 - ➕ Inline "Add new project" input inside picker (no browser prompt)
 - 📌 New projects get pinned to top automatically

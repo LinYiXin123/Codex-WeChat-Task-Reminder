@@ -56,10 +56,13 @@ export function normalizeLocalPath(rawPath: string): string {
 
 export function decodeBrowsePath(rawPath: string): string {
   if (!rawPath) return ''
+  const stripWindowsDriveLeadingSlash = (value: string): string => (
+    value.replace(/^\/([A-Za-z]:[\\/])/u, '$1')
+  )
   try {
-    return decodeURIComponent(rawPath)
+    return stripWindowsDriveLeadingSlash(decodeURIComponent(rawPath))
   } catch {
-    return rawPath
+    return stripWindowsDriveLeadingSlash(rawPath)
   }
 }
 
@@ -109,11 +112,15 @@ function escapeHtml(value: string): string {
 }
 
 function toBrowseHref(pathValue: string): string {
-  return `/codex-local-browse${encodeURI(pathValue)}`
+  const normalized = pathValue.replace(/\\/gu, '/')
+  const routePath = normalized.startsWith('/') ? normalized : `/${normalized}`
+  return `/codex-local-browse${encodeURI(routePath)}`
 }
 
 function toEditHref(pathValue: string): string {
-  return `/codex-local-edit${encodeURI(pathValue)}`
+  const normalized = pathValue.replace(/\\/gu, '/')
+  const routePath = normalized.startsWith('/') ? normalized : `/${normalized}`
+  return `/codex-local-edit${encodeURI(routePath)}`
 }
 
 function escapeForInlineScriptString(value: string): string {
