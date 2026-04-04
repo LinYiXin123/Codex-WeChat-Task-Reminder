@@ -1,0 +1,25 @@
+# 用 Codex 直接部署
+
+仓库地址：
+
+```text
+https://github.com/Qjzn/codexui-server-bridge
+```
+
+提示词：
+
+```text
+打开并检查 https://github.com/Qjzn/codexui-server-bridge 这个仓库。
+请在这台机器上用最简单、最稳的方式部署这个项目。
+
+要求：
+- 创建一个稳定的 Codex Web UI 服务，端口固定为 7420
+- 尽量优先使用仓库里自带的 bootstrap 或 setup 脚本
+- 如果这台机器已经登录过 Codex，就尽量复用现有登录态
+- 尽量开启本机浏览器访问和局域网访问
+- 如果机器允许，配置开机或登录后自动启动
+- 完成后输出：本机访问地址、局域网访问地址、密码、重启命令
+
+直接执行部署，不要只给步骤说明。
+```
+

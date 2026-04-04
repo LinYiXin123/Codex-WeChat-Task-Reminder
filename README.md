@@ -8,7 +8,7 @@
 [![node](https://img.shields.io/badge/Node-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![license](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](./LICENSE)
 
-> **Browser-accessible OpenAI Codex UI with one-command Windows install, LAN access, phone access, and self-hosted remote deployment.**
+> **Browser-accessible OpenAI Codex UI with the simplest deploy path: give Codex this repo URL and one prompt.**
 >  
 > **This fork exposes Codex app-server through a stable web UI for Windows desktops, Windows Server, Linux hosts, Android browsers, and remote development boxes.**
 >
@@ -16,98 +16,58 @@
 
 - English README: `README.md`
 - 中文说明: [README.zh-CN.md](./README.zh-CN.md)
+- Codex deploy prompt: [docs/deploy-with-codex.en.md](./docs/deploy-with-codex.en.md)
+- 中文部署提示词: [docs/deploy-with-codex.zh-CN.md](./docs/deploy-with-codex.zh-CN.md)
 
-## Quick Summary
+## Fastest Deploy
 
-`codexui-server-bridge` is a self-hosted OpenAI Codex web UI.
+Use this if Codex already has terminal access on the target machine.
 
-Use it when you want to:
+1. Open Codex on the target machine.
+2. Tell it to inspect this repository:
 
-- run Codex in a browser on Windows, Linux, or Android
-- keep a stable `7420` web entry point on Windows or Windows Server
-- access Codex from a phone over LAN, Tailscale, reverse proxy, or remote desktop environments
-- expose Codex app-server without building your own bridge layer
+```text
+https://github.com/Qjzn/codexui-server-bridge
+```
 
-## Why This Fork
+3. Paste this prompt:
 
-Choose this fork over the upstream browser shell if you need:
+```text
+Open and inspect https://github.com/Qjzn/codexui-server-bridge.
+Deploy this project on this machine using the simplest supported path.
 
-- one-command Windows and Windows Server bootstrap
-- config-driven self-hosting instead of ad-hoc local startup
-- health checks for reverse proxies and process managers
-- better mobile access from Android browsers and iPhone/iPad over private networks
+Requirements:
+- create a stable Codex web UI service on port 7420
+- prefer the repo's built-in bootstrap or setup scripts when possible
+- preserve existing Codex login if it is already configured
+- enable local browser access and LAN access when possible
+- configure auto-start if the machine allows it
+- when finished, print the local URL, LAN URL, password, and restart command
+
+Do the work directly instead of only describing the steps.
+```
+
+If you want the Chinese version of the same prompt, use [docs/deploy-with-codex.zh-CN.md](./docs/deploy-with-codex.zh-CN.md).
+
+## What This Repo Gives You
+
+- OpenAI Codex in a browser
+- a stable `7420` entry point on Windows or Windows Server
+- LAN and phone access without building your own bridge
+- health checks and config-driven startup
 - local file browse and edit endpoints from Codex replies
 - desktop-app refresh support for mixed web and Windows desktop workflows
 
+## Manual Install
+
 ![Three-step Windows install](docs/one-command-windows.svg)
-
-```text
- ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗██╗   ██╗██╗
-██╔════╝██╔═══██╗██╔══██╗██╔════╝╚██╗██╔╝██║   ██║██║
-██║     ██║   ██║██║  ██║█████╗   ╚███╔╝ ██║   ██║██║
-██║     ██║   ██║██║  ██║██╔══╝   ██╔██╗ ██║   ██║██║
-╚██████╗╚██████╔╝██████╔╝███████╗██╔╝ ██╗╚██████╔╝██║
- ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝
-```
-
----
-
-## 🤯 What Is This?
-**`codexapp`** is a lightweight bridge that gives you a browser-accessible UI for Codex app-server workflows.
-
-You run one command. It starts a local web server. You open it from your machine, your LAN, or wherever your setup allows.  
-
-**TL;DR 🧠: Codex app UI, unlocked for Linux, Windows, and Termux-powered Android setups.**
-
-This repository is the server-oriented fork:
-
-- GitHub: [Qjzn/codexui-server-bridge](https://github.com/Qjzn/codexui-server-bridge)
-- Focus: Windows server install, config files, health checks, and browser access from phones or LAN clients
-
-If you are searching for any of these, you are in the right place:
-
-- `OpenAI Codex web UI`
-- `Codex browser UI`
-- `Codex remote access`
-- `Codex on Windows Server`
-- `Codex on Android browser`
-- `Codex Termux web UI`
-- `self-hosted Codex bridge`
-
----
-
-## 🚀 One-Command Install For Windows
-
-If you want the easiest possible setup on a Windows machine, run exactly this:
+If you want to install it yourself on Windows, run:
 
 ```powershell
 Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1 | iex
 ```
 
-What this single command does:
-
-- installs a portable Node.js automatically if Node is missing
-- downloads the latest repository into `%LOCALAPPDATA%\codexui-server-bridge`
-- creates a workspace at `%USERPROFILE%\CodexWorkspace`
-- builds the project
-- creates `%USERPROFILE%\.local\bin\codexui-start.cmd`
-- creates a logon startup task
-- opens firewall port `7420` when permissions allow
-- starts the web bridge immediately
-
-After it finishes, open the printed LAN or local URL and use the password shown in the terminal.
-
-If Codex is not logged in yet, the installer will launch the official login flow once in the current console before starting the background entry point.
-
-You can safely run the same install command again later. It will refresh the same config and launcher, then replace the previous managed instance with the new settings.
-
-### Three Steps, In Plain English
-
-1. Run the PowerShell one-liner.
-2. Complete Codex login once if the installer asks for it.
-3. Open the printed local or LAN URL in your browser or phone.
-
-### Prefer Downloading A Zip?
+Prefer a ZIP release?
 
 If you would rather download a bundle instead of using the one-liner, use the latest asset from [Releases](https://github.com/Qjzn/codexui-server-bridge/releases) and then run:
 
@@ -115,7 +75,7 @@ If you would rather download a bundle instead of using the one-liner, use the la
 .\setup.ps1
 ```
 
-### Custom Port Or Password
+Need custom port or password?
 
 If you want to customize the default port or password, use the scriptblock form:
 
@@ -125,41 +85,17 @@ If you want to customize the default port or password, use the scriptblock form:
   -Password 'change-me'
 ```
 
-### If You Already Downloaded The Repo
-
-You can also run the repo-local one-command setup:
-
-```powershell
-.\setup.ps1
-```
-
-Or with npm:
-
-```powershell
-npm run setup:windows
-```
-
----
-
 ## ⚡ Quick Start
-> **The main event.**
 
 ```bash
-# 🔓 Run instantly (recommended)
 npx codexapp
-
-# 🌐 Then open in browser
-# http://localhost:18923
 ```
 
-By default, `codexapp` now also starts:
+Then open:
 
-```bash
-cloudflared tunnel --url http://localhost:<port>
+```text
+http://localhost:18923
 ```
-
-It prints the tunnel URL, terminal QR code, and password together in startup output.  
-Use `--no-tunnel` to disable this behavior.
 
 ### Linux 🐧
 ```bash
@@ -294,8 +230,6 @@ Notes:
 ---
 
 ## ✨ Features
-> **The payload.**
-
 - 🚀 One-command launch with `npx codexapp`
 - 🌍 Cross-platform support for Linux, Windows, and Termux on Android
 - 🖥️ Browser-first Codex UI flow on `http://localhost:18923`
