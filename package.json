@@ -1,7 +1,7 @@
 {
   "name": "codexapp",
   "version": "0.1.58",
-  "description": "A browser-accessible Codex bridge with Windows server, LAN, and remote deployment support",
+  "description": "OpenAI Codex web UI and browser bridge for Windows, Linux, Android, LAN, and remote self-hosted access",
   "type": "module",
   "license": "MIT",
   "author": "Pavel Voronin, Igor Levochkin, and contributors",
@@ -16,8 +16,20 @@
   "keywords": [
     "codex",
     "openai",
+    "openai-codex",
+    "codex-ui",
+    "codex-web",
     "web-ui",
+    "browser-ui",
     "remote",
+    "remote-access",
+    "self-hosted",
+    "windows",
+    "windows-server",
+    "linux",
+    "android",
+    "termux",
+    "lan",
     "cli"
   ],
   "engines": {

@@ -1,6 +1,6 @@
-# 🔥 codexapp
+# codexapp
 
-### 🚀 Run Codex App UI Anywhere: Linux, Windows, or Termux on Android 🚀
+### OpenAI Codex Web UI for Windows, Linux, Android, and remote browser access
 
 [![npm](https://img.shields.io/npm/v/codexapp?style=for-the-badge&logo=npm&logoColor=white)](https://www.npmjs.com/package/codexapp)
 [![CI](https://img.shields.io/github/actions/workflow/status/Qjzn/codexui-server-bridge/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/Qjzn/codexui-server-bridge/actions/workflows/ci.yml)
@@ -8,9 +8,9 @@
 [![node](https://img.shields.io/badge/Node-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![license](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](./LICENSE)
 
-> **Codex UI in your browser. No drama. One command.**
+> **Codex UI in your browser. One-command install for Windows, Windows Server, Linux, and Android.**
 >  
-> **Yes, that is your Codex desktop app experience exposed over web UI. Yes, it runs cross-platform.**
+> **This project exposes Codex app-server through a browser-accessible web UI for self-hosted and LAN setups.**
 >
 > This fork focuses on Windows server deployment, LAN access, stable browser entry points, and config-driven self-hosting.
 
@@ -38,6 +38,16 @@ This repository is the server-oriented fork:
 
 - GitHub: [Qjzn/codexui-server-bridge](https://github.com/Qjzn/codexui-server-bridge)
 - Focus: Windows server install, config files, health checks, and browser access from phones or LAN clients
+
+If you are searching for any of these, you are in the right place:
+
+- `OpenAI Codex web UI`
+- `Codex browser UI`
+- `Codex remote access`
+- `Codex on Windows Server`
+- `Codex on Android browser`
+- `Codex Termux web UI`
+- `self-hosted Codex bridge`
 
 ---
 
@@ -299,6 +309,7 @@ Bot commands:
 - ⏳ Thread loading is less disruptive: existing messages stay visible and a lightweight inline sync bar replaces the old blocking-only loading state
 - 🔄 Thread status tracking is more robust during long-running tasks, with background reconciliation to reduce false "completed" states in the sidebar
 - 📡 Notification transport is more resilient now, with client-side reconnect handling and server-side WebSocket heartbeats to recover from stale streams
+- 🔗 Web messages now handle local Windows file links and common external hyperlink formats more reliably from the browser UI
 - ⚠️ Refreshing the official desktop app now warns when the current thread still looks busy, to reduce accidental task interruption
 - 🗂️ Searchable project picker in new-thread flow
 - ➕ Inline "Add new project" input inside picker (no browser prompt)
