@@ -1,6 +1,6 @@
-# codexapp
+# codexui-server-bridge
 
-### OpenAI Codex Web UI for Windows, Linux, Android, and remote browser access
+### OpenAI Codex web UI and browser bridge for Windows, Linux, Android, Termux, and Windows Server
 
 [![npm](https://img.shields.io/npm/v/codexapp?style=for-the-badge&logo=npm&logoColor=white)](https://www.npmjs.com/package/codexapp)
 [![CI](https://img.shields.io/github/actions/workflow/status/Qjzn/codexui-server-bridge/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/Qjzn/codexui-server-bridge/actions/workflows/ci.yml)
@@ -8,11 +8,36 @@
 [![node](https://img.shields.io/badge/Node-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org/)
 [![license](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](./LICENSE)
 
-> **Codex UI in your browser. One-command install for Windows, Windows Server, Linux, and Android.**
+> **Browser-accessible OpenAI Codex UI with one-command Windows install, LAN access, phone access, and self-hosted remote deployment.**
 >  
-> **This project exposes Codex app-server through a browser-accessible web UI for self-hosted and LAN setups.**
+> **This fork exposes Codex app-server through a stable web UI for Windows desktops, Windows Server, Linux hosts, Android browsers, and remote development boxes.**
 >
 > This fork focuses on Windows server deployment, LAN access, stable browser entry points, and config-driven self-hosting.
+
+- English README: `README.md`
+- 中文说明: [README.zh-CN.md](./README.zh-CN.md)
+
+## Quick Summary
+
+`codexui-server-bridge` is a self-hosted OpenAI Codex web UI.
+
+Use it when you want to:
+
+- run Codex in a browser on Windows, Linux, or Android
+- keep a stable `7420` web entry point on Windows or Windows Server
+- access Codex from a phone over LAN, Tailscale, reverse proxy, or remote desktop environments
+- expose Codex app-server without building your own bridge layer
+
+## Why This Fork
+
+Choose this fork over the upstream browser shell if you need:
+
+- one-command Windows and Windows Server bootstrap
+- config-driven self-hosting instead of ad-hoc local startup
+- health checks for reverse proxies and process managers
+- better mobile access from Android browsers and iPhone/iPad over private networks
+- local file browse and edit endpoints from Codex replies
+- desktop-app refresh support for mixed web and Windows desktop workflows
 
 ![Three-step Windows install](docs/one-command-windows.svg)
 
