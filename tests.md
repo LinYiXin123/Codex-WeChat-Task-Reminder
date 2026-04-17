@@ -301,6 +301,44 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - No cleanup required.
 
+### Feature: Empty thread first message materializes the thread route
+
+#### Prerequisites
+- App is running from this repository.
+- Browser DevTools Console is available.
+- A valid workspace path is available for `thread/start` (for example this repository root).
+
+#### Steps
+1. In the browser DevTools Console, run:
+   ```js
+   const created = await fetch('/codex-api/rpc', {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+     body: JSON.stringify({
+       method: 'thread/start',
+       params: { cwd: 'C:/Users/SW/Documents/Playground/codexui' },
+     }),
+   }).then((res) => res.json());
+   window.__emptyThreadId = created.result?.thread?.id || '';
+   window.__emptyThreadId;
+   ```
+2. Open `#/thread/<emptyThreadId>` with the returned id.
+3. Confirm the page renders the empty-thread state: title/status show `空会话`, subtitle explains the thread has no messages yet, and the body shows `当前会话还没有消息。`
+4. In the same empty thread, type a unique first prompt in the composer and submit it.
+5. Confirm the UI stays on the same thread route instead of jumping back to `#/home`, and the empty-thread copy disappears.
+6. Wait for the first turn to start rendering or for the in-progress state to appear.
+7. Call `/codex-api/rpc` with method `thread/read` for the same thread id and inspect `result.thread.turns`.
+
+#### Expected Results
+- `thread/start` returns a thread id even before the first user message is sent.
+- The empty-thread route is usable: composer accepts input and send works from that route directly.
+- Submitting the first message materializes the thread without a permanent `is not materialized yet`, `before first user message`, or `rollout is empty` error surfacing to the user.
+- The route remains on the same thread id and conversation content replaces the empty-thread state.
+- `thread/read` returns at least one turn for the thread after the first message is sent.
+
+#### Rollback/Cleanup
+- Archive the temporary test thread from the UI, or call `/codex-api/rpc` with method `thread/archive` for the created thread id.
+
 ### Feature: Skills list request scoped to active thread cwd
 
 #### Prerequisites
