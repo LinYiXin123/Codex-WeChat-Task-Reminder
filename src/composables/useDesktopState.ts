@@ -92,6 +92,7 @@ const SELECTED_MODEL_STORAGE_KEY = 'codex-web-local.selected-model-id.v1'
 const PROJECT_ORDER_STORAGE_KEY = 'codex-web-local.project-order.v1'
 const PROJECT_DISPLAY_NAME_STORAGE_KEY = 'codex-web-local.project-display-name.v1'
 const HIDDEN_THREAD_IDS_STORAGE_KEY = 'codex-web-local.hidden-thread-ids.v1'
+const QUEUED_MESSAGES_STORAGE_KEY = 'codex-web-local.queued-messages.v1'
 const EVENT_SYNC_DEBOUNCE_MS = 220
 const BACKGROUND_SYNC_INTERVAL_MS = 4000
 const ACTIVE_THREAD_DETAIL_SYNC_INTERVAL_MS = 4000
@@ -112,6 +113,15 @@ const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['none', 'minimal', 'low', '
 const GLOBAL_SERVER_REQUEST_SCOPE = '__global__'
 const MODEL_FALLBACK_ID = 'gpt-5.2-codex'
 const AUTO_COMMIT_MESSAGE_FALLBACK = 'Auto-commit from Codex rollback chat turn'
+
+type FileAttachment = { label: string; path: string; fsPath: string }
+type QueuedMessage = {
+  id: string
+  text: string
+  imageUrls: string[]
+  skills: Array<{ name: string; path: string }>
+  fileAttachments: FileAttachment[]
+}
 
 type RealtimeConnectionState = RpcConnectionState
 
@@ -328,6 +338,82 @@ function loadHiddenThreadIds(): string[] {
 function saveHiddenThreadIds(threadIds: string[]): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(HIDDEN_THREAD_IDS_STORAGE_KEY, JSON.stringify(threadIds))
+}
+
+function normalizeQueuedMessage(value: unknown): QueuedMessage | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const row = value as Record<string, unknown>
+  const id = typeof row.id === 'string' ? row.id.trim() : ''
+  if (!id) return null
+
+  const text = typeof row.text === 'string' ? row.text : ''
+  const imageUrls = Array.isArray(row.imageUrls)
+    ? row.imageUrls.filter((item): item is string => typeof item === 'string')
+    : []
+  const skills = Array.isArray(row.skills)
+    ? row.skills
+      .filter((item): item is { name: string; path: string } => (
+        Boolean(item)
+        && typeof item === 'object'
+        && typeof (item as Record<string, unknown>).name === 'string'
+        && typeof (item as Record<string, unknown>).path === 'string'
+      ))
+      .map((item) => ({ name: item.name, path: item.path }))
+    : []
+  const fileAttachments = Array.isArray(row.fileAttachments)
+    ? row.fileAttachments
+      .filter((item): item is FileAttachment => (
+        Boolean(item)
+        && typeof item === 'object'
+        && typeof (item as Record<string, unknown>).label === 'string'
+        && typeof (item as Record<string, unknown>).path === 'string'
+        && typeof (item as Record<string, unknown>).fsPath === 'string'
+      ))
+      .map((item) => ({ label: item.label, path: item.path, fsPath: item.fsPath }))
+    : []
+
+  return {
+    id,
+    text,
+    imageUrls,
+    skills,
+    fileAttachments,
+  }
+}
+
+function loadQueuedMessagesMap(): Record<string, QueuedMessage[]> {
+  if (typeof window === 'undefined') return {}
+
+  try {
+    const raw = window.localStorage.getItem(QUEUED_MESSAGES_STORAGE_KEY)
+    if (!raw) return {}
+
+    const parsed = JSON.parse(raw) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+
+    const next: Record<string, QueuedMessage[]> = {}
+    for (const [threadId, rows] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!threadId || !Array.isArray(rows)) continue
+      const normalizedRows = rows
+        .map((row) => normalizeQueuedMessage(row))
+        .filter((row): row is QueuedMessage => row !== null)
+      if (normalizedRows.length > 0) {
+        next[threadId] = normalizedRows
+      }
+    }
+    return next
+  } catch {
+    return {}
+  }
+}
+
+function saveQueuedMessagesMap(queueByThreadId: Record<string, QueuedMessage[]>): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(QUEUED_MESSAGES_STORAGE_KEY, JSON.stringify(queueByThreadId))
+  } catch {
+    // Keep in-memory queue state when storage is unavailable or quota-limited.
+  }
 }
 
 function mergeProjectOrder(previousOrder: string[], incomingGroups: UiProjectGroup[]): string[] {
@@ -767,8 +853,6 @@ export function useDesktopState() {
   const liveReasoningTextByThreadId = ref<Record<string, string>>({})
   const liveCommandsByThreadId = ref<Record<string, UiMessage[]>>({})
   const inProgressById = ref<Record<string, boolean>>({})
-  type FileAttachment = { label: string; path: string; fsPath: string }
-  type QueuedMessage = { id: string; text: string; imageUrls: string[]; skills: Array<{ name: string; path: string }>; fileAttachments: FileAttachment[] }
   type PendingTurnRequest = {
     text: string
     imageUrls: string[]
@@ -780,7 +864,7 @@ export function useDesktopState() {
   }
   type BufferedAgentDelta = { threadId: string; messageId: string; delta: string }
   type BufferedCommandDelta = { threadId: string; itemId: string; delta: string }
-  const queuedMessagesByThreadId = ref<Record<string, QueuedMessage[]>>({})
+  const queuedMessagesByThreadId = ref<Record<string, QueuedMessage[]>>(loadQueuedMessagesMap())
   const queueProcessingByThreadId = ref<Record<string, boolean>>({})
   const eventUnreadByThreadId = ref<Record<string, boolean>>({})
   const availableModelIds = ref<string[]>([])
@@ -1388,6 +1472,11 @@ export function useDesktopState() {
     ignoredStaleActiveTurnByThreadId.value = pruneThreadStateMap(ignoredStaleActiveTurnByThreadId.value, activeThreadIds)
     eventUnreadByThreadId.value = pruneThreadStateMap(eventUnreadByThreadId.value, activeThreadIds)
     inProgressById.value = pruneThreadStateMap(inProgressById.value, activeThreadIds)
+    const nextQueuedMessages = pruneThreadStateMap(queuedMessagesByThreadId.value, activeThreadIds)
+    if (nextQueuedMessages !== queuedMessagesByThreadId.value) {
+      replaceQueuedMessagesState(nextQueuedMessages)
+    }
+    queueProcessingByThreadId.value = pruneThreadStateMap(queueProcessingByThreadId.value, activeThreadIds)
     const nextPending: Record<string, UiServerRequest[]> = {}
     for (const [threadId, requests] of Object.entries(pendingServerRequestsByThreadId.value)) {
       if (threadId === GLOBAL_SERVER_REQUEST_SCOPE || activeThreadIds.has(threadId)) {
@@ -1395,6 +1484,30 @@ export function useDesktopState() {
       }
     }
     pendingServerRequestsByThreadId.value = nextPending
+  }
+
+  function replaceQueuedMessagesState(nextState: Record<string, QueuedMessage[]>): void {
+    queuedMessagesByThreadId.value = nextState
+    saveQueuedMessagesMap(nextState)
+  }
+
+  function setQueuedMessagesForThread(threadId: string, queue: QueuedMessage[]): void {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) return
+    const nextState = queue.length > 0
+      ? { ...queuedMessagesByThreadId.value, [normalizedThreadId]: queue }
+      : omitKey(queuedMessagesByThreadId.value, normalizedThreadId)
+    replaceQueuedMessagesState(nextState)
+  }
+
+  function removeQueuedMessageByThreadId(threadId: string, messageId: string): void {
+    const normalizedThreadId = threadId.trim()
+    const normalizedMessageId = messageId.trim()
+    if (!normalizedThreadId || !normalizedMessageId) return
+    const queue = queuedMessagesByThreadId.value[normalizedThreadId]
+    if (!queue) return
+    const next = queue.filter((message) => message.id !== normalizedMessageId)
+    setQueuedMessagesForThread(normalizedThreadId, next)
   }
 
   function markThreadAsRead(threadId: string): void {
@@ -1408,6 +1521,30 @@ export function useDesktopState() {
     saveReadStateMap(readStateByThreadId.value)
     if (eventUnreadByThreadId.value[threadId]) {
       eventUnreadByThreadId.value = omitKey(eventUnreadByThreadId.value, threadId)
+    }
+    applyThreadFlags()
+  }
+
+  function markAllThreadsAsRead(): void {
+    const nextReadState = { ...readStateByThreadId.value }
+    let hasChanged = false
+
+    for (const thread of Object.values(sourceThreadById.value)) {
+      const threadId = thread.id.trim()
+      const updatedAtIso = thread.updatedAtIso.trim()
+      if (!threadId || !updatedAtIso) continue
+      if (nextReadState[threadId] === updatedAtIso && eventUnreadByThreadId.value[threadId] !== true) continue
+      nextReadState[threadId] = updatedAtIso
+      hasChanged = true
+    }
+
+    const hadEventUnread = Object.keys(eventUnreadByThreadId.value).length > 0
+    if (!hasChanged && !hadEventUnread) return
+
+    readStateByThreadId.value = nextReadState
+    saveReadStateMap(nextReadState)
+    if (hadEventUnread) {
+      eventUnreadByThreadId.value = {}
     }
     applyThreadFlags()
   }
@@ -3188,6 +3325,9 @@ export function useDesktopState() {
       }
       applyThreadFlags()
       markThreadAsRead(threadId)
+      if (!resolvedExecutionState.inProgress && normalizedPendingRequests.length === 0) {
+        void processQueuedMessages(threadId)
+      }
     } catch (error) {
       if (isThreadMaterializingError(error)) {
         lastThreadDetailSyncAtById.value = {
@@ -3360,21 +3500,21 @@ export function useDesktopState() {
         ? Math.max(0, Math.min(queueInsertIndex, nextQueue.length))
         : nextQueue.length
       nextQueue.splice(insertIndex, 0, { id, text: nextText, imageUrls, skills, fileAttachments })
-      queuedMessagesByThreadId.value = {
-        ...queuedMessagesByThreadId.value,
-        [threadId]: nextQueue,
-      }
+      setQueuedMessagesForThread(threadId, nextQueue)
       return
     }
 
     if (isInProgress) {
       shouldAutoScrollOnNextAgentEvent = true
       markActiveSyncBoost()
-      void startTurnForThread(threadId, nextText, imageUrls, skills, fileAttachments).catch((unknownError) => {
+      try {
+        await startTurnForThread(threadId, nextText, imageUrls, skills, fileAttachments)
+      } catch (unknownError) {
         const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
         setTurnErrorForThread(threadId, errorMessage)
         error.value = errorMessage
-      })
+        throw unknownError
+      }
       return
     }
 
@@ -3571,16 +3711,16 @@ export function useDesktopState() {
 
   async function processQueuedMessages(threadId: string): Promise<void> {
     if (queueProcessingByThreadId.value[threadId] === true) return
+    if (inProgressById.value[threadId] === true) return
+    if (pendingTurnRequestByThreadId.value[threadId]) return
+    if (hasPendingServerRequestSignal(threadId)) return
     const queue = queuedMessagesByThreadId.value[threadId]
     if (!queue || queue.length === 0) return
     queueProcessingByThreadId.value = {
       ...queueProcessingByThreadId.value,
       [threadId]: true,
     }
-    const [next, ...rest] = queue
-    queuedMessagesByThreadId.value = rest.length > 0
-      ? { ...queuedMessagesByThreadId.value, [threadId]: rest }
-      : omitKey(queuedMessagesByThreadId.value, threadId)
+    const [next] = queue
     isSendingMessage.value = true
     error.value = ''
     shouldAutoScrollOnNextAgentEvent = true
@@ -3592,6 +3732,7 @@ export function useDesktopState() {
     markActiveSyncBoost()
     try {
       await startTurnForThread(threadId, next.text, next.imageUrls, next.skills, next.fileAttachments)
+      removeQueuedMessageByThreadId(threadId, next.id)
     } catch {
       setThreadInProgress(threadId, false)
       setTurnActivityForThread(threadId, null)
@@ -4120,7 +4261,6 @@ export function useDesktopState() {
     threadReadActiveStateByThreadId.value = {}
     ignoredStaleActiveTurnByThreadId.value = {}
     lastThreadDetailSyncAtById.value = {}
-    queuedMessagesByThreadId.value = {}
     queueProcessingByThreadId.value = {}
   }
 
@@ -4138,26 +4278,31 @@ export function useDesktopState() {
     return queuedMessagesByThreadId.value[threadId] ?? []
   })
 
+  const selectedThreadQueueProcessing = computed<boolean>(() => {
+    const threadId = selectedThreadId.value
+    if (!threadId) return false
+    return queueProcessingByThreadId.value[threadId] === true
+  })
+
   function removeQueuedMessage(messageId: string): void {
     const threadId = selectedThreadId.value
     if (!threadId) return
-    const queue = queuedMessagesByThreadId.value[threadId]
-    if (!queue) return
-    const next = queue.filter((m) => m.id !== messageId)
-    queuedMessagesByThreadId.value = next.length > 0
-      ? { ...queuedMessagesByThreadId.value, [threadId]: next }
-      : omitKey(queuedMessagesByThreadId.value, threadId)
+    removeQueuedMessageByThreadId(threadId, messageId)
   }
 
-  function steerQueuedMessage(messageId: string): void {
+  async function quoteQueuedMessage(messageId: string): Promise<void> {
     const threadId = selectedThreadId.value
     if (!threadId) return
     const queue = queuedMessagesByThreadId.value[threadId]
     if (!queue) return
     const msg = queue.find((m) => m.id === messageId)
     if (!msg) return
-    removeQueuedMessage(messageId)
-    void sendMessageToSelectedThread(msg.text, msg.imageUrls, msg.skills, 'steer', msg.fileAttachments)
+    try {
+      await sendMessageToSelectedThread(msg.text, msg.imageUrls, msg.skills, 'steer', msg.fileAttachments)
+      removeQueuedMessageByThreadId(threadId, messageId)
+    } catch {
+      // Keep the queued message so the user can retry or edit it.
+    }
   }
 
   return {
@@ -4200,8 +4345,10 @@ export function useDesktopState() {
     rollbackSelectedThread,
     isRollingBack,
     selectedThreadQueuedMessages,
+    selectedThreadQueueProcessing,
     removeQueuedMessage,
-    steerQueuedMessage,
+    quoteQueuedMessage,
+    markAllThreadsAsRead,
     setSelectedModelId,
     setWorktreeGitAutomationEnabled,
     setSelectedReasoningEffort,

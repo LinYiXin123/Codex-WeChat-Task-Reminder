@@ -57,7 +57,12 @@ const hasRight = computed(() => hasRightDefault.value || hasRightHover.value)
 @reference "tailwindcss";
 
 .sidebar-menu-row {
-  @apply w-full min-w-0 rounded-2xl px-3 py-2 text-left transition flex items-center gap-2 border border-transparent;
+  @apply w-full min-w-0 rounded-[20px] px-3.5 py-2.5 text-left flex items-center gap-2.5 border border-transparent;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 150ms ease;
 }
 
 .sidebar-menu-row-left {
@@ -75,6 +80,17 @@ const hasRight = computed(() => hasRightDefault.value || hasRightHover.value)
 .sidebar-menu-row-right-default,
 .sidebar-menu-row-right-hover {
   @apply transition duration-150;
+}
+
+.sidebar-menu-row:hover,
+.sidebar-menu-row:focus-within {
+  box-shadow: 0 6px 16px -18px rgba(31, 41, 55, 0.12);
+}
+
+@media (max-width: 767px) {
+  .sidebar-menu-row {
+    @apply px-3 py-2.5 gap-2;
+  }
 }
 
 .sidebar-menu-row[data-has-right='true'] .sidebar-menu-row-right-hover {

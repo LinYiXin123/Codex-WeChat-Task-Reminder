@@ -33,15 +33,17 @@ const hasMeta = computed(() => Boolean(slots.meta))
 @reference "tailwindcss";
 
 .content-header {
-  @apply relative z-10 w-full flex flex-col gap-1 px-3 sm:px-4 pt-2 sm:pt-2.5 pb-1.5 border-b border-[#ddd5c7] bg-[#fcfbf8]/96 backdrop-blur;
+  @apply sticky top-0 z-20 w-full flex flex-col gap-1 px-3 sm:px-4 pt-2 sm:pt-2 pb-2 border-b border-[#e8dfcf] bg-[#fcfbf8]/94 backdrop-blur-md;
+  box-shadow: 0 10px 22px -28px rgba(31, 41, 55, 0.22);
 }
 
 .content-header-main {
-  @apply w-full min-h-10 sm:min-h-11 flex items-center gap-1.5 sm:gap-2;
+  @apply w-full min-h-10 sm:min-h-11 flex items-center gap-2 sm:gap-2.5;
 }
 
 .content-title {
-  @apply m-0 min-w-0 truncate text-[14px] sm:text-[15px] font-semibold leading-5 text-[#1f2937];
+  @apply m-0 min-w-0 truncate text-[15px] sm:text-[16px] font-semibold leading-5 text-[#1f2937];
+  letter-spacing: -0.01em;
 }
 
 .content-title-wrap {
@@ -49,7 +51,7 @@ const hasMeta = computed(() => Boolean(slots.meta))
 }
 
 .content-actions {
-  @apply flex items-center justify-end gap-1.5;
+  @apply flex items-center justify-end gap-2;
 }
 
 .content-leading {
@@ -58,5 +60,11 @@ const hasMeta = computed(() => Boolean(slots.meta))
 
 .content-meta {
   @apply flex flex-wrap items-center gap-1.5 min-h-0;
+}
+
+@media (max-width: 767px) {
+  .content-header {
+    padding-top: max(0.5rem, env(safe-area-inset-top));
+  }
 }
 </style>

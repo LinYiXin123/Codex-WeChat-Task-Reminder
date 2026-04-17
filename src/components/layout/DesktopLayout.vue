@@ -114,12 +114,13 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
   height: 100dvh;
   grid-template-columns: var(--layout-columns);
   background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.08), transparent 28%),
-    linear-gradient(180deg, #f8f5ee 0%, #f1ece1 100%);
+    radial-gradient(circle at top left, rgba(13, 148, 136, 0.06), transparent 20%),
+    linear-gradient(180deg, #f9f7f1 0%, #f3eee4 100%);
 }
 
 .desktop-sidebar {
-  @apply min-h-0 overflow-hidden border-r border-[#ddd5c7] bg-[#f7f3eb]/92 backdrop-blur;
+  @apply min-h-0 overflow-hidden border-r border-[#e4dac9] bg-[#faf7f0];
+  box-shadow: 0 12px 28px -30px rgba(31, 41, 55, 0.2);
 }
 
 .desktop-resize-handle {
@@ -132,29 +133,51 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 }
 
 .desktop-main {
-  @apply min-h-0 overflow-y-hidden overflow-x-visible;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(252,250,245,0.98) 100%);
+  @apply relative min-h-0 overflow-y-hidden overflow-x-visible;
+  background: linear-gradient(180deg, rgba(255,255,255,0.92) 0%, rgba(250,247,240,0.98) 100%);
 }
 
 .mobile-drawer-backdrop {
-  @apply fixed inset-0 z-40 bg-[#1f2937]/40 backdrop-blur-[2px];
+  @apply fixed inset-0 z-[60] bg-[#1f2937]/34 backdrop-blur-[2px];
+  overflow: hidden;
 }
 
 .mobile-drawer {
-  @apply absolute top-0 left-0 bottom-0 w-[88vw] max-w-88 overflow-hidden shadow-2xl border-r border-[#ddd5c7];
-  background:
-    linear-gradient(180deg, rgba(247,243,235,0.98) 0%, rgba(242,236,224,0.98) 100%);
+  @apply absolute top-0 left-0 bottom-0 w-full max-w-none overflow-hidden shadow-2xl border-r border-[#e4dac9];
+  width: 100vw;
+  max-width: 100vw;
+  border-top-right-radius: 1.5rem;
+  border-bottom-right-radius: 1.5rem;
+  padding-left: max(0px, env(safe-area-inset-left));
+  isolation: isolate;
+  background: linear-gradient(180deg, rgba(251,247,239,0.995) 0%, rgba(246,241,232,0.995) 100%);
+  box-shadow: 0 22px 56px -36px rgba(31, 41, 55, 0.45);
+}
+
+@media (min-width: 768px) {
+  .mobile-drawer {
+    width: min(26rem, calc(100vw - 1rem));
+    max-width: min(26rem, calc(100vw - 1rem));
+  }
+}
+
+@media (max-width: 767px) {
+  .mobile-drawer {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+  }
 }
 
 .drawer-enter-active,
 .drawer-leave-active {
-  @apply transition-opacity duration-200;
+  @apply transition-opacity duration-150;
 }
 
 .drawer-enter-active .mobile-drawer,
 .drawer-leave-active .mobile-drawer {
-  transition: transform 200ms ease;
+  transition:
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 140ms ease;
 }
 
 .drawer-enter-from {
@@ -163,6 +186,7 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 
 .drawer-enter-from .mobile-drawer {
   transform: translateX(-100%);
+  opacity: 0.86;
 }
 
 .drawer-leave-to {
@@ -171,5 +195,6 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 
 .drawer-leave-to .mobile-drawer {
   transform: translateX(-100%);
+  opacity: 0.9;
 }
 </style>

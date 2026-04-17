@@ -881,6 +881,7 @@ const workedCommandsByMessageId = computed<Record<string, UiMessage[]>>(() => {
 
   for (const message of props.messages) {
     if (message.messageType === 'commandExecution' && message.commandExecution) {
+      if (message.commandExecution.status === 'inProgress') continue
       pendingCommands.push(message)
       continue
     }
@@ -1235,6 +1236,29 @@ type TextRange = {
   end: number
 }
 
+const LIKELY_PROJECT_DIRECTORY_ROOTS = new Set([
+  '.agents',
+  '.codex',
+  '.github',
+  'app',
+  'artifacts',
+  'assets',
+  'components',
+  'configs',
+  'dist',
+  'docs',
+  'pages',
+  'packages',
+  'public',
+  'scripts',
+  'skills',
+  'src',
+  'test',
+  'tests',
+  'tmp',
+  '记忆',
+])
+
 function isFilePath(value: string): boolean {
   if (!value) return false
   if (value.endsWith('/') || value.endsWith('\\')) return false
@@ -1243,9 +1267,23 @@ function isFilePath(value: string): boolean {
 
   const looksLikeUnixAbsolute = value.startsWith('/')
   const looksLikeWindowsAbsolute = /^[A-Za-z]:[\\/]/u.test(value)
+  const looksLikeWindowsUnc = /^\\\\[^\\]+\\[^\\]+/u.test(value)
   const looksLikeRelative = value.startsWith('./') || value.startsWith('../') || value.startsWith('~/')
-  const hasPathSeparator = value.includes('/') || value.includes('\\')
-  return looksLikeUnixAbsolute || looksLikeWindowsAbsolute || looksLikeRelative || hasPathSeparator
+  if (looksLikeUnixAbsolute || looksLikeWindowsAbsolute || looksLikeWindowsUnc || looksLikeRelative) {
+    return true
+  }
+
+  const normalized = normalizePathSeparators(value)
+  if (!normalized.includes('/')) return false
+
+  const segments = normalized.split('/').filter(Boolean)
+  if (segments.length < 2) return false
+
+  const basename = segments[segments.length - 1] ?? ''
+  const hasLikelyFileExtension = /\.[A-Za-z0-9][A-Za-z0-9._-]{0,15}$/u.test(basename)
+  if (hasLikelyFileExtension) return true
+
+  return LIKELY_PROJECT_DIRECTORY_ROOTS.has(segments[0] ?? '')
 }
 
 function getBasename(pathValue: string): string {
@@ -2666,7 +2704,7 @@ onBeforeUnmount(() => {
 }
 
 .conversation-loading-card {
-  @apply block max-w-[min(72ch,100%)] rounded-[24px] border border-[#ece5d8] bg-white/92 px-4 py-3.5 shadow-[0_8px_18px_-24px_rgba(31,41,55,0.35)];
+  @apply block max-w-[min(72ch,100%)] rounded-[22px] border border-[#ece5d8] bg-white/96 px-4 py-3.5 shadow-[0_8px_16px_-24px_rgba(31,41,55,0.18)];
   position: relative;
   overflow: hidden;
 }
@@ -2728,7 +2766,7 @@ onBeforeUnmount(() => {
 }
 
 .conversation-inline-loading {
-  @apply sticky top-0 z-10 mx-2 sm:mx-5 mb-1.5 mt-1.5 flex items-center gap-2 rounded-full border border-[#ddd5c7] bg-[#fffcf7]/96 px-3 py-1.5 text-xs text-[#7b7062] backdrop-blur;
+  @apply sticky top-0 z-10 mx-2 sm:mx-5 mb-1.5 mt-1.5 flex items-center gap-2 rounded-full border border-[#e5dbca] bg-[#fffdf8] px-3 py-1.5 text-xs text-[#7b7062];
 }
 
 .conversation-inline-loading-bar {
@@ -2750,14 +2788,14 @@ onBeforeUnmount(() => {
 }
 
 .conversation-list {
-  @apply h-full min-h-0 list-none m-0 px-2 sm:px-5 py-0 overflow-y-auto overflow-x-visible flex flex-col gap-1 sm:gap-1.5;
+  @apply h-full min-h-0 list-none m-0 px-2.5 sm:px-5 py-0 overflow-y-auto overflow-x-visible flex flex-col gap-1;
   padding-bottom: max(0.875rem, env(safe-area-inset-bottom));
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }
 
 .conversation-jump-to-latest {
-  @apply absolute bottom-4 right-4 z-20 inline-flex items-center gap-2 rounded-full border border-[#d8cfbf] bg-[#fffdf8]/96 px-3 py-2 text-xs font-semibold text-[#544a3d] shadow-md shadow-[#1f2937]/5 backdrop-blur hover:border-[#bca98d] hover:text-[#1f2937];
+  @apply absolute bottom-4 right-4 z-20 inline-flex items-center gap-2 rounded-full border border-[#ddd3c2] bg-[#fffdf8] px-3 py-2 text-xs font-semibold text-[#544a3d] shadow-md shadow-[#1f2937]/5 hover:border-[#bca98d] hover:text-[#1f2937];
   bottom: max(1rem, calc(env(safe-area-inset-bottom) + 0.5rem));
 }
 
@@ -2780,6 +2818,12 @@ onBeforeUnmount(() => {
 
 .conversation-item {
   @apply m-0 w-full flex;
+}
+
+.conversation-item-actionable {
+  position: relative;
+  z-index: 0;
+  overflow: visible;
 }
 
 .conversation-spacer {
@@ -2812,11 +2856,12 @@ onBeforeUnmount(() => {
 }
 
 .message-stack {
-  @apply flex flex-col w-full gap-0.5;
+  @apply relative flex flex-col w-full gap-0.5;
+  overflow: visible;
 }
 
 .request-card {
-  @apply w-full max-w-180 rounded-[22px] border border-[#ead9b5] bg-[#fff7e7] px-3 sm:px-3.5 py-2.5 sm:py-3 flex flex-col gap-1.5 shadow-[0_10px_26px_-22px_rgba(194,65,12,0.35)];
+  @apply w-full max-w-180 rounded-[20px] border border-[#ead9b5] bg-[#fff9ee] px-3 sm:px-3.5 py-2.5 sm:py-3 flex flex-col gap-1.5 shadow-[0_8px_18px_-24px_rgba(194,65,12,0.18)];
 }
 
 .request-title {
@@ -2868,7 +2913,7 @@ onBeforeUnmount(() => {
 }
 
 .live-overlay-inline {
-  @apply w-full max-w-180 rounded-[22px] border border-[#cfe6e0] bg-[#f6fbfa] px-3.5 py-2.5 flex flex-col gap-1.5 shadow-[0_8px_18px_-24px_rgba(15,118,110,0.28)];
+  @apply w-full max-w-180 rounded-[20px] border border-[#cfe6e0] bg-[#f6fbfa] px-3.5 py-2.5 flex flex-col gap-1.5 shadow-[0_8px_18px_-26px_rgba(15,118,110,0.18)];
 }
 
 .live-overlay-inline-compact {
@@ -3102,18 +3147,18 @@ onBeforeUnmount(() => {
 }
 
 .message-card[data-role='user'] {
-  @apply rounded-[22px] border border-[#d8cfbf] bg-[#ebe4d8] px-3 sm:px-3.5 py-2 sm:py-2.5 max-w-[min(560px,100%)] shadow-[0_10px_24px_-24px_rgba(31,41,55,0.8)];
+  @apply rounded-[20px] border border-[#ddd3c2] bg-[#efe8dc] px-3 sm:px-3.5 py-2 sm:py-2.5 max-w-[min(560px,100%)] shadow-[0_8px_18px_-24px_rgba(31,41,55,0.22)];
   width: fit-content;
   margin-left: auto;
   align-self: flex-end;
 }
 
 .message-card[data-role='assistant'] {
-  @apply rounded-[24px] border border-[#ece5d8] bg-white/88 px-3.5 py-2.5 shadow-[0_10px_26px_-22px_rgba(31,41,55,0.55)];
+  @apply rounded-[22px] border border-[#ece5d8] bg-white/96 px-3.5 py-2.5 shadow-[0_8px_18px_-24px_rgba(31,41,55,0.14)];
 }
 
 .message-card[data-role='system'] {
-  @apply rounded-[20px] border border-[#e8dfcf] bg-[#f7f2e8] px-3.5 py-2.5;
+  @apply rounded-[18px] border border-[#e8dfcf] bg-[#f7f2e8] px-3.5 py-2.5;
 }
 
 .conversation-item[data-message-type='worked'] .message-stack,
@@ -3174,16 +3219,34 @@ onBeforeUnmount(() => {
   @apply w-5 h-5;
 }
 
-.conversation-item-actionable:hover .message-action-button {
+.conversation-item-actionable:hover,
+.conversation-item-actionable:focus-within {
+  z-index: 8;
+}
+
+.conversation-item-actionable:hover .message-action-button,
+.conversation-item-actionable:focus-within .message-action-button {
   @apply opacity-100;
 }
 
 .message-actions {
-  @apply mt-0.5 inline-flex items-center gap-1 self-start;
+  @apply inline-flex items-center gap-1;
+  position: absolute;
+  left: 0.5rem;
+  bottom: -0.72rem;
+  z-index: 10;
+  pointer-events: none;
 }
 
 .message-action-button {
-  @apply opacity-0 inline-flex items-center gap-1 self-start rounded-full border border-[#ddd5c7] bg-[#fffcf7] px-2.5 py-1 text-xs text-[#7b7062] transition-colors duration-100 hover:bg-[#f1ebde] hover:text-[#544a3d] hover:border-[#cdbfa9];
+  @apply opacity-0 inline-flex items-center gap-1 self-start rounded-full border border-[#ddd5c7] bg-[#fffdf8] px-2.5 py-1 text-xs text-[#7b7062] transition-[background-color,border-color,color,opacity] duration-150 hover:bg-[#f3ede2] hover:text-[#544a3d] hover:border-[#cdbfa9];
+  pointer-events: auto;
+  box-shadow: 0 8px 18px -18px rgba(31, 41, 55, 0.24);
+}
+
+.message-stack[data-role='user'] .message-actions {
+  left: auto;
+  right: 0.5rem;
 }
 
 .message-action-icon {
@@ -3195,7 +3258,7 @@ onBeforeUnmount(() => {
 }
 
 .cmd-row {
-  @apply w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-[16px] border border-[#ddd5c7] bg-[#f8f4ec] cursor-pointer transition-colors duration-100 text-left hover:bg-[#f1ebde];
+  @apply w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-[14px] border border-[#ddd5c7] bg-[#f8f4ec] cursor-pointer transition-colors duration-150 text-left hover:bg-[#f1ebde];
   overflow-x: auto;
   overflow-y: hidden;
   white-space: nowrap;
@@ -3245,7 +3308,7 @@ onBeforeUnmount(() => {
   @apply rounded-b-lg bg-zinc-900;
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 160ms ease-out;
+  transition: grid-template-rows 150ms ease-out;
   border: 1px solid transparent;
   border-top: none;
 }

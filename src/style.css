@@ -28,12 +28,21 @@
   @apply bg-zinc-900;
 }
 
+:root.dark .skip-to-content {
+  @apply border-emerald-700 bg-emerald-950 text-emerald-200;
+}
+
 :root.dark .sidebar-root {
   @apply bg-zinc-900;
 }
 
 :root.dark .content-root {
   @apply bg-zinc-950;
+}
+
+:root.dark .composer-with-queue {
+  background:
+    linear-gradient(180deg, rgba(9, 12, 18, 0) 0%, rgba(9, 12, 18, 0.88) 26%, rgba(9, 12, 18, 0.98) 100%);
 }
 
 :root.dark .sidebar-scrollable {
@@ -81,11 +90,11 @@
 }
 
 :root.dark .sidebar-skills-link {
-  @apply text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200;
+  @apply border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200;
 }
 
 :root.dark .sidebar-skills-link.is-active {
-  @apply bg-zinc-800 text-zinc-100;
+  @apply border-emerald-700 bg-emerald-950/70 text-emerald-200;
 }
 
 :root.dark .sidebar-search-toggle {
@@ -104,16 +113,20 @@
   @apply text-zinc-200 placeholder-zinc-500;
 }
 
+:root.dark .project-group {
+  @apply border-zinc-800 bg-zinc-900;
+}
+
 :root.dark .thread-tree-header {
   @apply text-zinc-500;
 }
 
 :root.dark .thread-row {
-  @apply hover:bg-zinc-800;
+  @apply border-zinc-800 bg-zinc-900 hover:bg-zinc-800;
 }
 
 :root.dark .thread-row[data-active='true'] {
-  @apply bg-zinc-800;
+  @apply border-emerald-800 bg-emerald-950/60;
 }
 
 :root.dark .thread-row-title {
@@ -121,7 +134,7 @@
 }
 
 :root.dark .thread-row-time {
-  @apply text-zinc-500;
+  @apply bg-zinc-800 text-zinc-500;
 }
 
 :root.dark .project-header-row {
@@ -136,6 +149,10 @@
   @apply border-zinc-700 bg-zinc-800;
 }
 
+:root.dark .thread-composer-control .composer-dropdown-trigger {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-300;
+}
+
 :root.dark .thread-composer-input {
   @apply text-zinc-100;
 }
@@ -145,7 +162,7 @@
 }
 
 :root.dark .thread-composer-attach-trigger {
-  @apply text-zinc-400 hover:text-zinc-200;
+  @apply border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-200;
 }
 
 :root.dark .thread-composer-submit {
@@ -157,7 +174,7 @@
 }
 
 :root.dark .thread-composer-mic {
-  @apply bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200;
+  @apply border-zinc-700 bg-zinc-700 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200;
 }
 
 :root.dark .thread-composer-stop {
@@ -182,6 +199,22 @@
 
 :root.dark .content-header {
   @apply border-zinc-800 bg-zinc-950;
+}
+
+:root.dark .content-status-pill[data-tone='live'] {
+  @apply border-emerald-800 bg-emerald-950/60 text-emerald-200;
+}
+
+:root.dark .content-status-pill[data-tone='syncing'] {
+  @apply border-zinc-700 bg-zinc-800 text-zinc-300;
+}
+
+:root.dark .content-status-pill[data-tone='warning'] {
+  @apply border-amber-800 bg-amber-950/50 text-amber-200;
+}
+
+:root.dark .content-status-pill[data-tone='danger'] {
+  @apply border-rose-800 bg-rose-950/50 text-rose-200;
 }
 
 :root.dark .content-header .content-title,
@@ -374,7 +407,15 @@
 }
 
 :root.dark .message-card[data-role='user'] {
-  @apply bg-zinc-700;
+  @apply border-zinc-600 bg-zinc-700;
+}
+
+:root.dark .message-card[data-role='assistant'] {
+  @apply border-zinc-800 bg-zinc-900;
+}
+
+:root.dark .message-card[data-role='system'] {
+  @apply border-zinc-800 bg-zinc-900;
 }
 
 :root.dark .message-inline-code {

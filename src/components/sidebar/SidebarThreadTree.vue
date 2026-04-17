@@ -1608,7 +1608,7 @@ onBeforeUnmount(() => {
 }
 
 .thread-section-heading {
-  @apply px-3 flex items-center justify-between gap-3;
+  @apply px-3.5 flex items-center justify-between gap-3;
 }
 
 .thread-section-label {
@@ -1629,6 +1629,7 @@ onBeforeUnmount(() => {
 
 .thread-tree-header {
   @apply text-sm font-semibold text-[#433b31] select-none;
+  letter-spacing: -0.01em;
 }
 
 .thread-tree-header-subtitle {
@@ -1640,7 +1641,7 @@ onBeforeUnmount(() => {
 }
 
 .organize-menu-trigger {
-  @apply h-7 w-7 rounded-xl text-[#73695d] flex items-center justify-center transition-colors duration-100 hover:bg-[#ece4d6] hover:text-[#433b31];
+  @apply h-8 w-8 rounded-xl text-[#73695d] flex items-center justify-center transition-colors duration-100 hover:bg-[#ece4d6] hover:text-[#433b31];
 }
 
 .organize-menu-panel {
@@ -1660,7 +1661,7 @@ onBeforeUnmount(() => {
 }
 
 .thread-start-button {
-  @apply h-7 w-7 rounded-xl text-[#73695d] flex items-center justify-center transition-colors duration-100 hover:bg-[#ece4d6] hover:text-[#433b31];
+  @apply h-8 w-8 rounded-xl text-[#73695d] flex items-center justify-center transition-colors duration-100 hover:bg-[#ece4d6] hover:text-[#433b31];
 }
 
 .thread-tree-loading {
@@ -1668,13 +1669,18 @@ onBeforeUnmount(() => {
 }
 
 .thread-loading-skeleton {
-  @apply block h-16 rounded-2xl border border-[#ece4d6] bg-[#f7f2e8];
+  @apply block h-16 rounded-2xl border border-[#ece4d6] bg-[#f7f3ea];
   position: relative;
   overflow: hidden;
 }
 
 .thread-loading-skeleton::after {
-  display: none;
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.42) 50%, transparent 100%);
+  animation: thread-skeleton-sheen 1.4s ease-in-out infinite;
 }
 
 .thread-tree-no-results {
@@ -1686,8 +1692,8 @@ onBeforeUnmount(() => {
 }
 
 .project-group {
-  @apply m-0 rounded-[22px] border border-transparent;
-  background: linear-gradient(180deg, rgba(255,252,247,0.72) 0%, rgba(246,240,229,0.82) 100%);
+  @apply m-0 rounded-[22px] border border-[#e8decd] bg-[#fffdf8];
+  box-shadow: 0 10px 24px -28px rgba(31, 41, 55, 0.12);
 }
 
 .project-group[data-dragging='true'] {
@@ -1695,7 +1701,12 @@ onBeforeUnmount(() => {
 }
 
 .project-header-row {
-  @apply hover:bg-[#ece4d6] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b8a98d];
+  @apply cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b8a98d];
+  background: linear-gradient(180deg, rgba(255,255,255,0.72) 0%, rgba(249,245,236,0.9) 100%);
+}
+
+.project-header-row:hover {
+  background: linear-gradient(180deg, rgba(245,239,229,0.96) 0%, rgba(241,234,222,0.96) 100%);
 }
 
 .project-main-button {
@@ -1728,6 +1739,7 @@ onBeforeUnmount(() => {
 
 .project-summary {
   @apply text-[11px] text-[#8c8171] truncate;
+  line-height: 1.1rem;
 }
 
 .project-menu-wrap {
@@ -1783,7 +1795,7 @@ onBeforeUnmount(() => {
 }
 
 .project-group > .thread-list {
-  @apply mt-0.5;
+  @apply mt-1 px-1 pb-1;
 }
 
 .thread-row-item {
@@ -1791,11 +1803,17 @@ onBeforeUnmount(() => {
 }
 
 .thread-row {
-  @apply hover:bg-[#ece4d6] border border-transparent;
+  @apply border border-[#efe7d9] bg-[#fffdf9];
+  transition:
+    transform 140ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .thread-row-priority {
-  @apply border-[#d8ccba] bg-[linear-gradient(180deg,rgba(255,255,255,0.92)_0%,rgba(245,240,230,0.98)_100%)];
+  @apply border-[#d9cfbe] bg-[#fffaf1];
+  box-shadow: 0 10px 22px -26px rgba(31, 41, 55, 0.16);
 }
 
 .thread-left-stack {
@@ -1811,7 +1829,7 @@ onBeforeUnmount(() => {
 }
 
 .thread-row-content {
-  @apply min-w-0 flex flex-col gap-0.5;
+  @apply min-w-0 flex flex-col gap-1;
 }
 
 .thread-row-title-wrap {
@@ -1819,7 +1837,10 @@ onBeforeUnmount(() => {
 }
 
 .thread-row-title {
-  @apply block text-sm leading-5 font-medium text-[#2d261f] truncate whitespace-nowrap;
+  @apply block text-sm font-medium text-[#2d261f] truncate whitespace-nowrap;
+  line-height: 1.35rem;
+  padding-block: 1px;
+  letter-spacing: -0.01em;
 }
 
 .thread-row-worktree-icon {
@@ -1835,7 +1856,9 @@ onBeforeUnmount(() => {
 }
 
 .thread-row-preview {
-  @apply min-w-0 truncate text-[11px] leading-4 text-[#8f8577];
+  @apply min-w-0 truncate text-xs text-[#8f8577];
+  line-height: 1.1rem;
+  padding-block: 1px;
 }
 
 .thread-status-pill {
@@ -1843,7 +1866,12 @@ onBeforeUnmount(() => {
 }
 
 .thread-row-time {
-  @apply block text-[11px] font-medium text-[#7a705f];
+  @apply block text-xs font-medium text-[#7a705f];
+  line-height: 1.1rem;
+  padding-block: 1px;
+  border-radius: 9999px;
+  padding-inline: 0.45rem;
+  background: rgba(245, 240, 231, 0.88);
 }
 
 .thread-menu-wrap {
@@ -1851,7 +1879,7 @@ onBeforeUnmount(() => {
 }
 
 .thread-menu-trigger {
-  @apply h-6 w-6 rounded-lg p-0 text-xs text-[#73695d] flex items-center justify-center hover:bg-[#ece4d6];
+  @apply h-7 w-7 rounded-xl p-0 text-xs text-[#73695d] flex items-center justify-center hover:bg-[#ece4d6];
 }
 
 .thread-menu-panel {
@@ -1891,7 +1919,13 @@ onBeforeUnmount(() => {
 }
 
 .thread-row[data-active='true'] {
-  @apply border-[#cfc3ae] bg-[linear-gradient(180deg,rgba(255,255,255,0.98)_0%,rgba(240,233,222,1)_100%)] shadow-[0_8px_18px_-22px_rgba(31,41,55,0.28)];
+  @apply border-[#99f6e4] bg-[#f0fdfa] shadow-[0_10px_20px_-24px_rgba(13,148,136,0.28)];
+}
+
+.thread-row:hover,
+.thread-row:focus-within {
+  @apply border-[#ddd1bc] bg-[#faf6ee];
+  box-shadow: 0 10px 20px -24px rgba(31, 41, 55, 0.14);
 }
 
 .thread-row:hover .thread-pin-button,
@@ -1979,6 +2013,39 @@ onBeforeUnmount(() => {
   .thread-pin-button,
   .thread-show-more-button {
     transition: none !important;
+  }
+
+  .thread-loading-skeleton::after {
+    animation: none !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .thread-tree-root {
+    @apply gap-2;
+  }
+
+  .project-group {
+    @apply rounded-[22px];
+  }
+
+  .project-group > .thread-list {
+    @apply px-0.5 pb-0.5;
+  }
+
+  .thread-list {
+    @apply gap-1;
+  }
+
+  .thread-row-time {
+    background: transparent;
+    padding-inline: 0;
+  }
+}
+
+@keyframes thread-skeleton-sheen {
+  100% {
+    transform: translateX(100%);
   }
 }
 </style>

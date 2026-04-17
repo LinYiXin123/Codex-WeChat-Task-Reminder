@@ -1,5 +1,5 @@
 <template>
-  <form class="thread-composer" @submit.prevent="onSubmit(isTurnInProgress ? activeInProgressMode : 'steer')">
+  <form class="thread-composer" @submit.prevent="onSubmit(resolveSubmitMode())">
     <p v-if="dictationErrorText" class="thread-composer-dictation-error">
       {{ dictationErrorText }}
     </p>
@@ -156,30 +156,6 @@
               拍照
             </button>
             <div class="thread-composer-attach-separator" />
-            <div class="thread-composer-attach-mode">
-              <span class="thread-composer-attach-mode-label">执行中发送</span>
-              <div class="thread-composer-attach-mode-buttons">
-                <button
-                  class="thread-composer-attach-mode-button"
-                  :class="{ 'is-active': activeInProgressMode === 'steer' }"
-                  type="button"
-                  :disabled="isInteractionDisabled"
-                  @click="setActiveInProgressMode('steer')"
-                >
-                  插话
-                </button>
-                <button
-                  class="thread-composer-attach-mode-button"
-                  :class="{ 'is-active': activeInProgressMode === 'queue' }"
-                  type="button"
-                  :disabled="isInteractionDisabled"
-                  @click="setActiveInProgressMode('queue')"
-                >
-                  排队
-                </button>
-              </div>
-            </div>
-            <div class="thread-composer-attach-separator" />
             <button
               v-if="isFastModeSupported"
               class="thread-composer-attach-setting"
@@ -206,7 +182,7 @@
           </div>
         </div>
 
-        <template v-if="!isDictationRecording">
+        <div v-if="!isDictationRecording" class="thread-composer-control-strip" aria-label="发送设置">
           <ComposerDropdown
             class="thread-composer-control"
             :model-value="selectedModel"
@@ -238,7 +214,7 @@
             :disabled="disabled || !activeThreadId || isTurnInProgress"
             @update:model-value="onReasoningEffortSelect"
           />
-        </template>
+        </div>
 
         <div
           class="thread-composer-actions"
@@ -287,12 +263,12 @@
           <button
             v-else
             class="thread-composer-submit"
-            :class="{ 'thread-composer-submit--queue': isTurnInProgress && activeInProgressMode === 'queue' }"
+            :class="{ 'thread-composer-submit--queue': isTurnInProgress }"
             type="button"
-            :aria-label="isTurnInProgress && activeInProgressMode === 'queue' ? '排队发送' : '发送消息'"
-            :title="isTurnInProgress ? `以${formatInProgressModeLabel(activeInProgressMode)}方式发送` : '发送'"
+            :aria-label="isTurnInProgress ? '加入消息队列' : '发送消息'"
+            :title="isTurnInProgress ? '加入消息队列，等待当前任务结束后按顺序执行' : '发送'"
             :disabled="!canSubmit"
-            @click="onSubmit(isTurnInProgress ? activeInProgressMode : 'steer')"
+            @click="onSubmit(resolveSubmitMode())"
           >
             <IconTablerArrowUp class="thread-composer-submit-icon" />
           </button>
@@ -361,7 +337,6 @@ const props = defineProps<{
   disabled?: boolean
   hasQueueAbove?: boolean
   sendWithEnter?: boolean
-  inProgressSubmitMode?: 'steer' | 'queue'
   dictationClickToToggle?: boolean
   prependDraftRequest?: { id: number; text: string } | null
   dictationAutoSend?: boolean
@@ -437,7 +412,7 @@ const {
     draft.value = draft.value ? `${draft.value}\n${text}` : text
     dictationFeedback.value = ''
     if (props.dictationAutoSend !== false) {
-      const mode = props.isTurnInProgress ? activeInProgressMode.value : 'steer'
+      const mode = resolveSubmitMode()
       onSubmit(mode, {
         rollbackLatestUserTurn: mode === 'steer' && dictationShouldRollbackLatestUserTurn,
       })
@@ -542,13 +517,6 @@ const speedModeDescription = computed(() => {
     ? '约 1.5 倍速度，额度消耗按 2 倍计算'
     : '默认速度，按正常额度消耗'
 })
-const inProgressMode = computed<'steer' | 'queue'>(() =>
-  props.inProgressSubmitMode === 'steer' ? 'steer' : 'queue',
-)
-const activeInProgressMode = ref<'steer' | 'queue'>(inProgressMode.value)
-function formatInProgressModeLabel(mode: 'steer' | 'queue'): string {
-  return mode === 'queue' ? '排队' : '插话'
-}
 const isDictationRecording = computed(() => dictationState.value === 'recording')
 const dictationButtonLabel = computed(() => {
   if (dictationState.value === 'recording') return '停止听写'
@@ -571,6 +539,10 @@ const hasSubmitContent = computed(() =>
   draft.value.trim().length > 0 || selectedImages.value.length > 0 || fileAttachments.value.length > 0,
 )
 
+function resolveSubmitMode(): 'steer' | 'queue' {
+  return props.isTurnInProgress ? 'queue' : 'steer'
+}
+
 function onSubmit(mode: 'steer' | 'queue' = 'steer', options?: { rollbackLatestUserTurn?: boolean }): void {
   const text = draft.value.trim()
   if (!canSubmit.value) return
@@ -589,10 +561,6 @@ function onSubmit(mode: 'steer' | 'queue' = 'steer', options?: { rollbackLatestU
     return
   }
   nextTick(() => inputRef.value?.focus())
-}
-
-function setActiveInProgressMode(mode: 'steer' | 'queue'): void {
-  activeInProgressMode.value = mode
 }
 
 function toRenderableImageUrl(value: string): string {
@@ -752,8 +720,7 @@ function onDictationToggle(): void {
     dictationFeedback.value = ''
   }
   if (dictationState.value === 'idle') {
-    dictationShouldRollbackLatestUserTurn =
-      props.isTurnInProgress === true && activeInProgressMode.value === 'steer'
+    dictationShouldRollbackLatestUserTurn = false
   }
   toggleRecording()
 }
@@ -774,8 +741,7 @@ function onDictationPressStart(event: PointerEvent): void {
   if (dictationFeedback.value) {
     dictationFeedback.value = ''
   }
-  dictationShouldRollbackLatestUserTurn =
-    props.isTurnInProgress === true && activeInProgressMode.value === 'steer'
+  dictationShouldRollbackLatestUserTurn = false
   window.addEventListener('pointerup', onDictationPressEnd)
   window.addEventListener('pointercancel', onDictationPressEnd)
   window.addEventListener('blur', onDictationPressEnd)
@@ -1016,7 +982,7 @@ function onInputKeydown(event: KeyboardEvent): void {
     : event.key === 'Enter' && (event.metaKey || event.ctrlKey)
   if (shouldSend) {
     event.preventDefault()
-    onSubmit(props.isTurnInProgress ? activeInProgressMode.value : 'steer')
+    onSubmit(resolveSubmitMode())
     return
   }
 
@@ -1234,13 +1200,6 @@ watch(
 )
 
 watch(
-  inProgressMode,
-  (nextMode) => {
-    activeInProgressMode.value = nextMode
-  },
-)
-
-watch(
   () => props.prependDraftRequest?.id,
   () => {
     const text = props.prependDraftRequest?.text?.trim() ?? ''
@@ -1260,7 +1219,7 @@ watch(
 }
 
 .thread-composer-shell {
-  @apply relative rounded-2xl border border-zinc-300 bg-white p-2 sm:p-3 shadow-sm;
+  @apply relative rounded-[24px] border border-[#ddd5c7] bg-[#fffdf8] p-2.5 sm:p-3 shadow-[0_10px_24px_-28px_rgba(31,41,55,0.18)];
 }
 
 .thread-composer-shell--no-top-radius {
@@ -1412,7 +1371,7 @@ watch(
 }
 
 .thread-composer-controls {
-  @apply relative mt-2 sm:mt-3 flex items-center gap-2 sm:gap-4 overflow-visible;
+  @apply relative mt-2 sm:mt-3 flex items-center gap-2 sm:gap-3 overflow-visible;
 }
 
 .thread-composer-controls--recording {
@@ -1424,7 +1383,7 @@ watch(
 }
 
 .thread-composer-attach-trigger {
-  @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-none border-0 bg-transparent text-xl leading-none text-zinc-700 transition hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400;
+  @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-transparent bg-transparent text-xl leading-none text-zinc-700 transition hover:border-[#e3dacb] hover:bg-[#f5f0e6] hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400;
 }
 
 .thread-composer-attach-menu {
@@ -1437,26 +1396,6 @@ watch(
 
 .thread-composer-attach-separator {
   @apply my-1 h-px bg-zinc-100;
-}
-
-.thread-composer-attach-mode {
-  @apply px-3 py-2 flex items-center justify-between gap-2;
-}
-
-.thread-composer-attach-mode-label {
-  @apply text-sm text-zinc-800;
-}
-
-.thread-composer-attach-mode-buttons {
-  @apply inline-flex items-center rounded-full border border-zinc-200 bg-white p-0.5;
-}
-
-.thread-composer-attach-mode-button {
-  @apply rounded-full border-0 bg-transparent px-2 py-1 text-xs text-zinc-600 transition hover:text-zinc-800 disabled:cursor-not-allowed disabled:text-zinc-400;
-}
-
-.thread-composer-attach-mode-button.is-active {
-  @apply bg-zinc-900 text-white hover:text-white;
 }
 
 .thread-composer-attach-setting {
@@ -1501,10 +1440,18 @@ watch(
 }
 
 .thread-composer-control {
-  @apply shrink-1 min-w-0;
+  @apply shrink min-w-0;
+}
+
+.thread-composer-control-strip {
+  @apply min-w-0 flex flex-1 items-center gap-2 sm:gap-3;
 }
 
 .thread-composer-control :deep(.composer-dropdown-value) {
+  @apply truncate;
+}
+
+.thread-composer-control :deep(.search-dropdown-value) {
   @apply truncate;
 }
 
@@ -1517,7 +1464,7 @@ watch(
 }
 
 .thread-composer-mic {
-  @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-0 bg-zinc-100 text-zinc-600 transition hover:bg-zinc-200 hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400;
+  @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#e2d8c8] bg-[#f7f3ea] text-zinc-600 transition hover:bg-[#efe8dc] hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400;
   touch-action: none;
 }
 
@@ -1546,11 +1493,11 @@ watch(
 }
 
 .thread-composer-submit {
-  @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-0 bg-zinc-900 text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500;
+  @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-0 bg-[#0d9488] text-white transition hover:bg-[#0f766e] disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500;
 }
 
 .thread-composer-submit--queue {
-  @apply bg-amber-600 hover:bg-amber-700;
+  @apply bg-[#ea580c] hover:bg-[#c2410c];
 }
 
 .thread-composer-submit-icon {
@@ -1558,7 +1505,7 @@ watch(
 }
 
 .thread-composer-stop {
-  @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-0 bg-zinc-900 text-white transition hover:bg-black disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500;
+  @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-0 bg-[#1f2937] text-white transition hover:bg-[#111827] disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500;
 }
 
 .thread-composer-stop-icon {
@@ -1567,5 +1514,77 @@ watch(
 
 .thread-composer-hidden-input {
   @apply hidden;
+}
+
+@media (max-width: 767px) {
+  .thread-composer {
+    @apply px-2.5;
+  }
+
+  .thread-composer-shell {
+    @apply rounded-[22px] px-3 py-2.5;
+  }
+
+  .thread-composer-input {
+    @apply min-h-11 py-2.5 text-[15px];
+  }
+
+  .thread-composer-controls {
+    @apply mt-2 items-center gap-2;
+    flex-wrap: nowrap;
+  }
+
+  .thread-composer-attach {
+    @apply shrink-0;
+  }
+
+  .thread-composer-control-strip {
+    @apply flex-1 gap-2 overflow-x-auto pr-1;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .thread-composer-control-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  .thread-composer-control {
+    flex: 0 0 auto;
+    min-width: 5.4rem;
+    max-width: 7rem;
+  }
+
+  .thread-composer-actions {
+    @apply ml-0 shrink-0 w-auto justify-end;
+  }
+
+  .thread-composer-attach-trigger,
+  .thread-composer-mic,
+  .thread-composer-submit,
+  .thread-composer-stop {
+    @apply h-10 w-10;
+  }
+
+  .thread-composer-attach-menu {
+    left: 0;
+    right: auto;
+    bottom: 3rem;
+    width: min(20rem, calc(100vw - 1.5rem));
+    max-width: min(20rem, calc(100vw - 1.5rem));
+  }
+
+  .thread-composer-control :deep(.composer-dropdown-trigger),
+  .thread-composer-control :deep(.search-dropdown-trigger) {
+    @apply h-10 rounded-2xl border border-[#e4dac9] bg-[#f7f3ea] px-3;
+  }
+
+  .thread-composer-control :deep(.composer-dropdown-trigger) {
+    min-width: 100%;
+  }
+
+  .thread-composer-control :deep(.search-dropdown-trigger) {
+    min-width: 100%;
+    justify-content: space-between;
+  }
 }
 </style>

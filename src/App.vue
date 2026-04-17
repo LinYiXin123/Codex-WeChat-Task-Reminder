@@ -1,4 +1,5 @@
 <template>
+  <a class="skip-to-content" href="#main-content">跳到主要内容</a>
   <DesktopLayout :is-sidebar-collapsed="isSidebarCollapsed" @close-sidebar="setSidebarCollapsed(true)">
     <template #sidebar>
       <section class="sidebar-root">
@@ -20,6 +21,16 @@
               @click="toggleSidebarSearch"
             >
               <IconTablerSearch class="sidebar-search-toggle-icon" />
+            </button>
+            <button
+              class="sidebar-toolbar-pill"
+              type="button"
+              :disabled="!hasUnreadThreads"
+              :aria-disabled="!hasUnreadThreads"
+              title="清除当前列表里的未读标记"
+              @click="onMarkAllThreadsRead"
+            >
+              全部已读
             </button>
           </SidebarThreadControls>
 
@@ -85,10 +96,6 @@
                 <span class="sidebar-settings-label">发送需按 ⌘ + Enter</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': !sendWithEnter }" />
               </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.inProgressSendMode" @click="cycleInProgressSendMode">
-                <span class="sidebar-settings-label">忙碌时发送方式</span>
-                <span class="sidebar-settings-value">{{ inProgressSendMode === 'steer' ? '插话' : '排队' }}</span>
-              </button>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.appearance" @click="cycleDarkMode">
                 <span class="sidebar-settings-label">外观</span>
                 <span class="sidebar-settings-value">{{ darkMode === 'system' ? '跟随系统' : darkMode === 'dark' ? '深色' : '浅色' }}</span>
@@ -126,6 +133,16 @@
                 <span class="sidebar-settings-label">Telegram</span>
                 <span class="sidebar-settings-value">{{ telegramStatusText }}</span>
               </button>
+              <button
+                class="sidebar-settings-row"
+                type="button"
+                :title="desktopRefreshButtonTitle"
+                :disabled="!isDesktopRefreshAvailable || isDesktopRefreshRunning"
+                @click="onRefreshDesktopApp"
+              >
+                <span class="sidebar-settings-label">刷新桌面端</span>
+                <span class="sidebar-settings-value">{{ desktopRefreshButtonLabel }}</span>
+              </button>
               <div class="sidebar-settings-rate-limits">
                 <RateLimitStatus :snapshots="accountRateLimitSnapshots" />
               </div>
@@ -143,7 +160,7 @@
     </template>
 
     <template #content>
-      <section class="content-root">
+      <section id="main-content" class="content-root" tabindex="-1">
         <ContentHeader :title="contentTitle">
           <template #subtitle>
             <p v-if="headerSubtitle" class="content-header-subtitle">{{ headerSubtitle }}</p>
@@ -157,20 +174,6 @@
               @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
               @start-new-thread="onStartNewThreadFromToolbar"
             />
-          </template>
-          <template #actions>
-            <button
-              v-if="isDesktopRefreshAvailable"
-              class="desktop-refresh-button"
-              type="button"
-              :title="desktopRefreshButtonTitle"
-              :disabled="isDesktopRefreshRunning"
-              :data-busy="isSelectedThreadInProgress || liveOverlay !== null"
-              @click="onRefreshDesktopApp"
-            >
-              <IconTablerArrowBackUp class="desktop-refresh-button-icon" />
-              <span>{{ desktopRefreshButtonLabel }}</span>
-            </button>
           </template>
           <template #meta>
             <div class="content-status-strip" aria-live="polite">
@@ -245,7 +248,7 @@
                 :is-updating-speed-mode="isUpdatingSpeedMode"
                 :skills="installedSkills"
                 :is-turn-in-progress="false"
-                :is-interrupting-turn="false" :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
+                :is-interrupting-turn="false" :send-with-enter="sendWithEnter"
                 :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
                 :prepend-draft-request="rollbackDraftPrependRequest"
                 :dictation-language="dictationLanguage"
@@ -275,8 +278,9 @@
               <div class="composer-with-queue">
                 <QueuedMessages
                   :messages="selectedThreadQueuedMessages"
+                  :is-processing="selectedThreadQueueProcessing"
                   @edit="onEditQueuedMessage"
-                  @steer="steerQueuedMessage"
+                  @quote="quoteQueuedMessage"
                   @delete="removeQueuedMessage"
                 />
                 <ThreadComposer ref="threadComposerRef" :active-thread-id="composerThreadContextId"
@@ -289,7 +293,7 @@
                   :skills="installedSkills"
                   :is-turn-in-progress="isSelectedThreadInProgress" :is-interrupting-turn="isInterruptingTurn"
                   :has-queue-above="selectedThreadQueuedMessages.length > 0"
-                  :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
+                  :send-with-enter="sendWithEnter"
                   :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
                   :prepend-draft-request="rollbackDraftPrependRequest"
                   :dictation-language="dictationLanguage"
@@ -348,7 +352,6 @@ import ThreadComposer from './components/content/ThreadComposer.vue'
 import QueuedMessages from './components/content/QueuedMessages.vue'
 import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
-import IconTablerArrowBackUp from './components/icons/IconTablerArrowBackUp.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
@@ -383,7 +386,6 @@ const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
 const SETTINGS_HELP = {
   sendWithEnter: '开启后直接按 Enter 发送，关闭后使用 Command + Enter 发送。',
-  inProgressSendMode: '当前会话仍在执行时，选择新输入是插话还是排队。',
   appearance: '在跟随系统、浅色和深色之间切换。',
   dictationClickToToggle: '改为点击开始、点击结束听写，而不是按住说话。',
   dictationAutoSend: '录音结束后自动发送转写内容。',
@@ -534,8 +536,10 @@ const {
   isRollingBack,
   selectedThreadExecutionActive,
   selectedThreadQueuedMessages,
+  selectedThreadQueueProcessing,
   removeQueuedMessage,
-  steerQueuedMessage,
+  quoteQueuedMessage,
+  markAllThreadsAsRead,
   setSelectedModelId,
   setWorktreeGitAutomationEnabled,
   setSelectedReasoningEffort,
@@ -581,7 +585,6 @@ const defaultNewProjectName = ref('New Project (1)')
 const homeDirectory = ref('')
 const isSettingsOpen = ref(false)
 const SEND_WITH_ENTER_KEY = 'codex-web-local.send-with-enter.v1'
-const IN_PROGRESS_SEND_MODE_KEY = 'codex-web-local.in-progress-send-mode.v1'
 const DARK_MODE_KEY = 'codex-web-local.dark-mode.v1'
 const DICTATION_CLICK_TO_TOGGLE_KEY = 'codex-web-local.dictation-click-to-toggle.v1'
 const DICTATION_AUTO_SEND_KEY = 'codex-web-local.dictation-auto-send.v1'
@@ -589,7 +592,6 @@ const DICTATION_LANGUAGE_KEY = 'codex-web-local.dictation-language.v1'
 const WORKTREE_GIT_AUTOMATION_KEY = 'codex-web-local.worktree-git-automation.v1'
 const GITHUB_TRENDING_PROJECTS_KEY = 'codex-web-local.github-trending-projects.v1'
 const sendWithEnter = ref(loadBoolPref(SEND_WITH_ENTER_KEY, true))
-const inProgressSendMode = ref<'steer' | 'queue'>(loadInProgressSendModePref())
 const darkMode = ref<'system' | 'light' | 'dark'>(loadDarkModePref())
 const dictationClickToToggle = ref(loadBoolPref(DICTATION_CLICK_TO_TOGGLE_KEY, false))
 const rollbackDraftPrependRequest = ref<{ id: number; text: string } | null>(null)
@@ -720,6 +722,7 @@ const filteredMessages = computed(() =>
   messages.value.filter((message) => {
     const type = normalizeMessageType(message.messageType, message.role)
     if (type === 'worked') return true
+    if (type === 'commandExecution') return message.commandExecution?.status === 'inProgress'
     if (type === 'turnActivity.live' || type === 'turnError.live' || type === 'agentReasoning.live') return false
     return true
   }),
@@ -830,6 +833,9 @@ const desktopRefreshButtonTitle = computed(() => {
 const desktopRefreshButtonLabel = computed(() => (
   isDesktopRefreshRunning.value ? '刷新中...' : '刷新桌面端'
 ))
+const hasUnreadThreads = computed(() =>
+  projectGroups.value.some((group) => group.threads.some((thread) => thread.unread)),
+)
 const isDesktopRefreshRiskHigh = computed(() => (
   selectedThread.value?.inProgress === true || selectedLiveOverlay.value !== null
 ))
@@ -976,6 +982,10 @@ watch(isSettingsOpen, (open) => {
 
 function onSkillsChanged(): void {
   void refreshSkills()
+}
+
+function onMarkAllThreadsRead(): void {
+  markAllThreadsAsRead()
 }
 
 async function refreshTelegramStatus(): Promise<void> {
@@ -1627,20 +1637,9 @@ function loadDarkModePref(): 'system' | 'light' | 'dark' {
   return 'system'
 }
 
-function loadInProgressSendModePref(): 'steer' | 'queue' {
-  if (typeof window === 'undefined') return 'steer'
-  const v = window.localStorage.getItem(IN_PROGRESS_SEND_MODE_KEY)
-  return v === 'queue' ? 'queue' : 'steer'
-}
-
 function toggleSendWithEnter(): void {
   sendWithEnter.value = !sendWithEnter.value
   window.localStorage.setItem(SEND_WITH_ENTER_KEY, sendWithEnter.value ? '1' : '0')
-}
-
-function cycleInProgressSendMode(): void {
-  inProgressSendMode.value = inProgressSendMode.value === 'steer' ? 'queue' : 'steer'
-  window.localStorage.setItem(IN_PROGRESS_SEND_MODE_KEY, inProgressSendMode.value)
 }
 
 function cycleDarkMode(): void {
@@ -2015,13 +2014,34 @@ async function submitFirstMessageForNewThread(
   @apply h-full flex flex-col select-none;
 }
 
+.skip-to-content {
+  position: fixed;
+  left: 1rem;
+  top: 0.75rem;
+  z-index: 80;
+  transform: translateY(-160%);
+  border-radius: 9999px;
+  border: 1px solid #99f6e4;
+  background: #f0fdfa;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #134e4a;
+  text-decoration: none;
+  transition: transform 140ms ease;
+}
+
+.skip-to-content:focus-visible {
+  transform: translateY(0);
+}
+
 .sidebar-root input,
 .sidebar-root textarea {
   @apply select-text;
 }
 
 .sidebar-scrollable {
-  @apply flex-1 min-h-0 overflow-y-auto py-4 px-2 flex flex-col gap-2;
+  @apply flex-1 min-h-0 overflow-y-auto py-3 px-2.5 flex flex-col gap-2;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }
@@ -2029,7 +2049,8 @@ async function submitFirstMessageForNewThread(
 .content-root {
   @apply h-full min-h-0 w-full flex flex-col overflow-y-hidden overflow-x-visible;
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.78) 0%, rgba(252,249,242,0.98) 100%);
+    radial-gradient(circle at top right, rgba(13, 148, 136, 0.035), transparent 24%),
+    linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(250,247,240,0.98) 100%);
 }
 
 .sidebar-thread-controls-host {
@@ -2048,8 +2069,22 @@ async function submitFirstMessageForNewThread(
   @apply w-4 h-4;
 }
 
+.sidebar-toolbar-pill {
+  @apply h-7 rounded-xl border border-[#ddd5c7] bg-[#fffdf8] px-2.5 text-[11px] font-medium text-[#5f5548] transition-colors duration-100;
+}
+
+.sidebar-toolbar-pill:hover,
+.sidebar-toolbar-pill:focus-visible {
+  @apply border-[#cec2ad] bg-[#f7f1e5] text-[#2d261f];
+}
+
+.sidebar-toolbar-pill:disabled {
+  @apply cursor-not-allowed border-[#ece4d6] bg-[#faf6ef] text-[#b1a89b];
+}
+
 .sidebar-search-bar {
-  @apply sticky top-0 z-10 flex items-center gap-1.5 mx-2 px-2.5 py-2 rounded-2xl border border-[#ddd5c7] bg-[#fffcf7]/95 transition-colors backdrop-blur focus-within:border-[#b8a98d];
+  @apply sticky top-0 z-10 flex items-center gap-1.5 mx-2 px-3 py-2 rounded-2xl border border-[#e6dccb] bg-[#fffdf8] transition-colors;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.56);
 }
 
 .sidebar-search-bar-icon {
@@ -2073,7 +2108,7 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-skills-link {
-  @apply mx-2 flex items-center rounded-2xl border border-transparent bg-transparent px-3 py-2 text-sm text-[#5b5146] transition-colors duration-100 hover:bg-[#ece4d6] hover:text-[#2d261f] cursor-pointer;
+  @apply mx-2 flex items-center justify-center rounded-2xl border border-[#e8decd] bg-[#fffdf8] px-3 py-2.5 text-sm text-[#5b5146] transition-[background-color,border-color,color,transform] duration-150 cursor-pointer;
 }
 
 .sidebar-explore-nav .sidebar-skills-link {
@@ -2081,7 +2116,12 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-skills-link.is-active {
-  @apply border-[#d5c8b6] bg-[#ece4d6] text-[#1f2937] font-medium;
+  @apply border-[#99f6e4] bg-[#f0fdfa] text-[#134e4a] font-medium;
+}
+
+.sidebar-skills-link:hover,
+.sidebar-skills-link:focus-visible {
+  @apply bg-[#f7f4ed] text-[#2d261f];
 }
 
 .sidebar-thread-controls-header-host {
@@ -2089,7 +2129,7 @@ async function submitFirstMessageForNewThread(
 }
 
 .desktop-refresh-button {
-  @apply inline-flex items-center gap-1 rounded-full border border-[#d6c9b6] bg-[#fffdf8] px-2.5 py-1 text-[11px] font-semibold text-[#544a3d] transition-colors duration-100 hover:border-[#bca98d] hover:bg-[#f7f1e5] hover:text-[#1f2937] disabled:cursor-not-allowed disabled:opacity-60;
+  @apply inline-flex items-center gap-1.5 rounded-full border border-[#ddd3c2] bg-[#fffdf8] px-3 py-1.5 text-[11px] font-semibold text-[#544a3d] transition-[background-color,border-color,color] duration-150 hover:border-[#c8b9a2] hover:bg-[#f6f2ea] hover:text-[#1f2937] disabled:cursor-not-allowed disabled:opacity-60;
 }
 
 .desktop-refresh-button[data-busy='true'] {
@@ -2114,7 +2154,7 @@ async function submitFirstMessageForNewThread(
 }
 
 .content-status-pill {
-  @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-medium;
+  @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium;
 }
 
 .content-status-pill-label {
@@ -2147,23 +2187,26 @@ async function submitFirstMessageForNewThread(
 }
 
 .content-grid {
-  @apply flex-1 min-h-0 flex flex-col gap-3;
+  @apply flex-1 min-h-0 flex flex-col gap-2;
 }
 
 .content-thread {
-  @apply flex-1 min-h-0;
+  @apply flex-1 min-h-0 overflow-hidden;
 }
 
 .composer-with-queue {
-  @apply w-full;
+  @apply w-full sticky bottom-0 z-10 pt-2;
+  background:
+    linear-gradient(180deg, rgba(250,247,240,0) 0%, rgba(250,247,240,0.9) 22%, rgba(250,247,240,0.98) 100%);
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
 }
 
 .new-thread-empty {
-  @apply flex-1 min-h-0 flex flex-col items-center justify-center gap-1 px-3 sm:px-6;
+  @apply flex-1 min-h-0 flex flex-col items-center justify-center gap-1.5 px-3 sm:px-6;
 }
 
 .new-thread-hero {
-  @apply m-0 text-2xl sm:text-[2.5rem] font-semibold leading-[1.05] text-[#1f2937];
+  @apply m-0 text-[1.8rem] sm:text-[2.5rem] font-semibold leading-[1.04] text-[#1f2937];
 }
 
 .new-thread-folder-dropdown {
@@ -2272,7 +2315,7 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-settings-area {
-  @apply shrink-0 pt-2 px-2 pb-2 border-t border-[#ddd5c7] bg-[#f4efe6]/90;
+  @apply shrink-0 pt-2 px-2 pb-2 border-t border-[#e6dccb] bg-[#f7f4ed];
 }
 
 .sidebar-settings-button {
@@ -2284,11 +2327,15 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-settings-panel {
-  @apply mb-1 rounded-3xl border border-[#ddd5c7] bg-[#fffdf8] overflow-hidden;
+  @apply mb-1 rounded-[24px] border border-[#e5dbca] bg-[#fffdf8] overflow-hidden;
 }
 
 .sidebar-settings-row {
-  @apply flex items-center justify-between w-full px-3 py-2.5 text-sm text-[#544a3d] border-0 bg-transparent transition-colors duration-100 hover:bg-[#f7f1e5] cursor-pointer;
+  @apply flex items-center justify-between w-full px-3 py-2.5 text-sm text-[#544a3d] border-0 bg-transparent transition-colors duration-150 hover:bg-[#f7f4ed] cursor-pointer;
+}
+
+.sidebar-settings-row:disabled {
+  @apply cursor-not-allowed text-[#b1a89b] hover:bg-transparent;
 }
 
 .sidebar-settings-row--select {
@@ -2352,6 +2399,52 @@ async function submitFirstMessageForNewThread(
 
 .sidebar-settings-build-label {
   @apply border-t border-[#f1eadf] px-3 py-2 text-[11px] text-[#8f8577];
+}
+
+@media (max-width: 767px) {
+  .sidebar-scrollable {
+    @apply gap-1.5 px-1.5 pt-3 pb-2;
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+
+  .sidebar-settings-area {
+    @apply px-1.5 pt-1.5;
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  .sidebar-thread-controls-host {
+    @apply px-1.5;
+  }
+
+  .sidebar-search-bar,
+  .sidebar-skills-link {
+    @apply mx-1.5;
+  }
+
+  .content-body {
+    @apply gap-1.5;
+  }
+
+  .content-grid {
+    @apply gap-1.5;
+  }
+
+  .composer-with-queue {
+    @apply pt-1.5;
+    background:
+      linear-gradient(180deg, rgba(250,247,240,0) 0%, rgba(250,247,240,0.94) 26%, rgba(250,247,240,1) 100%);
+  }
+
+  .new-thread-empty {
+    @apply px-4;
+  }
+
+  .skip-to-content {
+    left: 0.75rem;
+    right: 0.75rem;
+    top: max(0.5rem, env(safe-area-inset-top));
+    text-align: center;
+  }
 }
 
 .desktop-refresh-confirm-overlay {

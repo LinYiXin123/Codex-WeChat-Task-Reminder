@@ -50,7 +50,21 @@ defineEmits<{
 }
 
 .sidebar-thread-controls-button {
-  @apply h-6.75 w-6.75 rounded-md border border-transparent bg-transparent text-zinc-600 flex items-center justify-center transition hover:border-zinc-200 hover:bg-zinc-50;
+  @apply h-9 w-9 rounded-2xl border border-[#e4dac9] bg-[#fffdf8] text-[#6b6255] flex items-center justify-center transition;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+  box-shadow: 0 8px 18px -22px rgba(31, 41, 55, 0.16);
+}
+
+.sidebar-thread-controls-button:hover,
+.sidebar-thread-controls-button:focus-visible {
+  @apply border-[#cdbfa8] bg-[#f7f1e5] text-[#2d261f];
+}
+
+.sidebar-thread-controls-button:active {
+  transform: scale(0.98);
 }
 
 .sidebar-thread-controls-icon {
