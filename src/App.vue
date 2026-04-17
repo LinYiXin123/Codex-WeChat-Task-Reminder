@@ -1068,8 +1068,12 @@ function onSidebarSearchKeydown(event: KeyboardEvent): void {
 
 function onSelectThread(threadId: string): void {
   if (!threadId) return
-  if (route.name === 'thread' && routeThreadId.value === threadId) return
-  void router.push({ name: 'thread', params: { threadId } })
+  if (selectedThreadId.value !== threadId) {
+    void selectThread(threadId)
+  }
+  if (route.name !== 'thread') {
+    void router.push({ name: 'thread', params: { threadId } })
+  }
   if (isMobile.value) setSidebarCollapsed(true)
 }
 
@@ -1806,7 +1810,7 @@ async function syncThreadSelectionWithRoute(): Promise<void> {
       }
 
       if (selectedThreadId.value !== threadId) {
-        await selectThread(threadId)
+        void selectThread(threadId)
         rememberRoutableThreadId(threadId)
       }
       return
@@ -1824,7 +1828,6 @@ watch(
       routeThreadId.value,
       isLoadingThreads.value,
       routableThreadIdSet.value.has(routeThreadId.value),
-      selectedThreadId.value,
     ] as const,
   async () => {
     if (!hasInitialized.value) return

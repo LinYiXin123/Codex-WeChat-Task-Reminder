@@ -829,6 +829,8 @@ export function useDesktopState() {
   let liveDeltaFlushTimer: number | null = null
   let eventSyncTimer: number | null = null
   let syncAbortController: AbortController | null = null
+  let threadSelectionAbortController: AbortController | null = null
+  let foregroundMessageLoadId = 0
   let rateLimitRefreshTimer: number | null = null
   let rateLimitRefreshPromise: Promise<void> | null = null
   let hasRateLimitTrackingEnabled = false
@@ -3110,6 +3112,7 @@ export function useDesktopState() {
 
     const alreadyLoaded = loadedMessagesByThreadId.value[threadId] === true
     const shouldShowLoading = options.silent !== true && !alreadyLoaded
+    const loadId = shouldShowLoading ? ++foregroundMessageLoadId : 0
     if (shouldShowLoading) {
       isLoadingMessages.value = true
     }
@@ -3200,7 +3203,7 @@ export function useDesktopState() {
       }
       throw error
     } finally {
-      if (shouldShowLoading) {
+      if (shouldShowLoading && foregroundMessageLoadId === loadId) {
         isLoadingMessages.value = false
       }
     }
@@ -3236,16 +3239,34 @@ export function useDesktopState() {
   }
 
   async function selectThread(threadId: string) {
-    setSelectedThreadId(threadId)
+    const normalizedThreadId = threadId.trim()
+    setSelectedThreadId(normalizedThreadId)
+
+    threadSelectionAbortController?.abort()
+    threadSelectionAbortController = null
+
+    if (!normalizedThreadId) {
+      isLoadingMessages.value = false
+      return
+    }
+
+    const abortController = new AbortController()
+    threadSelectionAbortController = abortController
 
     try {
-      await loadMessages(threadId)
+      await loadMessages(normalizedThreadId, { signal: abortController.signal })
+      if (threadSelectionAbortController !== abortController) return
       void refreshSkills()
-      if (threadId && isThreadExecutionActive(threadId)) {
+      if (normalizedThreadId && isThreadExecutionActive(normalizedThreadId)) {
         markActiveSyncBoost()
       }
     } catch (unknownError) {
+      if (isAbortLikeError(unknownError)) return
       error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+    } finally {
+      if (threadSelectionAbortController === abortController) {
+        threadSelectionAbortController = null
+      }
     }
   }
 
