@@ -7,7 +7,7 @@
     <div class="thread-composer-shell" :class="{ 'thread-composer-shell--no-top-radius': hasQueueAbove }">
       <div v-if="selectedImages.length > 0" class="thread-composer-attachments">
         <div v-for="image in selectedImages" :key="image.id" class="thread-composer-attachment">
-          <img class="thread-composer-attachment-image" :src="image.url" :alt="image.name || '已选图片'" />
+          <img class="thread-composer-attachment-image" :src="image.previewUrl" :alt="image.name || '已选图片'" />
           <button
             class="thread-composer-attachment-remove"
             type="button"
@@ -403,6 +403,7 @@ type SelectedImage = {
   id: string
   name: string
   url: string
+  previewUrl: string
 }
 
 type FolderUploadGroup = {
@@ -594,6 +595,27 @@ function setActiveInProgressMode(mode: 'steer' | 'queue'): void {
   activeInProgressMode.value = mode
 }
 
+function toRenderableImageUrl(value: string): string {
+  const normalized = value.trim()
+  if (!normalized) return ''
+  if (
+    normalized.startsWith('data:') ||
+    normalized.startsWith('blob:') ||
+    normalized.startsWith('http://') ||
+    normalized.startsWith('https://') ||
+    normalized.startsWith('/codex-local-image?')
+  ) {
+    return normalized
+  }
+  if (normalized.startsWith('file://')) {
+    return `/codex-local-image?path=${encodeURIComponent(normalized)}`
+  }
+  if (normalized.startsWith('/') || /^[A-Za-z]:[\\/]/u.test(normalized)) {
+    return `/codex-local-image?path=${encodeURIComponent(normalized)}`
+  }
+  return normalized
+}
+
 function replaceDraftState(payload: ComposerDraftPayload): void {
   draftGeneration.value += 1
   draft.value = payload.text
@@ -601,6 +623,7 @@ function replaceDraftState(payload: ComposerDraftPayload): void {
     id: `queued-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`,
     name: `图片 ${index + 1}`,
     url,
+    previewUrl: toRenderableImageUrl(url),
   }))
   selectedSkills.value = payload.skills.map((skill) => (
     (props.skills ?? []).find((item) => item.path === skill.path)
@@ -824,22 +847,40 @@ function isImageFile(file: File): boolean {
   return /\.(png|jpe?g|gif|webp)$/i.test(file.name)
 }
 
+function appendSelectedImage(name: string, url: string): void {
+  selectedImages.value.push({
+    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    name,
+    url,
+    previewUrl: toRenderableImageUrl(url),
+  })
+}
+
+function appendImageFromReader(file: File, generation: number): void {
+  const reader = new FileReader()
+  reader.onload = () => {
+    if (generation !== draftGeneration.value) return
+    if (typeof reader.result !== 'string') return
+    appendSelectedImage(file.name, reader.result)
+  }
+  reader.readAsDataURL(file)
+}
+
 function addFiles(files: FileList | null): void {
   if (!files || files.length === 0) return
   const generation = draftGeneration.value
   for (const file of Array.from(files)) {
     if (isImageFile(file)) {
-      const reader = new FileReader()
-      reader.onload = () => {
+      void uploadFile(file).then((serverPath) => {
         if (generation !== draftGeneration.value) return
-        if (typeof reader.result !== 'string') return
-        selectedImages.value.push({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          name: file.name,
-          url: reader.result,
-        })
-      }
-      reader.readAsDataURL(file)
+        if (serverPath) {
+          appendSelectedImage(file.name, serverPath)
+          return
+        }
+        appendImageFromReader(file, generation)
+      }).catch(() => {
+        appendImageFromReader(file, generation)
+      })
     } else {
       void uploadFile(file).then((serverPath) => {
         if (generation !== draftGeneration.value) return

@@ -16,12 +16,20 @@
       </span>
     </div>
 
-    <p
+    <div
       v-else-if="!hasRenderableConversation"
-      class="conversation-empty"
+      class="conversation-empty-state"
     >
-      当前会话还没有消息。
-    </p>
+      <p class="conversation-empty">当前会话还没有消息。</p>
+      <div v-if="showEmptyThreadActions" class="conversation-empty-actions">
+        <button type="button" class="conversation-empty-action conversation-empty-action-primary" @click="emit('returnToNewThread')">
+          返回新会话
+        </button>
+        <button type="button" class="conversation-empty-action" @click="emit('dismissEmptyThread')">
+          移除此空会话
+        </button>
+      </div>
+    </div>
 
     <template v-else>
       <div v-if="showInlineLoading" class="conversation-inline-loading" aria-live="polite">
@@ -686,12 +694,15 @@ const props = defineProps<{
   scrollState: ThreadScrollState | null
   isTurnInProgress?: boolean
   isRollingBack?: boolean
+  showEmptyThreadActions?: boolean
 }>()
 
 const emit = defineEmits<{
   updateScrollState: [payload: { threadId: string; state: ThreadScrollState }]
   respondServerRequest: [payload: { id: number; result?: unknown; error?: { code?: number; message: string } }]
   rollback: [payload: { turnIndex: number; prependText?: string }]
+  returnToNewThread: []
+  dismissEmptyThread: []
 }>()
 
 const conversationListRef = ref<HTMLElement | null>(null)
@@ -2688,8 +2699,32 @@ onBeforeUnmount(() => {
   width: 48%;
 }
 
+.conversation-empty-state {
+  @apply flex flex-col items-start gap-3 px-2 sm:px-5 py-2.5;
+}
+
 .conversation-empty {
-  @apply m-0 px-2 sm:px-5 py-2.5 text-sm text-[#8f8577];
+  @apply m-0 text-sm text-[#8f8577];
+}
+
+.conversation-empty-actions {
+  @apply flex flex-wrap items-center gap-2;
+}
+
+.conversation-empty-action {
+  @apply inline-flex items-center justify-center rounded-full border border-[#d9d1c5] bg-[#fffaf2] px-3.5 py-1.5 text-xs font-medium text-[#6d5f4f] transition-colors;
+}
+
+.conversation-empty-action:hover {
+  @apply border-[#c8bca9] bg-[#f7efe2];
+}
+
+.conversation-empty-action-primary {
+  @apply border-[#d7c27a] bg-[#f8efd2] text-[#725b12];
+}
+
+.conversation-empty-action-primary:hover {
+  @apply border-[#c7af5d] bg-[#f2e4b6];
 }
 
 .conversation-inline-loading {

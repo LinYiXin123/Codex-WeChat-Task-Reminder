@@ -72,6 +72,15 @@ type AppServerHealth = {
   pendingServerRequestCount: number
 }
 
+type ThreadRuntimeSnapshot = {
+  threadId: string
+  inProgress: boolean
+  activeTurnId: string
+  updatedAtIso: string
+  threadRead: unknown
+  pendingServerRequests: PendingServerRequest[]
+}
+
 type ThreadSearchDocument = {
   id: string
   title: string
@@ -146,6 +155,59 @@ function getErrorMessage(payload: unknown, fallback: string): string {
   }
 
   return fallback
+}
+
+function toIsoFromUnixSeconds(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? new Date(value * 1000).toISOString()
+    : ''
+}
+
+function readTurnsFromThreadReadPayload(payload: unknown): Record<string, unknown>[] {
+  const root = asRecord(payload)
+  const thread = asRecord(root?.thread)
+  const turns = Array.isArray(thread?.turns) ? thread.turns : []
+  return turns
+    .map((turn) => asRecord(turn))
+    .filter((turn): turn is Record<string, unknown> => turn !== null)
+}
+
+function isTurnInProgress(turn: Record<string, unknown> | null | undefined): boolean {
+  return turn?.status === 'inProgress'
+}
+
+function readActiveTurnIdFromThreadReadPayload(payload: unknown): string {
+  const turns = readTurnsFromThreadReadPayload(payload)
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index]
+    const turnId = typeof turn.id === 'string' ? turn.id.trim() : ''
+    if (turnId && isTurnInProgress(turn)) {
+      return turnId
+    }
+  }
+  return ''
+}
+
+function readThreadInProgressFromThreadReadPayload(payload: unknown): boolean {
+  const turns = readTurnsFromThreadReadPayload(payload)
+  return isTurnInProgress(turns.at(-1))
+}
+
+function readThreadUpdatedAtIsoFromThreadReadPayload(payload: unknown): string {
+  const root = asRecord(payload)
+  const thread = asRecord(root?.thread)
+  return toIsoFromUnixSeconds(thread?.updatedAt)
+}
+
+function isThreadMaterializingError(error: unknown): boolean {
+  const message = getErrorMessage(error, '').toLowerCase()
+  if (!message) return false
+  return (
+    message.includes('is not materialized yet') ||
+    message.includes('includeturns is unavailable before first user message') ||
+    message.includes('no rollout found for thread id') ||
+    (message.includes('rollout') && message.includes('is empty'))
+  )
 }
 
 function writeBridgeLog(level: 'warn' | 'error', message: string, details: Record<string, unknown> = {}): void {
@@ -1458,6 +1520,14 @@ class AppServerProcess {
     return Array.from(this.pendingServerRequests.values())
   }
 
+  listPendingServerRequestsForThread(threadId: string): PendingServerRequest[] {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) return []
+    return this.listPendingServerRequests().filter((request) => (
+      this.readServerRequestThreadId(request.params) === normalizedThreadId
+    ))
+  }
+
   getStatus(): AppServerHealth {
     return {
       running: this.process !== null,
@@ -1763,6 +1833,34 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       logBridgeError('Telegram bridge startup failed', error)
     })
 
+  async function readThreadRuntimeSnapshot(threadId: string): Promise<ThreadRuntimeSnapshot> {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) {
+      throw new Error('Missing thread id')
+    }
+
+    let threadRead: unknown = null
+    try {
+      const rawThreadRead = await appServer.rpc('thread/read', {
+        threadId: normalizedThreadId,
+        includeTurns: true,
+      })
+      threadRead = trimThreadTurnsInRpcResult('thread/read', rawThreadRead)
+    } catch (error) {
+      if (!isThreadMaterializingError(error)) {
+        throw error
+      }
+    }
+    return {
+      threadId: normalizedThreadId,
+      inProgress: threadRead ? readThreadInProgressFromThreadReadPayload(threadRead) : false,
+      activeTurnId: threadRead ? readActiveTurnIdFromThreadReadPayload(threadRead) : '',
+      updatedAtIso: threadRead ? readThreadUpdatedAtIsoFromThreadReadPayload(threadRead) : '',
+      threadRead,
+      pendingServerRequests: appServer.listPendingServerRequestsForThread(normalizedThreadId),
+    }
+  }
+
   const middleware = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     try {
       if (!req.url) {
@@ -1790,7 +1888,19 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           return
         }
 
-        const rpcResult = await appServer.rpc(body.method, body.params ?? null)
+        let rpcResult: unknown
+        try {
+          rpcResult = await appServer.rpc(body.method, body.params ?? null)
+        } catch (error) {
+          if (
+            (body.method === 'thread/resume' || body.method === 'thread/archive')
+            && isThreadMaterializingError(error)
+          ) {
+            setJson(res, 200, { result: null })
+            return
+          }
+          throw error
+        }
         const result = trimThreadTurnsInRpcResult(body.method, rpcResult)
         setJson(res, 200, { result })
         return
@@ -1822,6 +1932,19 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
       if (req.method === 'GET' && url.pathname === '/codex-api/server-requests/pending') {
         setJson(res, 200, { data: appServer.listPendingServerRequests() })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname.startsWith('/codex-api/state/thread/')) {
+        const encodedThreadId = url.pathname.slice('/codex-api/state/thread/'.length)
+        const threadId = decodeURIComponent(encodedThreadId).trim()
+        if (!threadId) {
+          setJson(res, 400, { error: 'Missing thread id' })
+          return
+        }
+
+        const snapshot = await readThreadRuntimeSnapshot(threadId)
+        setJson(res, 200, { data: snapshot })
         return
       }
 

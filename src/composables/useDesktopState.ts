@@ -10,6 +10,7 @@ import {
   getPendingServerRequests,
   getSkillsList,
   getThreadDetail,
+  getThreadRuntimeSnapshot,
   interruptThreadTurn,
   replyToServerRequest,
   rollbackThread,
@@ -90,6 +91,7 @@ const SELECTED_THREAD_STORAGE_KEY = 'codex-web-local.selected-thread-id.v1'
 const SELECTED_MODEL_STORAGE_KEY = 'codex-web-local.selected-model-id.v1'
 const PROJECT_ORDER_STORAGE_KEY = 'codex-web-local.project-order.v1'
 const PROJECT_DISPLAY_NAME_STORAGE_KEY = 'codex-web-local.project-display-name.v1'
+const HIDDEN_THREAD_IDS_STORAGE_KEY = 'codex-web-local.hidden-thread-ids.v1'
 const EVENT_SYNC_DEBOUNCE_MS = 220
 const BACKGROUND_SYNC_INTERVAL_MS = 4000
 const ACTIVE_THREAD_DETAIL_SYNC_INTERVAL_MS = 4000
@@ -307,6 +309,25 @@ function loadProjectDisplayNames(): Record<string, string> {
 function saveProjectDisplayNames(displayNames: Record<string, string>): void {
   if (typeof window === 'undefined') return
   window.localStorage.setItem(PROJECT_DISPLAY_NAME_STORAGE_KEY, JSON.stringify(displayNames))
+}
+
+function loadHiddenThreadIds(): string[] {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const raw = window.localStorage.getItem(HIDDEN_THREAD_IDS_STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+  } catch {
+    return []
+  }
+}
+
+function saveHiddenThreadIds(threadIds: string[]): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(HIDDEN_THREAD_IDS_STORAGE_KEY, JSON.stringify(threadIds))
 }
 
 function mergeProjectOrder(previousOrder: string[], incomingGroups: UiProjectGroup[]): string[] {
@@ -770,6 +791,7 @@ export function useDesktopState() {
   const scrollStateByThreadId = ref<Record<string, ThreadScrollState>>(loadThreadScrollStateMap())
   const projectOrder = ref<string[]>(loadProjectOrder())
   const projectDisplayNameById = ref<Record<string, string>>(loadProjectDisplayNames())
+  const hiddenThreadIds = ref<string[]>(loadHiddenThreadIds())
   const loadedVersionByThreadId = ref<Record<string, string>>({})
   const loadedMessagesByThreadId = ref<Record<string, boolean>>({})
   const lastThreadDetailSyncAtById = ref<Record<string, number>>({})
@@ -809,6 +831,7 @@ export function useDesktopState() {
   let syncAbortController: AbortController | null = null
   let rateLimitRefreshTimer: number | null = null
   let rateLimitRefreshPromise: Promise<void> | null = null
+  let hasRateLimitTrackingEnabled = false
   let lastNotificationAtMs = Date.now()
   let lastThreadListSyncAtMs = 0
   let activeSyncBoostUntilMs = 0
@@ -1185,6 +1208,7 @@ export function useDesktopState() {
   }
 
   async function refreshRateLimits(): Promise<void> {
+    hasRateLimitTrackingEnabled = true
     if (rateLimitRefreshPromise) {
       await rateLimitRefreshPromise
       return
@@ -1204,6 +1228,10 @@ export function useDesktopState() {
   }
 
   function scheduleRateLimitRefresh(): void {
+    if (!hasRateLimitTrackingEnabled) {
+      return
+    }
+
     if (typeof window === 'undefined') {
       void refreshRateLimits()
       return
@@ -1298,6 +1326,36 @@ export function useDesktopState() {
       saveProjectOrder(projectOrder.value)
     }
     applyThreadFlags()
+  }
+
+  function removeThreadFromSourceGroups(threadId: string): UiThread[] {
+    const nextGroups = sourceGroups.value
+      .map((group) => ({
+        projectName: group.projectName,
+        threads: group.threads.filter((thread) => thread.id !== threadId),
+      }))
+      .filter((group) => group.threads.length > 0)
+
+    sourceGroups.value = nextGroups
+    applyThreadFlags()
+    const flatThreads = flattenThreads(projectGroups.value)
+    pruneThreadScopedState(flatThreads)
+    return flatThreads
+  }
+
+  function hideThreadLocally(threadId: string): void {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId) return
+
+    if (!hiddenThreadIds.value.includes(normalizedThreadId)) {
+      hiddenThreadIds.value = [...hiddenThreadIds.value, normalizedThreadId]
+      saveHiddenThreadIds(hiddenThreadIds.value)
+    }
+
+    const flatThreads = removeThreadFromSourceGroups(normalizedThreadId)
+    if (selectedThreadId.value === normalizedThreadId) {
+      setSelectedThreadId(flatThreads[0]?.id ?? '')
+    }
   }
 
   function pruneThreadScopedState(flatThreads: UiThread[]): void {
@@ -1448,12 +1506,25 @@ export function useDesktopState() {
     return normalizedTurnId || UNKNOWN_ACTIVE_TURN_ID
   }
 
+  function readErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message
+    if (typeof error === 'string') return error
+    if (error && typeof error === 'object') {
+      const maybeMessage = (error as { message?: unknown }).message
+      if (typeof maybeMessage === 'string') return maybeMessage
+      const maybeError = (error as { error?: unknown }).error
+      if (typeof maybeError === 'string') return maybeError
+    }
+    return ''
+  }
+
   function isThreadMaterializingError(error: unknown): boolean {
-    if (!(error instanceof Error)) return false
-    const message = error.message.toLowerCase()
+    const message = readErrorMessage(error).toLowerCase()
+    if (!message) return false
     return (
       message.includes('is not materialized yet') ||
       message.includes('includeturns is unavailable before first user message') ||
+      message.includes('no rollout found for thread id') ||
       (message.includes('rollout') && message.includes('is empty'))
     )
   }
@@ -2224,6 +2295,20 @@ export function useDesktopState() {
     }
   }
 
+  function setPendingServerRequestsForThread(threadId: string, requests: UiServerRequest[]): void {
+    const normalizedThreadId = threadId.trim() || GLOBAL_SERVER_REQUEST_SCOPE
+    const sorted = [...requests].sort((first, second) => first.receivedAtIso.localeCompare(second.receivedAtIso))
+    if (sorted.length === 0) {
+      if (!pendingServerRequestsByThreadId.value[normalizedThreadId]) return
+      pendingServerRequestsByThreadId.value = omitKey(pendingServerRequestsByThreadId.value, normalizedThreadId)
+      return
+    }
+    pendingServerRequestsByThreadId.value = {
+      ...pendingServerRequestsByThreadId.value,
+      [normalizedThreadId]: sorted,
+    }
+  }
+
   function upsertPendingServerRequest(request: UiServerRequest): void {
     const threadId = request.threadId || GLOBAL_SERVER_REQUEST_SCOPE
     const current = pendingServerRequestsByThreadId.value[threadId] ?? []
@@ -2967,15 +3052,24 @@ export function useDesktopState() {
 
     try {
       const [groups] = await Promise.all([getThreadGroups({ signal: options.signal }), loadThreadTitleCacheIfNeeded()])
-      await hydrateWorkspaceRootsStateIfNeeded(groups)
+      const hiddenThreadIdSet = new Set(hiddenThreadIds.value)
+      const visibleGroups = hiddenThreadIdSet.size === 0
+        ? groups
+        : groups
+          .map((group) => ({
+            projectName: group.projectName,
+            threads: group.threads.filter((thread) => !hiddenThreadIdSet.has(thread.id)),
+          }))
+          .filter((group) => group.threads.length > 0)
+      await hydrateWorkspaceRootsStateIfNeeded(visibleGroups)
 
-      const nextProjectOrder = mergeProjectOrder(projectOrder.value, groups)
+      const nextProjectOrder = mergeProjectOrder(projectOrder.value, visibleGroups)
       if (!areStringArraysEqual(projectOrder.value, nextProjectOrder)) {
         projectOrder.value = nextProjectOrder
         saveProjectOrder(projectOrder.value)
       }
 
-      const orderedGroups = orderGroupsByProjectOrder(groups, projectOrder.value)
+      const orderedGroups = orderGroupsByProjectOrder(visibleGroups, projectOrder.value)
       const executionStateByThreadId = Object.fromEntries(
         sourceThreads.value.map((thread) => [thread.id, isThreadExecutionActive(thread.id)]),
       ) as Record<string, boolean>
@@ -3029,7 +3123,14 @@ export function useDesktopState() {
         }
       }
 
-      const { messages: nextMessages, inProgress, activeTurnId } = await getThreadDetail(threadId, { signal: options.signal })
+      const snapshot = await getThreadRuntimeSnapshot(threadId, { signal: options.signal })
+      const nextMessages = snapshot.messages
+      const inProgress = snapshot.inProgress
+      const activeTurnId = snapshot.activeTurnId
+      const normalizedPendingRequests = snapshot.pendingServerRequests
+        .map((row) => normalizeServerRequest(row))
+        .filter((request): request is UiServerRequest => request !== null)
+      setPendingServerRequestsForThread(threadId, normalizedPendingRequests)
       const previousPersisted = persistedMessagesByThreadId.value[threadId] ?? []
       const mergedMessages = mergeMessages(previousPersisted, nextMessages, {
         // Silent recovery should only preserve local gaps while the server still reports an active turn.
@@ -3057,7 +3158,7 @@ export function useDesktopState() {
         [threadId]: Date.now(),
       }
 
-      const version = currentThreadVersion(threadId)
+      const version = snapshot.updatedAtIso || currentThreadVersion(threadId)
       if (version) {
         loadedVersionByThreadId.value = {
           ...loadedVersionByThreadId.value,
@@ -3082,6 +3183,7 @@ export function useDesktopState() {
       } else if (activeTurnIdByThreadId.value[threadId]) {
         activeTurnIdByThreadId.value = omitKey(activeTurnIdByThreadId.value, threadId)
       }
+      applyThreadFlags()
       markThreadAsRead(threadId)
     } catch (error) {
       if (isThreadMaterializingError(error)) {
@@ -3113,7 +3215,7 @@ export function useDesktopState() {
     }
   }
 
-  async function refreshAll(options: { loadMessages?: boolean } = {}) {
+  async function refreshAll(options: { loadMessages?: boolean; loadSkills?: boolean } = {}) {
     error.value = ''
 
     try {
@@ -3121,9 +3223,10 @@ export function useDesktopState() {
       await Promise.all([
         threadsPromise,
         refreshModelPreferences(),
-        refreshRateLimits(),
       ])
-      await refreshSkills()
+      if (options.loadSkills !== false) {
+        await refreshSkills()
+      }
       if (options.loadMessages !== false) {
         await loadMessages(selectedThreadId.value)
       }
@@ -3136,10 +3239,8 @@ export function useDesktopState() {
     setSelectedThreadId(threadId)
 
     try {
-      await Promise.all([
-        loadMessages(threadId),
-        refreshSkills(),
-      ])
+      await loadMessages(threadId)
+      void refreshSkills()
       if (threadId && isThreadExecutionActive(threadId)) {
         markActiveSyncBoost()
       }
@@ -3157,8 +3258,16 @@ export function useDesktopState() {
         await loadMessages(selectedThreadId.value)
       }
     } catch (unknownError) {
+      if (isThreadMaterializingError(unknownError)) {
+        hideThreadLocally(threadId)
+        return
+      }
       error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
     }
+  }
+
+  function dismissThreadLocally(threadId: string): void {
+    hideThreadLocally(threadId)
   }
 
   async function renameThreadById(threadId: string, threadName: string) {
@@ -4057,9 +4166,11 @@ export function useDesktopState() {
     error,
     refreshAll,
     refreshSkills,
+    refreshRateLimits,
     selectThread,
     setThreadScrollState,
     archiveThreadById,
+    dismissThreadLocally,
     renameThreadById,
     forkThreadById,
     sendMessageToSelectedThread,

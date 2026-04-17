@@ -262,10 +262,13 @@
                   :active-thread-id="composerThreadContextId" :cwd="composerCwd" :scroll-state="selectedThreadScrollState"
                   :live-overlay="liveOverlay"
                   :pending-requests="selectedThreadServerRequests"
+                  :show-empty-thread-actions="isRouteOnlyEmptyThread"
                   :is-turn-in-progress="isSelectedThreadInProgress"
                   :is-rolling-back="isRollingBack"
                   @update-scroll-state="onUpdateThreadScrollState"
                   @respond-server-request="onRespondServerRequest"
+                  @return-to-new-thread="onReturnToNewThreadFromEmptyThread"
+                  @dismiss-empty-thread="onDismissEmptyThread"
                   @rollback="onRollback" />
               </div>
 
@@ -358,6 +361,7 @@ import {
   getGithubProjectsForScope,
   getHomeDirectory,
   getProjectRootSuggestion,
+  getThreadRuntimeSnapshot,
   getTelegramStatus,
   getWorkspaceRootsState,
   openProjectRoot,
@@ -516,9 +520,11 @@ const {
   error,
   refreshAll,
   refreshSkills,
+  refreshRateLimits,
   selectThread,
   setThreadScrollState,
   archiveThreadById,
+  dismissThreadLocally,
   forkThreadById,
   renameThreadById,
   sendMessageToSelectedThread,
@@ -556,6 +562,7 @@ const lastLoadedGithubTipsScope = ref<GithubTipsScope | ''>('')
 const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number } | null>(null)
 const isRouteSyncInProgress = ref(false)
 const hasInitialized = ref(false)
+const routeWarmThreadIds = ref<string[]>([])
 const newThreadCwd = ref('')
 const newThreadRuntime = ref<'local' | 'worktree'>('local')
 const workspaceRootOptionsState = ref<{ order: string[]; labels: Record<string, string> }>({ order: [], labels: {} })
@@ -624,6 +631,13 @@ const knownThreadIdSet = computed(() => {
   }
   return ids
 })
+const routableThreadIdSet = computed(() => {
+  const ids = new Set<string>(knownThreadIdSet.value)
+  for (const threadId of routeWarmThreadIds.value) {
+    ids.add(threadId)
+  }
+  return ids
+})
 
 const isHomeRoute = computed(() => route.name === 'home')
 const isSkillsRoute = computed(() => route.name === 'skills')
@@ -631,10 +645,18 @@ const isGithubTrendingRoute = computed(() => route.name === 'github-trending')
 const isNonThreadRoute = computed(() => (
   isHomeRoute.value || isSkillsRoute.value || isGithubTrendingRoute.value
 ))
+const isRouteOnlyEmptyThread = computed(() => (
+  route.name === 'thread'
+  && !!routeThreadId.value
+  && !selectedThread.value
+  && filteredMessages.value.length === 0
+  && selectedThreadServerRequests.value.length === 0
+))
 const contentTitle = computed(() => {
   if (isSkillsRoute.value) return '技能'
   if (isGithubTrendingRoute.value) return 'GitHub 热门'
   if (isHomeRoute.value) return '新会话'
+  if (isRouteOnlyEmptyThread.value) return '空会话'
   return selectedThread.value?.title ?? '选择会话'
 })
 const browserHostName =
@@ -649,6 +671,7 @@ const headerSubtitle = computed(() => {
   if (isSkillsRoute.value) return '管理已安装技能和当前运行能力。'
   if (isGithubTrendingRoute.value) return '浏览热门仓库、查看介绍，并直接带着项目链接发起提问。'
   if (isHomeRoute.value) return '从已配置工作区快速发起新的 Codex 任务。'
+  if (isRouteOnlyEmptyThread.value) return '这个会话还没有消息，你可以直接发送第一条消息，或将它移除。'
   const cwd = selectedThread.value?.cwd?.trim() ?? ''
   return cwd || ''
 })
@@ -720,11 +743,14 @@ const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selected
 const threadStatusTone = computed<'live' | 'syncing' | 'warning' | 'danger'>(() => {
   if (selectedThreadServerRequests.value.length > 0) return 'warning'
   if (selectedThreadExecutionActive.value) return 'syncing'
+  if (isRouteOnlyEmptyThread.value) return 'live'
   if (selectedThread.value?.unread) return 'warning'
   return 'live'
 })
 const threadStatusLabel = computed(() => {
-  if (isNonThreadRoute.value || !selectedThread.value) return ''
+  if (isNonThreadRoute.value) return ''
+  if (isRouteOnlyEmptyThread.value) return '空会话'
+  if (!selectedThread.value) return ''
   if (selectedThreadServerRequests.value.length > 0) {
     return selectedLiveOverlay.value?.activityLabel || '等待处理'
   }
@@ -941,6 +967,7 @@ watch(sidebarSearchQuery, (value) => {
 
 watch(isSettingsOpen, (open) => {
   if (open) {
+    void refreshRateLimits()
     window.addEventListener('pointerdown', onWindowPointerDownForSettings, { capture: true })
     return
   }
@@ -1120,6 +1147,23 @@ function onStartNewThreadFromToolbar(): void {
   if (isMobile.value) setSidebarCollapsed(true)
   if (isHomeRoute.value) return
   void router.push({ name: 'home' })
+}
+
+async function onDismissEmptyThread(): Promise<void> {
+  const threadId = routeThreadId.value.trim()
+  if (!threadId) return
+
+  dismissThreadLocally(threadId)
+  await archiveThreadById(threadId)
+  await selectThread('')
+  if (!isHomeRoute.value) {
+    await router.replace({ name: 'home' })
+  }
+}
+
+function onReturnToNewThreadFromEmptyThread(): void {
+  if (isHomeRoute.value) return
+  void router.replace({ name: 'home' })
 }
 
 function onRenameProject(payload: { projectName: string; displayName: string }): void {
@@ -1715,8 +1759,14 @@ function normalizeMessageType(rawType: string | undefined, role: string): string
   return role.trim() || 'message'
 }
 
+function rememberRoutableThreadId(threadId: string): void {
+  const normalized = threadId.trim()
+  if (!normalized || routeWarmThreadIds.value.includes(normalized)) return
+  routeWarmThreadIds.value = [...routeWarmThreadIds.value, normalized]
+}
+
 async function initialize(): Promise<void> {
-  await refreshAll({ loadMessages: false })
+  await refreshAll({ loadMessages: false, loadSkills: false })
   hasInitialized.value = true
   const selectedThreadIdBeforeRouteSync = selectedThreadId.value
   await syncThreadSelectionWithRoute()
@@ -1724,6 +1774,9 @@ async function initialize(): Promise<void> {
     await selectThread(selectedThreadId.value)
   }
   startPolling()
+  if (route.name !== 'thread') {
+    queueIdleTask(() => { void refreshSkills() }, 220)
+  }
 }
 
 async function syncThreadSelectionWithRoute(): Promise<void> {
@@ -1742,13 +1795,19 @@ async function syncThreadSelectionWithRoute(): Promise<void> {
       const threadId = routeThreadId.value
       if (!threadId) return
 
-      if (!knownThreadIdSet.value.has(threadId)) {
-        await router.replace({ name: 'home' })
-        return
+      if (!routableThreadIdSet.value.has(threadId)) {
+        try {
+          await getThreadRuntimeSnapshot(threadId)
+          rememberRoutableThreadId(threadId)
+        } catch {
+          await router.replace({ name: 'home' })
+          return
+        }
       }
 
       if (selectedThreadId.value !== threadId) {
         await selectThread(threadId)
+        rememberRoutableThreadId(threadId)
       }
       return
     }
@@ -1764,7 +1823,7 @@ watch(
       route.name,
       routeThreadId.value,
       isLoadingThreads.value,
-      knownThreadIdSet.value.has(routeThreadId.value),
+      routableThreadIdSet.value.has(routeThreadId.value),
       selectedThreadId.value,
     ] as const,
   async () => {

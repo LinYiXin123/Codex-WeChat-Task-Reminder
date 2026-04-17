@@ -35,6 +35,14 @@ type CurrentModelConfig = {
 
 type RpcCallOptions = { signal?: AbortSignal }
 
+export type ThreadRuntimeSnapshot = {
+  messages: UiMessage[]
+  inProgress: boolean
+  activeTurnId: string
+  updatedAtIso: string
+  pendingServerRequests: unknown[]
+}
+
 export type WorkspaceRootsState = {
   order: string[]
   labels: Record<string, string>
@@ -339,6 +347,48 @@ async function getThreadDetailV2(
   }
 }
 
+export async function getThreadRuntimeSnapshot(
+  threadId: string,
+  options: RpcCallOptions = {},
+): Promise<ThreadRuntimeSnapshot> {
+  const response = await fetchWithTimeout(`/codex-api/state/thread/${encodeURIComponent(threadId)}`, {
+    signal: options.signal,
+  }, {
+    timeoutMs: GATEWAY_BACKGROUND_FETCH_TIMEOUT_MS,
+    label: `Thread state snapshot request for ${threadId}`,
+  })
+
+  const payload = (await response.json()) as unknown
+  if (!response.ok) {
+    throw new Error(getErrorMessageFromPayload(payload, `Failed to load thread snapshot ${threadId}`))
+  }
+
+  const record =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {}
+  const data =
+    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {}
+  const threadRead = data.threadRead as ThreadReadResponse | undefined
+  const updatedAtIso = typeof data.updatedAtIso === 'string' ? data.updatedAtIso.trim() : ''
+  const pendingServerRequests = Array.isArray(data.pendingServerRequests) ? data.pendingServerRequests : []
+
+  return {
+    messages: threadRead ? normalizeThreadMessagesV2(threadRead) : [],
+    inProgress:
+      data.inProgress === true ||
+      (threadRead ? readThreadInProgressFromResponse(threadRead) : false),
+    activeTurnId:
+      typeof data.activeTurnId === 'string' && data.activeTurnId.trim().length > 0
+        ? data.activeTurnId.trim()
+        : (threadRead ? readActiveTurnIdFromResponse(threadRead) : ''),
+    updatedAtIso,
+    pendingServerRequests,
+  }
+}
+
 export async function getThreadGroups(options: RpcCallOptions = {}): Promise<UiProjectGroup[]> {
   try {
     return await getThreadGroupsV2(options)
@@ -497,6 +547,14 @@ function buildTextWithAttachments(
   return `${prefix}\n## My request for Codex:\n\n${prompt}\n`
 }
 
+function isLocalImageInput(value: string): boolean {
+  if (!value) return false
+  if (value.startsWith('/codex-local-image?')) return false
+  if (value.startsWith('file://')) return true
+  if (/^[A-Za-z]:[\\/]/u.test(value)) return true
+  return value.startsWith('/')
+}
+
 export async function startThreadTurn(
   threadId: string,
   text: string,
@@ -512,6 +570,13 @@ export async function startThreadTurn(
     for (const imageUrl of imageUrls) {
       const normalizedUrl = imageUrl.trim()
       if (!normalizedUrl) continue
+      if (isLocalImageInput(normalizedUrl)) {
+        input.push({
+          type: 'localImage',
+          path: normalizedUrl,
+        })
+        continue
+      }
       input.push({
         type: 'image',
         url: normalizedUrl,
