@@ -54,9 +54,13 @@ function normalizeLocalImagePath(rawPath: string): string {
   if (!trimmed) return ''
   if (trimmed.startsWith('file://')) {
     try {
-      return decodeURIComponent(trimmed.replace(/^file:\/\//u, ''))
+      return fileURLToPath(trimmed)
     } catch {
-      return trimmed.replace(/^file:\/\//u, '')
+      try {
+        return decodeURIComponent(trimmed.replace(/^file:\/\/\/?/u, ''))
+      } catch {
+        return trimmed.replace(/^file:\/\/\/?/u, '')
+      }
     }
   }
   return trimmed

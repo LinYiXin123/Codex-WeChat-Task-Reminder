@@ -1805,15 +1805,13 @@ onBeforeUnmount(() => {
 .thread-row {
   @apply border border-[#efe7d9] bg-[#fffdf9];
   transition:
-    transform 140ms ease,
     background-color 160ms ease,
     border-color 160ms ease,
-    box-shadow 160ms ease;
+    color 160ms ease;
 }
 
 .thread-row-priority {
   @apply border-[#d9cfbe] bg-[#fffaf1];
-  box-shadow: 0 10px 22px -26px rgba(31, 41, 55, 0.16);
 }
 
 .thread-left-stack {
@@ -1829,11 +1827,11 @@ onBeforeUnmount(() => {
 }
 
 .thread-row-content {
-  @apply min-w-0 flex flex-col gap-1;
+  @apply min-w-0 flex flex-col gap-0.5;
 }
 
 .thread-row-title-wrap {
-  @apply min-w-0 inline-flex items-center gap-1.5;
+  @apply min-w-0 inline-flex items-center gap-1;
 }
 
 .thread-row-title {
@@ -1852,26 +1850,23 @@ onBeforeUnmount(() => {
 }
 
 .thread-row-meta {
-  @apply min-w-0 flex items-center gap-1.5;
+  @apply min-w-0 flex items-center gap-1;
 }
 
 .thread-row-preview {
-  @apply min-w-0 truncate text-xs text-[#8f8577];
-  line-height: 1.1rem;
-  padding-block: 1px;
+  @apply min-w-0 truncate text-[11px] text-[#9a907f];
+  line-height: 1rem;
 }
 
 .thread-status-pill {
-  @apply inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em];
+  @apply inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em];
 }
 
 .thread-row-time {
-  @apply block text-xs font-medium text-[#7a705f];
-  line-height: 1.1rem;
-  padding-block: 1px;
-  border-radius: 9999px;
-  padding-inline: 0.45rem;
-  background: rgba(245, 240, 231, 0.88);
+  @apply block text-[11px] font-medium text-[#9a907f];
+  line-height: 1rem;
+  padding-inline: 0.2rem;
+  background: transparent;
 }
 
 .thread-menu-wrap {
@@ -1879,7 +1874,7 @@ onBeforeUnmount(() => {
 }
 
 .thread-menu-trigger {
-  @apply h-7 w-7 rounded-xl p-0 text-xs text-[#73695d] flex items-center justify-center hover:bg-[#ece4d6];
+  @apply h-7 w-7 rounded-xl p-0 text-xs text-[#8b8173] flex items-center justify-center hover:bg-[#f1ebde] hover:text-[#433b31];
 }
 
 .thread-menu-panel {
@@ -1919,13 +1914,12 @@ onBeforeUnmount(() => {
 }
 
 .thread-row[data-active='true'] {
-  @apply border-[#99f6e4] bg-[#f0fdfa] shadow-[0_10px_20px_-24px_rgba(13,148,136,0.28)];
+  @apply border-[#99f6e4] bg-[#f0fdfa];
 }
 
 .thread-row:hover,
 .thread-row:focus-within {
-  @apply border-[#ddd1bc] bg-[#faf6ee];
-  box-shadow: 0 10px 20px -24px rgba(31, 41, 55, 0.14);
+  @apply border-[#e3d8c5] bg-[#f9f4eb];
 }
 
 .thread-row:hover .thread-pin-button,

@@ -101,13 +101,118 @@ function parseUserMessageContent(
   }
 }
 
+function readTrimmedString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function pushImageCandidate(images: string[], value: unknown): void {
+  const candidate = readTrimmedString(value)
+  if (!candidate || images.includes(candidate)) return
+  images.push(candidate)
+}
+
+function collectImageCandidatesFromValue(value: unknown, images: string[], depth = 0, trustedImageContext = false): void {
+  if (depth > 6 || value === null || value === undefined) return
+
+  if (typeof value === 'string') {
+    if (trustedImageContext) {
+      pushImageCandidate(images, value)
+    }
+    return
+  }
+
+  if (Array.isArray(value)) {
+    for (const row of value) {
+      collectImageCandidatesFromValue(row, images, depth + 1, trustedImageContext)
+    }
+    return
+  }
+
+  if (typeof value !== 'object') return
+
+  const record = value as Record<string, unknown>
+  const type = readTrimmedString(record.type).toLowerCase()
+  const isImageRecord =
+    type.includes('image') ||
+    record.image_url !== undefined ||
+    record.images !== undefined ||
+    record.localImage !== undefined ||
+    record.local_image !== undefined
+
+  if (isImageRecord) {
+    pushImageCandidate(images, record.url)
+    pushImageCandidate(images, record.path)
+    pushImageCandidate(images, record.image)
+    pushImageCandidate(images, record.image_url)
+    pushImageCandidate(images, record.localImage)
+    pushImageCandidate(images, record.local_image)
+  }
+
+  const data = record.data
+  if (data && typeof data === 'object') {
+    if (isImageRecord) {
+      const dataRecord = data as Record<string, unknown>
+      pushImageCandidate(images, dataRecord.url)
+      pushImageCandidate(images, dataRecord.path)
+      pushImageCandidate(images, dataRecord.image)
+      pushImageCandidate(images, dataRecord.image_url)
+    }
+    collectImageCandidatesFromValue(data, images, depth + 1, isImageRecord)
+  }
+
+  const imageUrl = record.image_url
+  if (imageUrl && typeof imageUrl === 'object') {
+    const imageUrlRecord = imageUrl as Record<string, unknown>
+    pushImageCandidate(images, imageUrlRecord.url)
+    pushImageCandidate(images, imageUrlRecord.path)
+    collectImageCandidatesFromValue(imageUrl, images, depth + 1, true)
+  }
+
+  const imagesValue = record.images
+  if (Array.isArray(imagesValue)) {
+    collectImageCandidatesFromValue(imagesValue, images, depth + 1, true)
+  }
+
+  const content = record.content
+  if (Array.isArray(content)) {
+    collectImageCandidatesFromValue(content, images, depth + 1)
+  }
+}
+
+function extractAssistantImages(item: ThreadItem): string[] {
+  const images: string[] = []
+  collectImageCandidatesFromValue(item, images)
+  return images
+}
+
 function toUiMessages(item: ThreadItem): UiMessage[] {
   if (item.type === 'agentMessage') {
+    const text = typeof item.text === 'string' ? item.text : ''
+    const images = extractAssistantImages(item)
     return [
       {
         id: item.id,
         role: 'assistant',
-        text: item.text,
+        text,
+        images: images.length > 0 ? images : undefined,
+        messageType: item.type,
+      },
+    ]
+  }
+
+  if (item.type === 'imageView') {
+    const rawItem = item as Record<string, unknown>
+    const images: string[] = []
+    pushImageCandidate(images, rawItem.path)
+    pushImageCandidate(images, rawItem.url)
+    collectImageCandidatesFromValue(rawItem, images)
+    if (images.length === 0) return []
+    return [
+      {
+        id: item.id,
+        role: 'assistant',
+        text: '',
+        images,
         messageType: item.type,
       },
     ]

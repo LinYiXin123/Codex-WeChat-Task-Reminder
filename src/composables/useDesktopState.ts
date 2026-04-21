@@ -94,11 +94,12 @@ const PROJECT_DISPLAY_NAME_STORAGE_KEY = 'codex-web-local.project-display-name.v
 const HIDDEN_THREAD_IDS_STORAGE_KEY = 'codex-web-local.hidden-thread-ids.v1'
 const QUEUED_MESSAGES_STORAGE_KEY = 'codex-web-local.queued-messages.v1'
 const EVENT_SYNC_DEBOUNCE_MS = 220
-const BACKGROUND_SYNC_INTERVAL_MS = 4000
-const ACTIVE_THREAD_DETAIL_SYNC_INTERVAL_MS = 4000
+const BACKGROUND_SYNC_INTERVAL_MS = 2500
+const ACTIVE_THREAD_DETAIL_SYNC_INTERVAL_MS = 2500
 const ACTIVE_THREAD_DETAIL_SYNC_IDLE_MS = 9000
-const ACTIVE_SYNC_BOOST_INTERVAL_MS = 1500
+const ACTIVE_SYNC_BOOST_INTERVAL_MS = 1200
 const ACTIVE_SYNC_BOOST_WINDOW_MS = 18000
+const RESUME_SYNC_RETRY_DELAYS_MS = [0, 700, 1800, 4200]
 const ACTIVE_SYNC_THREAD_LIST_INTERVAL_MS = 12000
 const ACTIVE_SYNC_STALE_MS = 8000
 const STALE_THREAD_ACTIVE_TURN_TTL_MS = 5 * 60 * 1000
@@ -113,6 +114,7 @@ const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['none', 'minimal', 'low', '
 const GLOBAL_SERVER_REQUEST_SCOPE = '__global__'
 const MODEL_FALLBACK_ID = 'gpt-5.2-codex'
 const AUTO_COMMIT_MESSAGE_FALLBACK = 'Auto-commit from Codex rollback chat turn'
+const OPTIMISTIC_USER_MESSAGE_TYPE = 'userMessage.optimistic'
 
 type FileAttachment = { label: string; path: string; fsPath: string }
 type QueuedMessage = {
@@ -555,8 +557,80 @@ function mergeMessages(
   return areMessageArraysEqual(previous, merged) ? previous : merged
 }
 
+function normalizeMessageSignatureList(values: string[] | undefined): string {
+  return (values ?? [])
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .join('\u001f')
+}
+
 function normalizeMessageText(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
+}
+
+function userMessageSignature(message: UiMessage): string {
+  const filePaths = (message.fileAttachments ?? []).map((file) => file.path)
+  return [
+    normalizeMessageText(message.text),
+    normalizeMessageSignatureList(message.images),
+    normalizeMessageSignatureList(filePaths),
+  ].join('\u001e')
+}
+
+function parseOptimisticUserMessageMeta(message: UiMessage): OptimisticUserMessageMeta | null {
+  if (message.messageType !== OPTIMISTIC_USER_MESSAGE_TYPE) return null
+  if (!message.rawPayload) return null
+
+  try {
+    const parsed = JSON.parse(message.rawPayload) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    const record = parsed as Record<string, unknown>
+    if (record.kind !== 'optimisticUserMessage') return null
+    if (typeof record.signature !== 'string') return null
+    if (typeof record.baselineMatchCount !== 'number' || !Number.isFinite(record.baselineMatchCount)) return null
+    if (typeof record.createdAtMs !== 'number' || !Number.isFinite(record.createdAtMs)) return null
+    return {
+      kind: 'optimisticUserMessage',
+      signature: record.signature,
+      baselineMatchCount: Math.max(0, Math.floor(record.baselineMatchCount)),
+      createdAtMs: record.createdAtMs,
+    }
+  } catch {
+    return null
+  }
+}
+
+function countPersistedUserMessageSignatures(messages: UiMessage[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const message of messages) {
+    if (message.role !== 'user') continue
+    if (message.messageType === OPTIMISTIC_USER_MESSAGE_TYPE) continue
+    const signature = userMessageSignature(message)
+    counts.set(signature, (counts.get(signature) ?? 0) + 1)
+  }
+  return counts
+}
+
+function filterVisibleOptimisticUserMessages(persisted: UiMessage[], optimistic: UiMessage[]): UiMessage[] {
+  if (optimistic.length === 0) return optimistic
+
+  const persistedCounts = countPersistedUserMessageSignatures(persisted)
+  const consumedAcknowledgements = new Map<string, number>()
+
+  return optimistic.filter((message) => {
+    const meta = parseOptimisticUserMessageMeta(message)
+    const signature = meta?.signature ?? userMessageSignature(message)
+    const baselineMatchCount = meta?.baselineMatchCount ?? 0
+    const acknowledgedCount = Math.max((persistedCounts.get(signature) ?? 0) - baselineMatchCount, 0)
+    const consumedCount = consumedAcknowledgements.get(signature) ?? 0
+
+    if (acknowledgedCount > consumedCount) {
+      consumedAcknowledgements.set(signature, consumedCount + 1)
+      return false
+    }
+
+    return true
+  })
 }
 
 function removeRedundantLiveAgentMessages(previous: UiMessage[], incoming: UiMessage[]): UiMessage[] {
@@ -609,6 +683,13 @@ type TurnActivityState = {
 
 type TurnErrorState = {
   message: string
+}
+
+type OptimisticUserMessageMeta = {
+  kind: 'optimisticUserMessage'
+  signature: string
+  baselineMatchCount: number
+  createdAtMs: number
 }
 
 type TurnStartedInfo = {
@@ -849,6 +930,7 @@ export function useDesktopState() {
   const sourceGroups = ref<UiProjectGroup[]>([])
   const selectedThreadId = ref(loadSelectedThreadId())
   const persistedMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
+  const optimisticUserMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveAgentMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveReasoningTextByThreadId = ref<Record<string, string>>({})
   const liveCommandsByThreadId = ref<Record<string, UiMessage[]>>({})
@@ -909,6 +991,7 @@ export function useDesktopState() {
   const hasLoadedThreads = ref(false)
   let stopNotificationStream: (() => void) | null = null
   let backgroundSyncTimer: number | null = null
+  let scrollStateSaveTimer: number | null = null
   let activeSyncBoostTimer: number | null = null
   let liveDeltaFlushTimer: number | null = null
   let eventSyncTimer: number | null = null
@@ -924,6 +1007,7 @@ export function useDesktopState() {
   let pendingThreadsRefresh = false
   const pendingThreadMessageRefresh = new Set<string>()
   let visibilitySyncTimer: number | null = null
+  const resumeSyncTimers = new Set<number>()
   let stopVisibilitySync = (): void => {}
   let hasHydratedWorkspaceRootsState = false
   let activeReasoningItemId = ''
@@ -1063,9 +1147,13 @@ export function useDesktopState() {
     if (!threadId) return []
 
     const persisted = persistedMessagesByThreadId.value[threadId] ?? []
+    const optimisticUser = filterVisibleOptimisticUserMessages(
+      persisted,
+      optimisticUserMessagesByThreadId.value[threadId] ?? [],
+    )
     const liveAgent = liveAgentMessagesByThreadId.value[threadId] ?? []
     const liveCommands = liveCommandsByThreadId.value[threadId] ?? []
-    const combined = [...persisted, ...liveCommands, ...liveAgent]
+    const combined = [...persisted, ...optimisticUser, ...liveCommands, ...liveAgent]
 
     const summary = turnSummaryByThreadId.value[threadId]
     if (!summary) return combined
@@ -1460,6 +1548,7 @@ export function useDesktopState() {
     loadedVersionByThreadId.value = pruneThreadStateMap(loadedVersionByThreadId.value, activeThreadIds)
     resumedThreadById.value = pruneThreadStateMap(resumedThreadById.value, activeThreadIds)
     persistedMessagesByThreadId.value = pruneThreadStateMap(persistedMessagesByThreadId.value, activeThreadIds)
+    optimisticUserMessagesByThreadId.value = pruneThreadStateMap(optimisticUserMessagesByThreadId.value, activeThreadIds)
     liveAgentMessagesByThreadId.value = pruneThreadStateMap(liveAgentMessagesByThreadId.value, activeThreadIds)
     liveReasoningTextByThreadId.value = pruneThreadStateMap(liveReasoningTextByThreadId.value, activeThreadIds)
     liveCommandsByThreadId.value = pruneThreadStateMap(liveCommandsByThreadId.value, activeThreadIds)
@@ -2224,7 +2313,26 @@ export function useDesktopState() {
       ...scrollStateByThreadId.value,
       [threadId]: normalizedState,
     }
-    saveThreadScrollStateMap(scrollStateByThreadId.value)
+    schedulePersistThreadScrollState()
+  }
+
+  function schedulePersistThreadScrollState(force = false): void {
+    if (typeof window === 'undefined') return
+    if (force) {
+      if (scrollStateSaveTimer) {
+        window.clearTimeout(scrollStateSaveTimer)
+        scrollStateSaveTimer = null
+      }
+      saveThreadScrollStateMap(scrollStateByThreadId.value)
+      return
+    }
+    if (scrollStateSaveTimer) {
+      window.clearTimeout(scrollStateSaveTimer)
+    }
+    scrollStateSaveTimer = window.setTimeout(() => {
+      scrollStateSaveTimer = null
+      saveThreadScrollStateMap(scrollStateByThreadId.value)
+    }, 180)
   }
 
   function shouldKeepThreadPinnedToBottom(threadId: string): boolean {
@@ -2235,10 +2343,76 @@ export function useDesktopState() {
 
   function setPersistedMessagesForThread(threadId: string, nextMessages: UiMessage[]): void {
     const previous = persistedMessagesByThreadId.value[threadId] ?? []
-    if (areMessageArraysEqual(previous, nextMessages)) return
-    persistedMessagesByThreadId.value = {
-      ...persistedMessagesByThreadId.value,
-      [threadId]: nextMessages,
+    if (!areMessageArraysEqual(previous, nextMessages)) {
+      persistedMessagesByThreadId.value = {
+        ...persistedMessagesByThreadId.value,
+        [threadId]: nextMessages,
+      }
+    }
+
+    const previousOptimistic = optimisticUserMessagesByThreadId.value[threadId] ?? []
+    const nextOptimistic = filterVisibleOptimisticUserMessages(nextMessages, previousOptimistic)
+    if (!areMessageArraysEqual(previousOptimistic, nextOptimistic)) {
+      optimisticUserMessagesByThreadId.value = {
+        ...optimisticUserMessagesByThreadId.value,
+        [threadId]: nextOptimistic,
+      }
+    }
+  }
+
+  function addOptimisticUserMessage(
+    threadId: string,
+    text: string,
+    imageUrls: string[] = [],
+    fileAttachments: FileAttachment[] = [],
+  ): string {
+    if (!threadId) return ''
+    const normalizedText = text.trim()
+    const normalizedImages = imageUrls.map((url) => url.trim()).filter((url) => url.length > 0)
+    const normalizedFileAttachments = fileAttachments
+      .map((file) => ({
+        label: file.label,
+        path: file.path || file.fsPath || file.label,
+      }))
+      .filter((file) => file.path.trim().length > 0)
+
+    if (!normalizedText && normalizedImages.length === 0 && normalizedFileAttachments.length === 0) {
+      return ''
+    }
+
+    const optimisticMessage: UiMessage = {
+      id: `optimistic-user:${threadId}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`,
+      role: 'user',
+      text: normalizedText,
+      images: normalizedImages.length > 0 ? normalizedImages : undefined,
+      fileAttachments: normalizedFileAttachments.length > 0 ? normalizedFileAttachments : undefined,
+      messageType: OPTIMISTIC_USER_MESSAGE_TYPE,
+    }
+    const signature = userMessageSignature(optimisticMessage)
+    const persistedCounts = countPersistedUserMessageSignatures(persistedMessagesByThreadId.value[threadId] ?? [])
+    const meta: OptimisticUserMessageMeta = {
+      kind: 'optimisticUserMessage',
+      signature,
+      baselineMatchCount: persistedCounts.get(signature) ?? 0,
+      createdAtMs: Date.now(),
+    }
+    optimisticMessage.rawPayload = JSON.stringify(meta)
+
+    optimisticUserMessagesByThreadId.value = {
+      ...optimisticUserMessagesByThreadId.value,
+      [threadId]: [...(optimisticUserMessagesByThreadId.value[threadId] ?? []), optimisticMessage],
+    }
+    return optimisticMessage.id
+  }
+
+  function removeOptimisticUserMessage(threadId: string, messageId: string): void {
+    if (!threadId || !messageId) return
+    const previous = optimisticUserMessagesByThreadId.value[threadId] ?? []
+    const next = previous.filter((message) => message.id !== messageId)
+    if (next.length === previous.length) return
+    optimisticUserMessagesByThreadId.value = {
+      ...optimisticUserMessagesByThreadId.value,
+      [threadId]: next,
     }
   }
 
@@ -3482,7 +3656,16 @@ export function useDesktopState() {
     const nextText = text.trim()
     if (!threadId || (!nextText && imageUrls.length === 0 && fileAttachments.length === 0)) return
 
-    await recoverThreadExecutionState(threadId)
+    const optimisticMessageId = mode === 'queue'
+      ? ''
+      : addOptimisticUserMessage(threadId, nextText, imageUrls, fileAttachments)
+
+    try {
+      await recoverThreadExecutionState(threadId)
+    } catch (unknownError) {
+      removeOptimisticUserMessage(threadId, optimisticMessageId)
+      throw unknownError
+    }
 
     const isInProgress = inProgressById.value[threadId] === true
 
@@ -3504,6 +3687,7 @@ export function useDesktopState() {
       try {
         await startTurnForThread(threadId, nextText, imageUrls, skills, fileAttachments)
       } catch (unknownError) {
+        removeOptimisticUserMessage(threadId, optimisticMessageId)
         const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
         setTurnErrorForThread(threadId, errorMessage)
         error.value = errorMessage
@@ -3527,6 +3711,7 @@ export function useDesktopState() {
       await startTurnForThread(threadId, nextText, imageUrls, skills, fileAttachments)
     } catch (unknownError) {
       shouldAutoScrollOnNextAgentEvent = false
+      removeOptimisticUserMessage(threadId, optimisticMessageId)
       setThreadInProgress(threadId, false)
       setTurnActivityForThread(threadId, null)
       const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
@@ -3573,6 +3758,7 @@ export function useDesktopState() {
         [threadId]: true,
       }
       setSelectedThreadId(threadId)
+      const optimisticMessageId = addOptimisticUserMessage(threadId, nextText, imageUrls, fileAttachments)
       shouldAutoScrollOnNextAgentEvent = true
       markActiveSyncBoost()
       setTurnSummaryForThread(threadId, null)
@@ -3588,6 +3774,7 @@ export function useDesktopState() {
       void startTurnForThread(threadId, nextText, imageUrls, skills, fileAttachments)
         .catch((unknownError) => {
           shouldAutoScrollOnNextAgentEvent = false
+          removeOptimisticUserMessage(threadId, optimisticMessageId)
           setThreadInProgress(threadId, false)
           setTurnActivityForThread(threadId, null)
           const errorMessage = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
@@ -3724,10 +3911,12 @@ export function useDesktopState() {
     setThreadInProgress(threadId, true)
     markThreadLiveExecutionSignal(threadId)
     markActiveSyncBoost()
+    const optimisticMessageId = addOptimisticUserMessage(threadId, next.text, next.imageUrls, next.fileAttachments)
     try {
       await startTurnForThread(threadId, next.text, next.imageUrls, next.skills, next.fileAttachments)
       removeQueuedMessageByThreadId(threadId, next.id)
     } catch {
+      removeOptimisticUserMessage(threadId, optimisticMessageId)
       setThreadInProgress(threadId, false)
       setTurnActivityForThread(threadId, null)
     } finally {
@@ -3959,13 +4148,30 @@ export function useDesktopState() {
     const controller = typeof AbortController === 'undefined' ? null : new AbortController()
     syncAbortController = controller
     let wasAborted = false
+    let refreshedMessageThreadId = ''
+
+    const refreshSelectedMessagesNow = async (threadId: string): Promise<void> => {
+      if (!threadId) return
+      await loadMessages(threadId, { silent: true, signal: controller?.signal })
+      pendingThreadMessageRefresh.delete(threadId)
+      refreshedMessageThreadId = threadId
+    }
 
     try {
+      const initialThreadId = selectedThreadId.value
+      if (forceMessageRefresh && initialThreadId) {
+        await refreshSelectedMessagesNow(initialThreadId)
+      }
+
       if (includeThreadList) {
         await loadThreads({ signal: controller?.signal })
       }
 
-      if (includeThreadList || forceMessageRefresh || Object.keys(pendingServerRequestsByThreadId.value).length > 0) {
+      if (
+        includeThreadList ||
+        (forceMessageRefresh && !refreshedMessageThreadId) ||
+        Object.keys(pendingServerRequestsByThreadId.value).length > 0
+      ) {
         await loadPendingServerRequestsFromBridge()
       }
 
@@ -3976,8 +4182,8 @@ export function useDesktopState() {
       const loadedVersion = loadedVersionByThreadId.value[threadId] ?? ''
       const hasVersionChange = currentVersion.length > 0 && currentVersion !== loadedVersion
 
-      if (forceMessageRefresh || hasVersionChange) {
-        await loadMessages(threadId, { silent: true, signal: controller?.signal })
+      if ((forceMessageRefresh || hasVersionChange) && refreshedMessageThreadId !== threadId) {
+        await refreshSelectedMessagesNow(threadId)
       }
     } catch (error) {
       wasAborted = isAbortLikeError(error)
@@ -4038,25 +4244,36 @@ export function useDesktopState() {
       stopVisibilitySync()
     }
 
+    const clearResumeSyncTimers = (): void => {
+      for (const timer of resumeSyncTimers) {
+        window.clearTimeout(timer)
+      }
+      resumeSyncTimers.clear()
+    }
+
     const scheduleResumeSync = (): void => {
       if (document.hidden) return
-      if (visibilitySyncTimer !== null) {
-        window.clearTimeout(visibilitySyncTimer)
+      clearVisibilitySyncTimer()
+      clearResumeSyncTimers()
+      for (const delayMs of RESUME_SYNC_RETRY_DELAYS_MS) {
+        const timer = window.setTimeout(() => {
+          resumeSyncTimers.delete(timer)
+          if (document.hidden) return
+          markActiveSyncBoost()
+          void syncThreadStatus({
+            includeThreadList: true,
+            forceMessageRefresh: true,
+            urgent: delayMs === 0,
+          })
+        }, delayMs)
+        resumeSyncTimers.add(timer)
       }
-      visibilitySyncTimer = window.setTimeout(() => {
-        visibilitySyncTimer = null
-        markActiveSyncBoost()
-        void syncThreadStatus({
-          includeThreadList: true,
-          forceMessageRefresh: true,
-          urgent: true,
-        })
-      }, 140)
     }
 
     const onVisibilityChange = (): void => {
       if (document.hidden) {
         clearVisibilitySyncTimer()
+        clearResumeSyncTimers()
         stopActiveSyncBoost()
         return
       }
@@ -4071,14 +4288,21 @@ export function useDesktopState() {
       scheduleResumeSync()
     }
 
+    const onOnline = (): void => {
+      scheduleResumeSync()
+    }
+
     stopVisibilitySync = () => {
+      clearResumeSyncTimers()
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('focus', onWindowFocus)
       window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('online', onOnline)
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('focus', onWindowFocus)
     window.addEventListener('pageshow', onPageShow)
+    window.addEventListener('online', onOnline)
   }
 
   function clearVisibilitySyncTimer(): void {
@@ -4103,8 +4327,20 @@ export function useDesktopState() {
     pendingThreadsRefresh = false
     pendingThreadMessageRefresh.clear()
     let wasAborted = false
+    let refreshedMessageThreadId = ''
+
+    const refreshActiveMessagesNow = async (threadId: string): Promise<void> => {
+      if (!threadId) return
+      await loadMessages(threadId, { silent: true, signal: controller?.signal })
+      refreshedMessageThreadId = threadId
+    }
 
     try {
+      const initialActiveThreadId = selectedThreadId.value
+      if (initialActiveThreadId && threadIdsToRefresh.has(initialActiveThreadId)) {
+        await refreshActiveMessagesNow(initialActiveThreadId)
+      }
+
       if (shouldRefreshThreads) {
         await loadThreads({ signal: controller?.signal })
       }
@@ -4117,8 +4353,8 @@ export function useDesktopState() {
       const loadedVersion = loadedVersionByThreadId.value[activeThreadId] ?? ''
       const hasVersionChange = currentVersion.length > 0 && currentVersion !== loadedVersion
 
-      if (isActiveDirty || hasVersionChange || shouldRefreshThreads) {
-        await loadMessages(activeThreadId, { silent: true, signal: controller?.signal })
+      if ((isActiveDirty || hasVersionChange || shouldRefreshThreads) && refreshedMessageThreadId !== activeThreadId) {
+        await refreshActiveMessagesNow(activeThreadId)
       }
     } catch (error) {
       wasAborted = isAbortLikeError(error)
@@ -4236,6 +4472,10 @@ export function useDesktopState() {
     }
     clearVisibilitySyncTimer()
     stopVisibilitySync()
+    for (const timer of resumeSyncTimers) {
+      window.clearTimeout(timer)
+    }
+    resumeSyncTimers.clear()
     activeReasoningItemId = ''
     shouldAutoScrollOnNextAgentEvent = false
     lastNotificationAtMs = Date.now()
@@ -4244,6 +4484,7 @@ export function useDesktopState() {
     lastSuccessfulSyncAtMs.value = 0
     activeSyncBoostUntilMs = 0
     persistedMessagesByThreadId.value = {}
+    optimisticUserMessagesByThreadId.value = {}
     liveAgentMessagesByThreadId.value = {}
     liveReasoningTextByThreadId.value = {}
     liveCommandsByThreadId.value = {}

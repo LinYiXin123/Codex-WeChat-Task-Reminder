@@ -16,7 +16,7 @@
    ```powershell
    npm ci
    npm run build
-   powershell -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version v0.2.0-bridge.1
+   powershell -ExecutionPolicy Bypass -File .\scripts\package-release.ps1 -Version v0.2.0-bridge.2
    ```
 
 3. 检查 `artifacts/` 中是否生成：
@@ -34,8 +34,8 @@
 
 ```powershell
 git push publish main
-git tag v0.2.0-bridge.1
-git push publish v0.2.0-bridge.1
+git tag v0.2.0-bridge.2
+git push publish v0.2.0-bridge.2
 ```
 
 Release 工作流会自动完成：

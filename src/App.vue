@@ -177,19 +177,11 @@
           </template>
           <template #meta>
             <div class="content-status-strip" aria-live="polite">
-              <span class="content-status-pill" :data-tone="serviceStatusTone">
-                <span class="content-status-pill-label">服务</span>
-                <span>{{ serviceStatusLabel }}</span>
+              <span class="content-status-pill" :data-tone="contentStatusTone">
+                <span class="content-status-pill-label">{{ contentStatusCaption }}</span>
+                <span>{{ contentStatusLabel }}</span>
               </span>
-              <span v-if="threadStatusLabel" class="content-status-pill" :data-tone="threadStatusTone">
-                <span class="content-status-pill-label">会话</span>
-                <span>{{ threadStatusLabel }}</span>
-              </span>
-              <span class="content-status-pill" :data-tone="desktopStatusTone">
-                <span class="content-status-pill-label">客户端</span>
-                <span>{{ desktopStatusLabel }}</span>
-              </span>
-              <span v-if="serviceStatusDetail" class="content-status-detail">{{ serviceStatusDetail }}</span>
+              <span v-if="contentStatusDetail" class="content-status-detail">{{ contentStatusDetail }}</span>
             </div>
           </template>
         </ContentHeader>
@@ -702,8 +694,8 @@ const serviceStatusLabel = computed(() => {
   if (realtimeConnectionState.value === 'reconnecting' && hasActiveSyncDemand.value) return '回补同步中'
   if (syncLagging.value && hasActiveSyncDemand.value) return '同步延迟'
   if (notificationStale.value && hasActiveSyncDemand.value) return '回补同步中'
-  if (realtimeConnectionState.value === 'reconnecting' || realtimeConnectionState.value === 'disconnected') return '待机'
-  if (notificationStale.value) return '待机'
+  if (realtimeConnectionState.value === 'reconnecting' || realtimeConnectionState.value === 'disconnected') return '自动同步中'
+  if (notificationStale.value) return '已同步'
   if (isLoadingMessages.value || isSendingMessage.value) return '同步中'
   return '已连接'
 })
@@ -715,7 +707,8 @@ const serviceStatusDetail = computed(() => {
   if (syncLagging.value && hasActiveSyncDemand.value) return '最近同步结果偏旧，页面正在主动补拉最新消息。'
   if (notificationStale.value && hasActiveSyncDemand.value) return '实时通知暂时安静，页面正在主动校验任务状态并补拉最新进度。'
   if (selectedThreadServerRequests.value.length > 0) return '当前任务正在等待你的确认或补充输入，处理后会自动继续。'
-  if (notificationStale.value) return '当前无进行中任务，未检测到可用同步目标。'
+  if (realtimeConnectionState.value === 'reconnecting' || realtimeConnectionState.value === 'disconnected') return '网络或通知通道恢复后会自动加载最新内容，无需手动确认。'
+  if (notificationStale.value) return '当前没有进行中的任务，页面会在回到前台或网络恢复时自动同步。'
   if (selectedLiveOverlay.value?.activityLabel) return selectedLiveOverlay.value.activityLabel
   return 'Web 服务状态正常。'
 })
@@ -751,13 +744,6 @@ const displayedThreadLiveOverlay = ref<UiLiveOverlay | null>(null)
 const displayedThreadScrollState = ref<ThreadScrollState | null>(null)
 const isThreadContentSwitching = ref(false)
 const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selectedThread.value?.inProgress === true)
-const threadStatusTone = computed<'live' | 'syncing' | 'warning' | 'danger'>(() => {
-  if (selectedThreadServerRequests.value.length > 0) return 'warning'
-  if (selectedThreadExecutionActive.value) return 'syncing'
-  if (isRouteOnlyEmptyThread.value) return 'live'
-  if (selectedThread.value?.unread) return 'warning'
-  return 'live'
-})
 const threadStatusLabel = computed(() => {
   if (isNonThreadRoute.value) return ''
   if (isRouteOnlyEmptyThread.value) return '空会话'
@@ -780,6 +766,58 @@ const desktopStatusLabel = computed(() => {
   if (isDesktopRefreshRunning.value) return '刷新中'
   if (desktopAppStatus.value.available) return desktopAppStatus.value.appRunning ? '已连接' : '可用'
   return '不可用'
+})
+const showDesktopStatusPill = computed(() => (
+  isDesktopRefreshRunning.value ||
+  !desktopAppStatus.value.available ||
+  !desktopAppStatus.value.appRunning
+))
+const showServiceStatusDetail = computed(() => (
+  serviceStatusDetail.value.trim().length > 0 &&
+  serviceStatusTone.value !== 'live'
+))
+const contentStatusTone = computed<'live' | 'syncing' | 'warning' | 'danger'>(() => {
+  if (selectedThreadServerRequests.value.length > 0) return 'warning'
+  if (selectedThreadExecutionActive.value) return 'syncing'
+  if (serviceStatusTone.value !== 'live') return serviceStatusTone.value
+  if (isRouteOnlyEmptyThread.value) return 'live'
+  if (selectedThread.value?.unread) return 'warning'
+  if (showDesktopStatusPill.value) return desktopStatusTone.value
+  return 'live'
+})
+const contentStatusCaption = computed(() => {
+  if (selectedThreadServerRequests.value.length > 0 || selectedThreadExecutionActive.value || isRouteOnlyEmptyThread.value || selectedThread.value?.unread) {
+    return '会话'
+  }
+  if (showDesktopStatusPill.value && serviceStatusTone.value === 'live') {
+    return '客户端'
+  }
+  return '服务'
+})
+const contentStatusLabel = computed(() => {
+  if (selectedThreadServerRequests.value.length > 0) return threadStatusLabel.value || '等待处理'
+  if (selectedThreadExecutionActive.value) return threadStatusLabel.value || '执行中'
+  if (isRouteOnlyEmptyThread.value) return '空会话'
+  if (selectedThread.value?.unread) return '有未读更新'
+  if (showDesktopStatusPill.value && serviceStatusTone.value === 'live') return desktopStatusLabel.value
+  return serviceStatusLabel.value
+})
+const contentStatusDetail = computed(() => {
+  if (selectedThreadServerRequests.value.length > 0) {
+    return '当前任务等待你的确认或补充输入，处理后会自动继续。'
+  }
+  if (selectedThreadExecutionActive.value) {
+    return selectedLiveOverlay.value?.activityLabel || '当前任务仍在进行中。'
+  }
+  if (serviceStatusTone.value !== 'live' && showServiceStatusDetail.value) {
+    return serviceStatusDetail.value
+  }
+  if (showDesktopStatusPill.value && serviceStatusTone.value === 'live') {
+    if (isDesktopRefreshRunning.value) return '桌面端正在刷新，完成后会自动恢复连接状态。'
+    if (!desktopAppStatus.value.available) return '未检测到可用桌面端，Web 端仍可单独使用。'
+    if (!desktopAppStatus.value.appRunning) return '桌面端可用但当前未运行，需要时可从设置里手动刷新。'
+  }
+  return ''
 })
 const newThreadFolderOptions = computed(() => {
   const options: Array<{ value: string; label: string }> = []
@@ -2029,7 +2067,7 @@ watch(isMobile, (mobile) => {
   if (mobile && !isSidebarCollapsed.value) {
     setSidebarCollapsed(true)
   }
-})
+}, { immediate: true })
 
 async function submitFirstMessageForNewThread(
   text: string,
@@ -2216,6 +2254,7 @@ async function submitFirstMessageForNewThread(
 
 .content-status-pill {
   @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium;
+  box-shadow: 0 6px 18px -18px rgba(31, 41, 55, 0.24);
 }
 
 .content-status-pill-label {
@@ -2240,6 +2279,7 @@ async function submitFirstMessageForNewThread(
 
 .content-status-detail {
   @apply hidden sm:inline text-[11px] leading-4 text-[#8f8577] truncate;
+  max-width: min(34rem, 50vw);
 }
 
 

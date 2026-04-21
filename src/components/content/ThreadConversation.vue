@@ -23,31 +23,172 @@
     <template v-else>
       <ul ref="conversationListRef" class="conversation-list" :class="{ 'conversation-list--switching': isThreadSwitchingState }">
       <li
-        v-if="hasHiddenEarlierMessages"
-        class="conversation-item conversation-item-load-more"
+        v-if="showProcessPanel"
+        ref="processPanelRef"
+        class="conversation-item conversation-item-process"
       >
-        <button
-          type="button"
-          class="conversation-load-more-button"
-          :disabled="isRevealingOlderMessages"
-          @click="onRevealOlderMessages"
+      <section class="conversation-process-panel">
+        <article
+          v-if="liveOverlay"
+          class="live-overlay-inline"
+          :class="{ 'live-overlay-inline-compact': !shouldRenderDetailedLiveOverlay }"
+          aria-live="polite"
         >
-          <span class="conversation-load-more-title">
-            {{ isRevealingOlderMessages ? '正在加载更早消息...' : `继续查看更多（剩余 ${hiddenEarlierMessageCount} 条）` }}
-          </span>
-          <span class="conversation-load-more-hint">滑到顶部也会继续加载</span>
-        </button>
-      </li>
-      <li
-        v-for="request in pendingRequests"
-        :key="`server-request:${request.id}`"
-        :ref="(el) => setPendingRequestMeasureRef(request.id, el)"
-        :data-pending-request-id="String(request.id)"
-        class="conversation-item conversation-item-request"
-      >
-        <div class="message-row">
-          <div class="message-stack">
-            <article class="request-card">
+          <template v-if="shouldRenderDetailedLiveOverlay">
+            <div class="live-overlay-head">
+              <span class="live-overlay-indicator" aria-hidden="true">
+                <span class="live-overlay-indicator-ring" />
+                <span class="live-overlay-indicator-core" />
+              </span>
+              <div class="live-overlay-heading">
+                <p class="live-overlay-label">{{ liveOverlayPrimaryLabel(liveOverlay) }}</p>
+                <span class="live-overlay-dots" aria-hidden="true">
+                  <span class="live-overlay-dot" />
+                  <span class="live-overlay-dot" />
+                  <span class="live-overlay-dot" />
+                </span>
+              </div>
+            </div>
+            <div
+              v-if="!liveOverlayCommandMessage && liveOverlayDetails(liveOverlay).length > 0"
+              class="live-overlay-detail-list"
+            >
+              <span
+                v-for="detail in liveOverlayDetails(liveOverlay)"
+                :key="detail"
+                class="live-overlay-detail-chip"
+              >
+                {{ detail }}
+              </span>
+            </div>
+            <section v-if="liveOverlayCommandMessage" class="live-overlay-command-panel">
+              <div v-if="liveOverlayDetails(liveOverlay).length > 0" class="live-overlay-detail-list live-overlay-command-details">
+                <span
+                  v-for="detail in liveOverlayDetails(liveOverlay)"
+                  :key="detail"
+                  class="live-overlay-detail-chip"
+                >
+                  {{ detail }}
+                </span>
+              </div>
+              <div class="cmd-row cmd-status-running live-overlay-command-row">
+                <span class="cmd-status">{{ commandStatusLabel(liveOverlayCommandMessage) }}</span>
+                <span v-if="commandDurationLabel(liveOverlayCommandMessage)" class="cmd-duration">
+                  {{ commandDurationLabel(liveOverlayCommandMessage) }}
+                </span>
+                <code class="cmd-label">{{ liveOverlayCommandMessage.commandExecution?.command || '（命令）' }}</code>
+              </div>
+              <div v-if="liveOverlayCommandOutput" class="live-overlay-command-output-wrap">
+                <pre class="cmd-output live-overlay-command-output">{{ liveOverlayCommandOutput }}</pre>
+              </div>
+            </section>
+            <p
+              v-else-if="liveOverlay.reasoningText"
+              class="live-overlay-reasoning"
+              ref="liveOverlayReasoningRef"
+            >
+              {{ liveOverlay.reasoningText }}
+            </p>
+            <p v-else class="live-overlay-hint">
+              {{ liveOverlayHint(liveOverlay) }}
+            </p>
+            <section v-if="overlayPrimaryPendingRequest" class="live-overlay-actions">
+              <template v-if="isApprovalRequestMethod(overlayPrimaryPendingRequest.method)">
+                <button
+                  type="button"
+                  class="live-overlay-action live-overlay-action-primary"
+                  @click="onRespondApproval(overlayPrimaryPendingRequest.id, 'accept')"
+                >
+                  允许
+                </button>
+                <button
+                  type="button"
+                  class="live-overlay-action"
+                  @click="onRespondApproval(overlayPrimaryPendingRequest.id, 'acceptForSession')"
+                >
+                  始终允许
+                </button>
+                <button
+                  type="button"
+                  class="live-overlay-action"
+                  @click="onRespondApproval(overlayPrimaryPendingRequest.id, 'decline')"
+                >
+                  拒绝
+                </button>
+                <button
+                  type="button"
+                  class="live-overlay-action"
+                  @click="onRespondApproval(overlayPrimaryPendingRequest.id, 'cancel')"
+                >
+                  取消
+                </button>
+              </template>
+              <template v-else-if="overlayPrimaryPendingRequest.method === 'item/tool/call'">
+                <button
+                  type="button"
+                  class="live-overlay-action live-overlay-action-primary"
+                  @click="onRespondToolCallFailure(overlayPrimaryPendingRequest.id)"
+                >
+                  返回失败
+                </button>
+                <button
+                  type="button"
+                  class="live-overlay-action"
+                  @click="onRespondToolCallSuccess(overlayPrimaryPendingRequest.id)"
+                >
+                  返回成功
+                </button>
+                <button
+                  type="button"
+                  class="live-overlay-action"
+                  @click="scrollToPendingRequests"
+                >
+                  查看详情
+                </button>
+              </template>
+              <template v-else>
+                <button
+                  type="button"
+                  class="live-overlay-action live-overlay-action-primary"
+                  @click="scrollToPendingRequests"
+                >
+                  {{ overlayPrimaryPendingRequest.method === 'item/tool/requestUserInput' ? '去填写' : '查看请求' }}
+                </button>
+              </template>
+            </section>
+            <p v-if="pendingRequests.length > 1" class="live-overlay-request-count">
+              还有 {{ pendingRequests.length - 1 }} 个待处理请求
+            </p>
+            <p v-if="liveOverlay.errorText" class="live-overlay-error">{{ liveOverlay.errorText }}</p>
+          </template>
+          <template v-else>
+            <div class="live-overlay-compact-main">
+              <span class="live-overlay-indicator" aria-hidden="true">
+                <span class="live-overlay-indicator-ring" />
+                <span class="live-overlay-indicator-core" />
+              </span>
+              <div class="live-overlay-compact-copy">
+                <div class="live-overlay-compact-head">
+                  <p class="live-overlay-compact-label">{{ liveOverlayPrimaryLabel(liveOverlay) }}</p>
+                  <span class="live-overlay-dots" aria-hidden="true">
+                    <span class="live-overlay-dot" />
+                    <span class="live-overlay-dot" />
+                    <span class="live-overlay-dot" />
+                  </span>
+                </div>
+                <p class="live-overlay-compact-hint">{{ liveOverlayCompactHint(liveOverlay) }}</p>
+              </div>
+            </div>
+          </template>
+        </article>
+
+        <section v-if="pendingRequests.length > 0" class="conversation-process-section">
+          <button type="button" class="conversation-process-toggle" @click="isRequestPanelExpanded = !isRequestPanelExpanded">
+            <span>待处理请求</span>
+            <span>{{ pendingRequests.length }} 项</span>
+          </button>
+          <div v-if="isRequestPanelExpanded" class="conversation-process-stack">
+            <article v-for="request in pendingRequests" :key="`panel-request:${request.id}`" class="request-card">
               <p class="request-title">{{ requestMethodLabel(request.method) }}</p>
               <p class="request-meta">请求 #{{ request.id }} · {{ formatIsoTime(request.receivedAtIso) }}</p>
 
@@ -110,9 +251,25 @@
               </section>
             </article>
           </div>
-        </div>
+        </section>
+      </section>
       </li>
-
+      <li
+        v-if="hasHiddenEarlierMessages"
+        class="conversation-item conversation-item-load-more"
+      >
+        <button
+          type="button"
+          class="conversation-load-more-button"
+          :disabled="isRevealingOlderMessages"
+          @click="onRevealOlderMessages"
+        >
+          <span class="conversation-load-more-title">
+            {{ isRevealingOlderMessages ? '正在加载更早消息...' : `继续查看更多（剩余 ${hiddenEarlierMessageCount} 条）` }}
+          </span>
+          <span class="conversation-load-more-hint">滑到顶部也会继续加载</span>
+        </button>
+      </li>
       <li
         v-if="virtualTopSpacerHeight > 0"
         class="conversation-spacer"
@@ -153,7 +310,6 @@
         </div>
 
         <div
-          v-else
           class="message-row"
           :data-role="entry.message.role"
           :data-message-type="entry.message.messageType || ''"
@@ -201,42 +357,7 @@
               </div>
 
               <article v-if="entry.message.text.length > 0" class="message-card" :data-role="entry.message.role">
-                <div v-if="entry.message.messageType === 'worked'" class="worked-separator-wrap" aria-live="polite">
-                  <button type="button" class="worked-separator" @click="toggleWorkedExpand(entry.message)">
-                    <span class="worked-separator-line" aria-hidden="true" />
-                    <span class="worked-chevron" :class="{ 'worked-chevron-open': isWorkedExpanded(entry.message) }">▶</span>
-                    <p class="worked-separator-text">{{ entry.message.text }}</p>
-                    <span class="worked-separator-line" aria-hidden="true" />
-                  </button>
-                  <div v-if="isWorkedExpanded(entry.message)" class="worked-details">
-                    <div
-                      v-for="cmd in getWorkedCommands(entry.message.id)"
-                      :key="`worked-cmd-${cmd.id}`"
-                      class="worked-cmd-item"
-                    >
-                      <button
-                        type="button"
-                        class="cmd-row"
-                        :class="[commandStatusClass(cmd), { 'cmd-expanded': isCommandExpanded(cmd) }]"
-                        @click="toggleCommandExpand(cmd)"
-                      >
-                        <span class="cmd-chevron" :class="{ 'cmd-chevron-open': isCommandExpanded(cmd) }">▶</span>
-                        <span class="cmd-status">{{ commandStatusLabel(cmd) }}</span>
-                        <span v-if="commandDurationLabel(cmd)" class="cmd-duration">{{ commandDurationLabel(cmd) }}</span>
-                        <code class="cmd-label">{{ cmd.commandExecution?.command || '（命令）' }}</code>
-                      </button>
-                      <div
-                        class="cmd-output-wrap"
-                        :class="{ 'cmd-output-visible': isCommandExpanded(cmd), 'cmd-output-collapsing': isCommandCollapsing(cmd) }"
-                      >
-                        <div class="cmd-output-inner">
-                          <pre class="cmd-output">{{ cmd.commandExecution?.aggregatedOutput || '（无输出）' }}</pre>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div v-else class="message-text-flow">
+                <div class="message-text-flow">
                   <template
                     v-for="(block, blockIndex) in getPreparedMessageBlocks(entry.message)"
                     :key="`block-${blockIndex}`"
@@ -322,157 +443,6 @@
         aria-hidden="true"
         :style="{ height: `${String(virtualBottomSpacerHeight)}px` }"
       />
-      <li v-if="liveOverlay" class="conversation-item conversation-item-overlay">
-        <div class="message-row">
-          <div class="message-stack">
-            <article
-              v-if="shouldRenderDetailedLiveOverlay"
-              class="live-overlay-inline"
-              aria-live="polite"
-            >
-              <div class="live-overlay-head">
-                <span class="live-overlay-indicator" aria-hidden="true">
-                  <span class="live-overlay-indicator-ring" />
-                  <span class="live-overlay-indicator-core" />
-                </span>
-                <div class="live-overlay-heading">
-                  <p class="live-overlay-label">{{ liveOverlayPrimaryLabel(liveOverlay) }}</p>
-                  <span class="live-overlay-dots" aria-hidden="true">
-                    <span class="live-overlay-dot" />
-                    <span class="live-overlay-dot" />
-                    <span class="live-overlay-dot" />
-                  </span>
-                </div>
-              </div>
-              <div
-                v-if="!liveOverlayCommandMessage && liveOverlay.activityDetails.length > 0"
-                class="live-overlay-detail-list"
-              >
-                <span
-                  v-for="detail in liveOverlayDetails(liveOverlay)"
-                  :key="detail"
-                  class="live-overlay-detail-chip"
-                >
-                  {{ detail }}
-                </span>
-              </div>
-              <section v-if="liveOverlayCommandMessage" class="live-overlay-command-panel">
-                <div class="cmd-row cmd-status-running live-overlay-command-row">
-                  <span class="cmd-status">{{ commandStatusLabel(liveOverlayCommandMessage) }}</span>
-                  <span v-if="commandDurationLabel(liveOverlayCommandMessage)" class="cmd-duration">
-                    {{ commandDurationLabel(liveOverlayCommandMessage) }}
-                  </span>
-                  <code class="cmd-label">{{ liveOverlayCommandMessage.commandExecution?.command || '（命令）' }}</code>
-                </div>
-                <div v-if="liveOverlayCommandOutput" class="live-overlay-command-output-wrap">
-                  <pre class="cmd-output live-overlay-command-output">{{ liveOverlayCommandOutput }}</pre>
-                </div>
-              </section>
-              <p
-                v-else-if="liveOverlay.reasoningText"
-                class="live-overlay-reasoning"
-                ref="liveOverlayReasoningRef"
-              >
-                {{ liveOverlay.reasoningText }}
-              </p>
-              <p v-else class="live-overlay-hint">
-                {{ liveOverlayHint(liveOverlay) }}
-              </p>
-              <section v-if="overlayPrimaryPendingRequest" class="live-overlay-actions">
-                <template v-if="isApprovalRequestMethod(overlayPrimaryPendingRequest.method)">
-                  <button
-                    type="button"
-                    class="live-overlay-action live-overlay-action-primary"
-                    @click="onRespondApproval(overlayPrimaryPendingRequest.id, 'accept')"
-                  >
-                    允许
-                  </button>
-                  <button
-                    type="button"
-                    class="live-overlay-action"
-                    @click="onRespondApproval(overlayPrimaryPendingRequest.id, 'acceptForSession')"
-                  >
-                    始终允许
-                  </button>
-                  <button
-                    type="button"
-                    class="live-overlay-action"
-                    @click="onRespondApproval(overlayPrimaryPendingRequest.id, 'decline')"
-                  >
-                    拒绝
-                  </button>
-                  <button
-                    type="button"
-                    class="live-overlay-action"
-                    @click="onRespondApproval(overlayPrimaryPendingRequest.id, 'cancel')"
-                  >
-                    取消
-                  </button>
-                </template>
-                <template v-else-if="overlayPrimaryPendingRequest.method === 'item/tool/call'">
-                  <button
-                    type="button"
-                    class="live-overlay-action live-overlay-action-primary"
-                    @click="onRespondToolCallFailure(overlayPrimaryPendingRequest.id)"
-                  >
-                    返回失败
-                  </button>
-                  <button
-                    type="button"
-                    class="live-overlay-action"
-                    @click="onRespondToolCallSuccess(overlayPrimaryPendingRequest.id)"
-                  >
-                    返回成功
-                  </button>
-                  <button
-                    type="button"
-                    class="live-overlay-action"
-                    @click="scrollToPendingRequests"
-                  >
-                    查看详情
-                  </button>
-                </template>
-                <template v-else>
-                  <button
-                    type="button"
-                    class="live-overlay-action live-overlay-action-primary"
-                    @click="scrollToPendingRequests"
-                  >
-                    {{ overlayPrimaryPendingRequest.method === 'item/tool/requestUserInput' ? '去填写' : '查看请求' }}
-                  </button>
-                </template>
-              </section>
-              <p v-if="pendingRequests.length > 1" class="live-overlay-request-count">
-                还有 {{ pendingRequests.length - 1 }} 个待处理请求
-              </p>
-              <p v-if="liveOverlay.errorText" class="live-overlay-error">{{ liveOverlay.errorText }}</p>
-            </article>
-            <article
-              v-else
-              class="live-overlay-inline live-overlay-inline-compact"
-              aria-live="polite"
-            >
-              <div class="live-overlay-compact-main">
-                <span class="live-overlay-indicator" aria-hidden="true">
-                  <span class="live-overlay-indicator-ring" />
-                  <span class="live-overlay-indicator-core" />
-                </span>
-                <div class="live-overlay-compact-copy">
-                  <div class="live-overlay-compact-head">
-                    <p class="live-overlay-compact-label">{{ liveOverlayPrimaryLabel(liveOverlay) }}</p>
-                    <span class="live-overlay-dots" aria-hidden="true">
-                      <span class="live-overlay-dot" />
-                      <span class="live-overlay-dot" />
-                      <span class="live-overlay-dot" />
-                    </span>
-                  </div>
-                  <p class="live-overlay-compact-hint">{{ liveOverlayCompactHint(liveOverlay) }}</p>
-                </div>
-              </div>
-            </article>
-          </div>
-        </div>
-      </li>
       <li ref="bottomAnchorRef" class="conversation-bottom-anchor" />
       </ul>
 
@@ -537,7 +507,6 @@ import IconTablerCopy from '../icons/IconTablerCopy.vue'
 
 const expandedCommandIds = ref<Set<string>>(new Set())
 const collapsingCommandIds = ref<Set<string>>(new Set())
-const expandedWorkedIds = ref<Set<string>>(new Set())
 const prevCommandStatuses = ref<Record<string, string>>({})
 const commandElapsedNowMs = ref(Date.now())
 const observedCommandStartedAtById = ref<Record<string, number>>({})
@@ -567,17 +536,6 @@ function toggleCommandExpand(message: UiMessage): void {
   if (next.has(message.id)) next.delete(message.id)
   else next.add(message.id)
   expandedCommandIds.value = next
-}
-
-function toggleWorkedExpand(message: UiMessage): void {
-  const next = new Set(expandedWorkedIds.value)
-  if (next.has(message.id)) next.delete(message.id)
-  else next.add(message.id)
-  expandedWorkedIds.value = next
-}
-
-function isWorkedExpanded(message: UiMessage): boolean {
-  return expandedWorkedIds.value.has(message.id)
 }
 
 function commandStatusLabel(message: UiMessage): string {
@@ -719,11 +677,12 @@ const props = defineProps<{
 
 const MESSAGE_WINDOW_SIZE = 20
 const renderableMessages = computed<UiMessage[]>(() => (
-  props.messages.filter((message) => !isRunningCommandMessage(message))
+  props.messages.filter((message) => !isCommandMessage(message) && message.messageType !== 'worked')
 ))
 const isRevealingOlderMessages = ref(false)
 const canAutoRevealOlderMessages = ref(true)
 const visibleMessageStartIndex = ref(0)
+const isRequestPanelExpanded = ref(false)
 
 function latestVisibleStartIndex(messageCount: number): number {
   return Math.max(messageCount - MESSAGE_WINDOW_SIZE, 0)
@@ -734,10 +693,13 @@ const visibleRenderableMessages = computed<UiMessage[]>(() => (
 ))
 const hiddenEarlierMessageCount = computed(() => visibleMessageStartIndex.value)
 const hasHiddenEarlierMessages = computed(() => hiddenEarlierMessageCount.value > 0)
+const showProcessPanel = computed(() => (
+  !!props.liveOverlay || props.pendingRequests.length > 0
+))
 
 const liveOverlayCommandMessage = computed<UiMessage | null>(() => {
   const overlay = props.liveOverlay
-  if (!overlay || !overlay.activityLabel.includes('执行命令')) return null
+  if (!overlay) return null
   for (let index = props.messages.length - 1; index >= 0; index -= 1) {
     const candidate = props.messages[index]
     if (candidate && isRunningCommandMessage(candidate)) return candidate
@@ -759,6 +721,7 @@ const emit = defineEmits<{
 
 const conversationListRef = ref<HTMLElement | null>(null)
 const bottomAnchorRef = ref<HTMLElement | null>(null)
+const processPanelRef = ref<HTMLElement | null>(null)
 const liveOverlayReasoningRef = ref<HTMLElement | null>(null)
 const modalImageUrl = ref('')
 const fileLinkContextMenuRef = ref<HTMLElement | null>(null)
@@ -785,12 +748,11 @@ type VirtualizedMessageEntry = {
 }
 type MeasureRefTarget = Element | ComponentPublicInstance | null
 type ScrollAnchorSnapshot = {
-  measureKind: 'message' | 'request'
   measureId: string
   viewportOffset: number
 }
 
-const VIRTUALIZE_MIN_MESSAGES = 32
+const VIRTUALIZE_MIN_MESSAGES = 80
 const VIRTUAL_OVERSCAN_PX = 640
 const ESTIMATED_PENDING_REQUEST_HEIGHT_PX = 156
 
@@ -800,6 +762,7 @@ let bottomLockFrame = 0
 let bottomLockFramesLeft = 0
 let scrollStateEmitFrame = 0
 let scrollInteractionFrame = 0
+let scrollStateIdleTimer: number | null = null
 let pendingScrollStateContainer: HTMLElement | null = null
 let pendingScrollStateForce = false
 let pendingScrollInteractionContainer: HTMLElement | null = null
@@ -815,23 +778,19 @@ const fileLinkContextMenuX = ref(0)
 const fileLinkContextMenuY = ref(0)
 const fileLinkContextBrowseUrl = ref('')
 const fileLinkContextEditUrl = ref('')
-const EMPTY_WORKED_COMMANDS: UiMessage[] = []
+const EMPTY_MESSAGES: UiMessage[] = []
 const conversationViewportHeight = ref(0)
 const conversationScrollTop = ref(0)
 const conversationItemGap = ref(0)
 const lastEmittedScrollStateSignature = ref('')
 const measuredMessageHeightById = ref<Record<string, number>>({})
-const measuredPendingRequestHeightById = ref<Record<string, number>>({})
 const observedMessageElementsById = new Map<string, HTMLElement>()
-const observedPendingRequestElementsById = new Map<string, HTMLElement>()
 const itemResizeObserver =
   typeof ResizeObserver !== 'undefined'
     ? new ResizeObserver((entries) => {
       const anchorSnapshot = !shouldLockToBottom() ? captureVisibleConversationAnchor() : null
       let nextMessageHeights = measuredMessageHeightById.value
-      let nextPendingRequestHeights = measuredPendingRequestHeightById.value
       let hasMessageHeightChange = false
-      let hasPendingRequestHeightChange = false
 
       for (const entry of entries) {
         const target = entry.target
@@ -848,26 +807,13 @@ const itemResizeObserver =
             hasMessageHeightChange = true
           }
           nextMessageHeights[measureId] = nextHeight
-          continue
-        }
-
-        if (measureKind === 'request') {
-          if (nextPendingRequestHeights[measureId] === nextHeight) continue
-          if (!hasPendingRequestHeightChange) {
-            nextPendingRequestHeights = { ...nextPendingRequestHeights }
-            hasPendingRequestHeightChange = true
-          }
-          nextPendingRequestHeights[measureId] = nextHeight
         }
       }
 
       if (hasMessageHeightChange) {
         measuredMessageHeightById.value = nextMessageHeights
       }
-      if (hasPendingRequestHeightChange) {
-        measuredPendingRequestHeightById.value = nextPendingRequestHeights
-      }
-      if (hasMessageHeightChange || hasPendingRequestHeightChange) {
+      if (hasMessageHeightChange) {
         if (shouldLockToBottom()) {
           scheduleBottomLock(2)
         } else if (anchorSnapshot) {
@@ -909,7 +855,11 @@ const shouldRenderDetailedLiveOverlay = computed<boolean>(() => {
   const overlay = props.liveOverlay
   if (!overlay) return false
   if (overlayPrimaryPendingRequest.value) return true
-  return overlay.errorText.trim().length > 0
+  if (overlay.errorText.trim().length > 0) return true
+  if (liveOverlayCommandMessage.value) return true
+  if (overlay.reasoningText.trim().length > 0) return true
+  if (liveOverlayDetails(overlay).length > 0) return true
+  return overlay.activityLabel.trim().length > 0
 })
 const liveOverlayBehaviorSignature = computed<string>(() => {
   const overlay = props.liveOverlay
@@ -925,37 +875,6 @@ const liveOverlayBehaviorSignature = computed<string>(() => {
 const jumpToLatestTitle = computed(() => (
   hasPendingBelowFoldUpdates.value ? '跳到最新输出' : '回到底部'
 ))
-const pendingRequestsHeight = computed(() => (
-  props.pendingRequests.reduce((total, request) => (
-    total + (measuredPendingRequestHeightById.value[String(request.id)] ?? ESTIMATED_PENDING_REQUEST_HEIGHT_PX)
-  ), 0) +
-  conversationItemGap.value *
-    (props.pendingRequests.length > 0 && visibleRenderableMessages.value.length > 0
-      ? props.pendingRequests.length
-      : Math.max(props.pendingRequests.length - 1, 0))
-))
-const workedCommandsByMessageId = computed<Record<string, UiMessage[]>>(() => {
-  const next: Record<string, UiMessage[]> = {}
-  let pendingCommands: UiMessage[] = []
-
-  for (const message of props.messages) {
-    if (message.messageType === 'commandExecution' && message.commandExecution) {
-      if (message.commandExecution.status === 'inProgress') continue
-      pendingCommands.push(message)
-      continue
-    }
-    if (message.messageType === 'worked') {
-      next[message.id] = pendingCommands.length > 0 ? [...pendingCommands] : EMPTY_WORKED_COMMANDS
-      pendingCommands = []
-      continue
-    }
-    if (message.role === 'user') {
-      pendingCommands = []
-    }
-  }
-
-  return next
-})
 const shouldVirtualizeMessages = computed(() => visibleRenderableMessages.value.length >= VIRTUALIZE_MIN_MESSAGES)
 const messageHeightMetrics = computed(() => {
   const cumulativeHeights: number[] = [0]
@@ -984,7 +903,7 @@ const virtualizedMessageRange = computed(() => {
 
   const { cumulativeHeights } = messageHeightMetrics.value
 
-  const relativeScrollTop = Math.max(conversationScrollTop.value - pendingRequestsHeight.value, 0)
+  const relativeScrollTop = Math.max(conversationScrollTop.value, 0)
   const viewportHeight = Math.max(conversationViewportHeight.value, 1)
   const visibleStart = Math.max(relativeScrollTop - VIRTUAL_OVERSCAN_PX, 0)
   const visibleEnd = relativeScrollTop + viewportHeight + VIRTUAL_OVERSCAN_PX
@@ -1047,21 +966,29 @@ function captureVisibleConversationAnchor(): ScrollAnchorSnapshot | null {
   const container = conversationListRef.value
   if (!container) return null
   const containerRect = container.getBoundingClientRect()
-  const measuredElements = container.querySelectorAll<HTMLElement>('[data-measure-kind][data-measure-id]')
+  const measuredElements: Array<{
+    element: HTMLElement
+    measureId: string
+  }> = []
 
-  for (const element of measuredElements) {
+  for (const entry of virtualizedMessages.value) {
+    const measureId = entry.message.id
+    const element = observedMessageElementsById.get(measureId)
+    if (!element) continue
+    measuredElements.push({
+      element,
+      measureId,
+    })
+  }
+
+  for (const { element, measureId } of measuredElements) {
     const rect = element.getBoundingClientRect()
     if (rect.bottom <= containerRect.top + 1) continue
     if (rect.top >= containerRect.bottom) break
 
-    const measureKind = element.dataset.measureKind
-    const measureId = element.dataset.measureId
-    if ((measureKind === 'message' || measureKind === 'request') && measureId) {
-      return {
-        measureKind,
-        measureId,
-        viewportOffset: rect.top - containerRect.top,
-      }
+    return {
+      measureId,
+      viewportOffset: rect.top - containerRect.top,
     }
   }
 
@@ -1083,29 +1010,15 @@ function syncConversationViewport(container: HTMLElement): void {
   conversationItemGap.value = Number.isFinite(parsedGap) ? parsedGap : 0
 }
 
-function updateMeasuredHeight(
-  measureKind: 'message' | 'request',
-  measureId: string,
-  height: number,
-): void {
-  if (measureKind === 'message') {
-    if (measuredMessageHeightById.value[measureId] === height) return
-    measuredMessageHeightById.value = {
-      ...measuredMessageHeightById.value,
-      [measureId]: height,
-    }
-    return
-  }
-
-  if (measuredPendingRequestHeightById.value[measureId] === height) return
-  measuredPendingRequestHeightById.value = {
-    ...measuredPendingRequestHeightById.value,
+function updateMeasuredHeight(measureId: string, height: number): void {
+  if (measuredMessageHeightById.value[measureId] === height) return
+  measuredMessageHeightById.value = {
+    ...measuredMessageHeightById.value,
     [measureId]: height,
   }
 }
 
 function observeMeasuredElement(
-  measureKind: 'message' | 'request',
   measureId: string,
   element: HTMLElement,
   observedElementsById: Map<string, HTMLElement>,
@@ -1115,10 +1028,9 @@ function observeMeasuredElement(
     itemResizeObserver?.unobserve(previousElement)
   }
 
-  element.dataset.measureKind = measureKind
   element.dataset.measureId = measureId
   observedElementsById.set(measureId, element)
-  updateMeasuredHeight(measureKind, measureId, measureObservedElementHeight(element))
+  updateMeasuredHeight(measureId, measureObservedElementHeight(element))
   itemResizeObserver?.observe(element)
 }
 
@@ -1171,19 +1083,13 @@ function pruneMeasuredMessageHeights(messages: UiMessage[]): void {
   pruneObservedElements(keepIds, observedMessageElementsById)
 }
 
-function pruneMeasuredPendingRequestHeights(requests: UiServerRequest[]): void {
-  const keepIds = new Set(requests.map((request) => String(request.id)))
-  measuredPendingRequestHeightById.value = pruneMeasuredHeightCache(keepIds, measuredPendingRequestHeightById.value)
-  pruneObservedElements(keepIds, observedPendingRequestElementsById)
-}
-
 function setMessageMeasureRef(messageId: string, element: MeasureRefTarget): void {
   const measuredElement = toMeasuredElement(element)
   if (!measuredElement) {
     disconnectMeasuredElement(messageId, observedMessageElementsById)
     return
   }
-  observeMeasuredElement('message', messageId, measuredElement, observedMessageElementsById)
+  observeMeasuredElement(messageId, measuredElement, observedMessageElementsById)
 }
 
 function toMeasuredElement(target: MeasureRefTarget): HTMLElement | null {
@@ -1195,26 +1101,12 @@ function toMeasuredElement(target: MeasureRefTarget): HTMLElement | null {
   return null
 }
 
-function setPendingRequestMeasureRef(requestId: number, element: MeasureRefTarget): void {
-  const measureId = String(requestId)
-  const measuredElement = toMeasuredElement(element)
-  if (!measuredElement) {
-    disconnectMeasuredElement(measureId, observedPendingRequestElementsById)
-    return
-  }
-  observeMeasuredElement('request', measureId, measuredElement, observedPendingRequestElementsById)
-}
-
 function restoreScrollAnchor(snapshot: ScrollAnchorSnapshot): boolean {
   if (shouldLockToBottom()) return false
   const container = conversationListRef.value
   if (!container) return false
 
-  const observedElementsById =
-    snapshot.measureKind === 'message'
-      ? observedMessageElementsById
-      : observedPendingRequestElementsById
-  const element = observedElementsById.get(snapshot.measureId)
+  const element = observedMessageElementsById.get(snapshot.measureId)
   if (!element) return false
 
   const containerRect = container.getBoundingClientRect()
@@ -1275,14 +1167,6 @@ function estimateMessageHeight(message: UiMessage): number {
     const output = message.commandExecution?.aggregatedOutput ?? ''
     if (!isCommandExpanded(message)) return 68
     return Math.min(120 + estimateTextHeight(output, 16, 78), 520)
-  }
-
-  if (message.messageType === 'worked') {
-    if (!isWorkedExpanded(message)) return 64
-    const commandsHeight = getWorkedCommands(message.id).reduce((total, command) => (
-      total + (isCommandExpanded(command) ? 160 : 58)
-    ), 0)
-    return Math.min(84 + commandsHeight, 760)
   }
 
   let height = message.role === 'user' ? 74 : 92
@@ -2073,10 +1957,6 @@ function parseMessageBlocks(text: string): MessageBlock[] {
   return blocks.length > 0 ? blocks : [{ kind: 'text', value: text }]
 }
 
-function getWorkedCommands(messageId: string): UiMessage[] {
-  return workedCommandsByMessageId.value[messageId] ?? EMPTY_WORKED_COMMANDS
-}
-
 function getPreparedMessageBlocks(message: UiMessage): PreparedMessageBlock[] {
   const cached = preparedMessageBlocksById.get(message.id)
   if (cached && cached.text === message.text) {
@@ -2326,7 +2206,14 @@ function liveOverlayPrimaryLabel(overlay: UiLiveOverlay): string {
 }
 
 function liveOverlayDetails(overlay: UiLiveOverlay): string[] {
-  return overlay.activityDetails.slice(-3)
+  const details = overlay.activityDetails
+    .map((detail) => detail.trim())
+    .filter((detail) => detail.length > 0)
+  const command = liveOverlayCommandMessage.value?.commandExecution?.command?.trim() ?? ''
+  if (command && !details.includes(command)) {
+    details.push(command)
+  }
+  return details.slice(-3)
 }
 
 function liveOverlayHint(overlay: UiLiveOverlay): string {
@@ -2356,22 +2243,15 @@ function liveOverlayCompactHint(overlay: UiLiveOverlay): string {
 }
 
 function scrollToPendingRequests(): void {
-  const container = conversationListRef.value
-  if (!container) return
+  isRequestPanelExpanded.value = true
   clearBelowFoldUpdates()
   autoFollowBottom.value = false
-  const firstPendingRequest = container.querySelector('[data-pending-request-id]')
-  if (firstPendingRequest instanceof HTMLElement) {
-    firstPendingRequest.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    })
+  const processPanel = processPanelRef.value
+  if (processPanel) {
+    processPanel.scrollIntoView({ behavior: 'smooth', block: 'end' })
     return
   }
-  container.scrollTo({
-    top: 0,
-    behavior: 'smooth',
-  })
+  jumpToLatest()
 }
 
 async function onCopyMessage(message: UiMessage): Promise<void> {
@@ -2469,6 +2349,22 @@ function scheduleEmitScrollState(container: HTMLElement, force = false): void {
   scrollStateEmitFrame = requestAnimationFrame(flushScrollState)
 }
 
+function scheduleIdleScrollStateEmit(container: HTMLElement, force = false): void {
+  pendingScrollStateContainer = container
+  pendingScrollStateForce = pendingScrollStateForce || force
+  if (typeof window === 'undefined') {
+    flushScrollState()
+    return
+  }
+  if (scrollStateIdleTimer) {
+    window.clearTimeout(scrollStateIdleTimer)
+  }
+  scrollStateIdleTimer = window.setTimeout(() => {
+    scrollStateIdleTimer = null
+    flushScrollState()
+  }, force ? 0 : 140)
+}
+
 function flushConversationScrollInteraction(): void {
   scrollInteractionFrame = 0
   const container = pendingScrollInteractionContainer
@@ -2488,7 +2384,6 @@ function flushConversationScrollInteraction(): void {
   }
   const atBottom = isAtBottom(container)
   autoFollowBottom.value = atBottom
-  emitScrollState(container, false, true)
   if (atBottom) {
     clearBelowFoldUpdates()
   }
@@ -2636,7 +2531,7 @@ watch(
   async (next, previous) => {
     syncObservedCommandStartTimes(next)
     if (props.isLoading) return
-    const previousMessages = previous ?? EMPTY_WORKED_COMMANDS
+    const previousMessages = previous ?? EMPTY_MESSAGES
     const shouldFollowBottom = shouldLockToBottom()
 
     for (const m of next) {
@@ -2659,21 +2554,6 @@ watch(
     await scheduleScrollRestore(shouldFollowBottom)
   },
   { immediate: true },
-)
-
-watch(
-  () => props.pendingRequests,
-  async (next, previous) => {
-    if (props.isLoading) return
-    const shouldFollowBottom = shouldLockToBottom()
-    pruneMeasuredPendingRequestHeights(next)
-
-    if (previous.length > 0 && !shouldFollowBottom) {
-      markBelowFoldUpdate()
-    }
-
-    await scheduleScrollRestore(shouldFollowBottom)
-  },
 )
 
 watch(
@@ -2708,9 +2588,7 @@ watch(
     failedMarkdownImageKeys.value = new Set()
     preparedMessageBlocksById.clear()
     disconnectAllObservedElements(observedMessageElementsById)
-    disconnectAllObservedElements(observedPendingRequestElementsById)
     measuredMessageHeightById.value = {}
-    measuredPendingRequestHeightById.value = {}
     conversationScrollTop.value = 0
     lastGapMeasuredContainer = null
     lastGapMeasuredViewportHeight = -1
@@ -2770,6 +2648,7 @@ function onConversationScroll(event: Event): void {
     : conversationListRef.value
   if (!container || props.isLoading) return
   pendingScrollInteractionContainer = container
+  scheduleIdleScrollStateEmit(container)
   if (scrollInteractionFrame) return
   scrollInteractionFrame = requestAnimationFrame(flushConversationScrollInteraction)
 }
@@ -2834,6 +2713,10 @@ onBeforeUnmount(() => {
   if (scrollInteractionFrame) {
     cancelAnimationFrame(scrollInteractionFrame)
   }
+  if (scrollStateIdleTimer && typeof window !== 'undefined') {
+    window.clearTimeout(scrollStateIdleTimer)
+    scrollStateIdleTimer = null
+  }
   if (observedConversationListElement) {
     observedConversationListElement.removeEventListener('scroll', onConversationScroll, { passive: true } as AddEventListenerOptions)
     observedConversationListElement = null
@@ -2841,7 +2724,6 @@ onBeforeUnmount(() => {
   conversationListResizeObserver?.disconnect()
   itemResizeObserver?.disconnect()
   disconnectAllObservedElements(observedMessageElementsById)
-  disconnectAllObservedElements(observedPendingRequestElementsById)
   window.removeEventListener('pointerdown', onWindowPointerDownForFileLinkContextMenu, { capture: true })
   window.removeEventListener('blur', onWindowBlurForFileLinkContextMenu)
   window.removeEventListener('keydown', onWindowKeydownForFileLinkContextMenu)
@@ -2870,6 +2752,27 @@ onBeforeUnmount(() => {
 
 .conversation-status-loading-text {
   @apply font-medium tracking-[0.01em];
+}
+
+.conversation-item-process {
+  @apply justify-center;
+  order: 20;
+}
+
+.conversation-process-panel {
+  @apply w-full max-w-180 mx-auto mb-1 flex flex-col gap-1.5;
+}
+
+.conversation-process-toggle {
+  @apply inline-flex w-full items-center justify-between rounded-xl border border-[#e6dccb] bg-[#fffdf8] px-3 py-1.5 text-left text-[11px] font-semibold text-[#6d6354] transition-colors hover:border-[#d6c8b2] hover:bg-[#fffaf0];
+}
+
+.conversation-process-section {
+  @apply flex flex-col gap-1.5;
+}
+
+.conversation-process-stack {
+  @apply flex flex-col gap-1.5;
 }
 
 .conversation-empty-state {
@@ -2949,10 +2852,6 @@ onBeforeUnmount(() => {
   @apply m-0 w-full flex-none p-0 pointer-events-none;
 }
 
-.conversation-item-request {
-  @apply justify-center;
-}
-
 .conversation-item-load-more {
   @apply justify-center;
 }
@@ -2967,10 +2866,6 @@ onBeforeUnmount(() => {
 
 .conversation-load-more-hint {
   @apply text-[11px] text-[#8f8577];
-}
-
-.conversation-item-overlay {
-  @apply justify-center;
 }
 
 .message-row {
@@ -2988,6 +2883,7 @@ onBeforeUnmount(() => {
 
 .conversation-bottom-anchor {
   @apply h-px;
+  order: 30;
 }
 
 .message-stack {
@@ -3048,11 +2944,11 @@ onBeforeUnmount(() => {
 }
 
 .live-overlay-inline {
-  @apply w-full max-w-180 rounded-[20px] border border-[#cfe6e0] bg-[#f6fbfa] px-3.5 py-2.5 flex flex-col gap-1.5;
+  @apply w-full max-w-180 rounded-2xl border border-[#d7ebe7] bg-[#f7fbfa] px-3 py-2 flex flex-col gap-1.5;
 }
 
 .live-overlay-inline-compact {
-  @apply max-w-132 rounded-[18px] px-3 py-2;
+  @apply max-w-132 rounded-2xl px-3 py-1.5;
 }
 
 .live-overlay-head {
@@ -3060,7 +2956,7 @@ onBeforeUnmount(() => {
 }
 
 .live-overlay-indicator {
-  @apply relative flex h-7 w-7 items-center justify-center rounded-full border border-[#cfe6e0] bg-white shrink-0;
+  @apply relative flex h-6 w-6 items-center justify-center rounded-full border border-[#d7ebe7] bg-white shrink-0;
 }
 
 .live-overlay-indicator-ring {
@@ -3076,7 +2972,7 @@ onBeforeUnmount(() => {
 }
 
 .live-overlay-compact-main {
-  @apply flex items-center gap-2.5;
+  @apply flex items-center gap-2;
 }
 
 .live-overlay-compact-copy {
@@ -3096,7 +2992,7 @@ onBeforeUnmount(() => {
 }
 
 .live-overlay-compact-label {
-  @apply m-0 text-sm font-semibold text-[#1b4d47];
+  @apply m-0 text-[13px] font-semibold text-[#1b4d47];
 }
 
 .live-overlay-dots {
@@ -3120,8 +3016,15 @@ onBeforeUnmount(() => {
   @apply flex flex-wrap gap-1.5;
 }
 
+.live-overlay-command-details {
+  @apply mb-1;
+}
+
 .live-overlay-detail-chip {
-  @apply inline-flex items-center rounded-full border border-[#d6ebe6] bg-white/80 px-2 py-0.5 text-[11px] text-[#476760];
+  @apply inline-flex max-w-full items-center rounded-full border border-[#d6ebe6] bg-white/80 px-2 py-0.5 text-[11px] text-[#476760];
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .live-overlay-command-panel {
@@ -3145,7 +3048,7 @@ onBeforeUnmount(() => {
 }
 
 .live-overlay-compact-hint {
-  @apply m-0 text-[12px] leading-4 text-[#6b8a84];
+  @apply m-0 text-[11px] leading-4 text-[#6b8a84];
 }
 
 .live-overlay-request-link {
@@ -3310,44 +3213,6 @@ onBeforeUnmount(() => {
 
 .message-card[data-role='system'] {
   @apply rounded-[18px] border border-[#e8dfcf] bg-[#f7f2e8] px-3.5 py-2.5;
-}
-
-.conversation-item[data-message-type='worked'] .message-stack,
-.conversation-item[data-message-type='worked'] .message-body,
-.conversation-item[data-message-type='worked'] .message-card {
-  @apply w-full max-w-full;
-}
-
-.worked-separator-wrap {
-  @apply w-full flex flex-col gap-0;
-}
-
-.worked-separator {
-  @apply w-full flex items-center gap-2.5 bg-transparent border-none cursor-pointer p-0;
-}
-
-.worked-chevron {
-  @apply text-[9px] text-zinc-400 transition-transform duration-200 flex-shrink-0;
-}
-
-.worked-chevron-open {
-  transform: rotate(90deg);
-}
-
-.worked-separator-line {
-  @apply h-px bg-[#d6ccbd] flex-1;
-}
-
-.worked-separator-text {
-  @apply m-0 text-sm leading-5 font-medium text-[#5b5146];
-}
-
-.worked-details {
-  @apply flex flex-col gap-1.5 pt-1.5;
-}
-
-.worked-cmd-item {
-  @apply flex flex-col;
 }
 
 .image-modal-backdrop {

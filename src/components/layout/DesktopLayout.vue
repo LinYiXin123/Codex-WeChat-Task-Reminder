@@ -110,12 +110,26 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 
 .desktop-layout {
   @apply grid text-slate-900 overflow-hidden;
-  height: 100vh;
-  height: 100dvh;
+  width: calc(100vw * var(--app-ui-scale-inverse, 1));
+  height: calc(100vh * var(--app-ui-scale-inverse, 1));
+  height: calc(100dvh * var(--app-ui-scale-inverse, 1));
   grid-template-columns: var(--layout-columns);
+  transform-origin: top left;
   background:
     radial-gradient(circle at top left, rgba(13, 148, 136, 0.035), transparent 18%),
     linear-gradient(180deg, #faf7f0 0%, #f5f0e6 100%);
+}
+
+@supports (zoom: 1) {
+  .desktop-layout {
+    zoom: var(--app-ui-scale, 1);
+  }
+}
+
+@supports not (zoom: 1) {
+  .desktop-layout {
+    transform: scale(var(--app-ui-scale, 1));
+  }
 }
 
 .desktop-sidebar {
