@@ -19,47 +19,50 @@ This file tracks manual regression and feature verification steps.
 #### Rollback/Cleanup
 - <cleanup action, if any>
 
-### Feature: Telegram bot token stored in dedicated global file
+### Feature: Web settings permission policy
 
 #### Prerequisites
 - App server is running from this repository.
-- A valid Telegram bot token is available.
-- Access to `~/.codex/` on the host machine.
+- Settings panel can be opened from the sidebar.
 
 #### Steps
-1. In the app UI, open Telegram connection and submit a bot token.
-2. Verify file `~/.codex/telegram-bridge.json` exists.
-3. Open `~/.codex/telegram-bridge.json` and confirm it contains a `botToken` field.
-4. Restart the app server and call Telegram status endpoint from UI to confirm it still reports configured.
+1. Open Settings and locate `权限控制`.
+2. Toggle `完全放行权限请求`.
+3. Confirm `命令执行权限`、`文件变更权限`、`MCP 工具权限` become disabled while full allow is on.
+4. Turn full allow off and cycle each permission row between `自动允许` and `每次询问`.
+5. Restart the app server and reopen Settings.
+6. Trigger a command approval or MCP tool permission request.
 
 #### Expected Results
-- Telegram token is persisted in `~/.codex/telegram-bridge.json`.
-- Telegram bridge remains configured after restart.
+- Permission changes are saved to `~/.codex/web-bridge-settings.json`.
+- Saved permission state survives restart.
+- When a permission is set to `自动允许`, matching permission requests are approved without showing a pending card.
+- When a permission is set to `每次询问`, matching requests show the normal confirmation card.
+- Telegram settings and Telegram endpoints are no longer present.
 
 #### Rollback/Cleanup
-- Remove `~/.codex/telegram-bridge.json` to clear saved Telegram token.
+- Delete `~/.codex/web-bridge-settings.json` to restore defaults.
 
-### Feature: Telegram chatIds persisted for bot DM sending
+### Feature: Mobile dictation control
 
 #### Prerequisites
-- App server is running from this repository.
-- Telegram bot already configured in the app.
-- Access to `~/.codex/telegram-bridge.json`.
+- App is served from HTTPS or localhost.
+- Browser microphone permission is available.
 
 #### Steps
-1. Send `/start` to the Telegram bot from your DM.
-2. Wait for the app to process the update, then open `~/.codex/telegram-bridge.json`.
-3. Confirm `chatIds` contains your DM chat id as the first element.
-4. In the app, reconnect Telegram bot with the same token.
-5. Re-open `~/.codex/telegram-bridge.json` and confirm `chatIds` remains present.
+1. Open a thread on a mobile-sized viewport.
+2. Confirm the microphone button is visible in the compact composer.
+3. Tap or hold the microphone according to the dictation mode.
+4. Speak a short sentence and stop recording.
+5. Confirm the transcript appears in the composer or auto-sends according to Settings.
 
 #### Expected Results
-- `chatIds` is written after Telegram DM activity.
-- `chatIds` persists across bot reconfiguration.
-- `botToken` and `chatIds` are both present in `~/.codex/telegram-bridge.json`.
+- Mobile compact layout no longer hides the microphone button.
+- Insecure HTTP origins show a clear browser/security limitation instead of silently failing.
+- Transcription accepts `text`、`transcript`、`data.text` 或 `data.transcript` response shapes.
 
 #### Rollback/Cleanup
-- Remove `chatIds` or delete `~/.codex/telegram-bridge.json` to clear persisted chat targets.
+- Revoke browser microphone permission if needed.
 
 ### Feature: Skills dropdown closes after selection in composer
 

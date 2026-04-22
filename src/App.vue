@@ -92,6 +92,7 @@
         <div v-if="!isSidebarCollapsed" ref="sidebarSettingsAreaRef" class="sidebar-settings-area">
           <Transition name="settings-panel">
             <div v-if="isSettingsOpen" class="sidebar-settings-panel">
+              <p class="sidebar-settings-section-title">基础设置</p>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.sendWithEnter" @click="toggleSendWithEnter">
                 <span class="sidebar-settings-label">发送需按 ⌘ + Enter</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': !sendWithEnter }" />
@@ -116,6 +117,51 @@
                 <span class="sidebar-settings-label">GitHub 热门项目</span>
                 <span class="sidebar-settings-toggle" :class="{ 'is-on': showGithubTrendingProjects }" />
               </button>
+              <section class="sidebar-settings-section" aria-label="权限控制">
+                <p class="sidebar-settings-section-title">权限控制</p>
+                <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.allowAllPermissions" @click="toggleAllowAllPermissionRequests">
+                  <span class="sidebar-settings-label">完全放行权限请求</span>
+                  <span class="sidebar-settings-toggle" :class="{ 'is-on': webBridgeSettings.permissions.allowAllPermissionRequests }" />
+                </button>
+                <button
+                  class="sidebar-settings-row"
+                  type="button"
+                  :title="SETTINGS_HELP.commandExecutionPermission"
+                  :disabled="webBridgeSettings.permissions.allowAllPermissionRequests"
+                  @click="cyclePermissionDecision('commandExecution')"
+                >
+                  <span class="sidebar-settings-label">命令执行权限</span>
+                  <span class="sidebar-settings-value">{{ permissionDecisionLabel(webBridgeSettings.permissions.commandExecution) }}</span>
+                </button>
+                <button
+                  class="sidebar-settings-row"
+                  type="button"
+                  :title="SETTINGS_HELP.fileChangePermission"
+                  :disabled="webBridgeSettings.permissions.allowAllPermissionRequests"
+                  @click="cyclePermissionDecision('fileChange')"
+                >
+                  <span class="sidebar-settings-label">文件变更权限</span>
+                  <span class="sidebar-settings-value">{{ permissionDecisionLabel(webBridgeSettings.permissions.fileChange) }}</span>
+                </button>
+                <button
+                  class="sidebar-settings-row"
+                  type="button"
+                  :title="SETTINGS_HELP.mcpToolPermission"
+                  :disabled="webBridgeSettings.permissions.allowAllPermissionRequests"
+                  @click="cyclePermissionDecision('mcpTools')"
+                >
+                  <span class="sidebar-settings-label">MCP 工具权限</span>
+                  <span class="sidebar-settings-value">{{ permissionDecisionLabel(webBridgeSettings.permissions.mcpTools) }}</span>
+                </button>
+                <p class="sidebar-settings-hint">
+                  {{ webBridgeSettings.permissions.allowAllPermissionRequests ? '当前会自动批准权限类请求。' : '可分别控制命令、文件和 MCP 工具权限。' }}
+                </p>
+                <p v-if="webBridgeSettingsStatus" class="sidebar-settings-hint sidebar-settings-hint-status">
+                  {{ webBridgeSettingsStatus }}
+                </p>
+              </section>
+              <section class="sidebar-settings-section" aria-label="语音输入">
+                <p class="sidebar-settings-section-title">语音输入</p>
               <div class="sidebar-settings-row sidebar-settings-row--select" :title="SETTINGS_HELP.dictationLanguage">
                 <span class="sidebar-settings-label">听写语言</span>
                 <ComposerDropdown
@@ -129,11 +175,9 @@
                   @update:model-value="onDictationLanguageChange"
                 />
               </div>
-              <button class="sidebar-settings-row" type="button" aria-live="polite" @click="onConnectTelegramBot">
-                <span class="sidebar-settings-label">Telegram</span>
-                <span class="sidebar-settings-value">{{ telegramStatusText }}</span>
-              </button>
+              </section>
               <button
+                v-if="isDesktopRefreshAvailable"
                 class="sidebar-settings-row"
                 type="button"
                 :title="desktopRefreshButtonTitle"
@@ -368,22 +412,22 @@ import IconTablerX from './components/icons/IconTablerX.vue'
 import { useDesktopState } from './composables/useDesktopState'
 import { useMobile } from './composables/useMobile'
 import {
-  configureTelegramBot,
   createWorktree,
   getDesktopAppStatus,
   getGithubProjectsForScope,
   getHomeDirectory,
   getProjectRootSuggestion,
   getThreadRuntimeSnapshot,
-  getTelegramStatus,
+  getWebBridgeSettings,
   getWorkspaceRootsState,
   openProjectRoot,
   refreshDesktopApp,
   searchThreads,
+  updateWebBridgeSettings,
 } from './api/codexGateway'
 import type { ReasoningEffort, SpeedMode, ThreadScrollState, UiLiveOverlay, UiMessage, UiServerRequest } from './types/codex'
 import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
-import type { DesktopAppStatus, GithubTipsScope, GithubTrendingProject, TelegramStatus } from './api/codexGateway'
+import type { DesktopAppStatus, GithubTipsScope, GithubTrendingProject, PermissionDecision, WebBridgeSettings } from './api/codexGateway'
 import { getPathLeafName, getPathParent } from './pathUtils.js'
 
 const SkillsHub = defineAsyncComponent(() => import('./components/content/SkillsHub.vue'))
@@ -395,6 +439,14 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
 const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
 const PROJECT_GITHUB_URL = 'https://github.com/Qjzn/codexui-server-bridge'
+const DEFAULT_WEB_BRIDGE_SETTINGS: WebBridgeSettings = {
+  permissions: {
+    allowAllPermissionRequests: false,
+    commandExecution: 'allowForSession',
+    fileChange: 'allowForSession',
+    mcpTools: 'ask',
+  },
+}
 const SETTINGS_HELP = {
   sendWithEnter: '开启后直接按 Enter 发送，关闭后使用 Command + Enter 发送。',
   appearance: '在跟随系统、浅色和深色之间切换。',
@@ -403,6 +455,10 @@ const SETTINGS_HELP = {
   rollbackCommits: '开启后每条消息都会生成回滚提交，回滚时会重置到该消息之前的提交。',
   githubTrendingProjects: '显示或隐藏侧栏里的 GitHub 热门页面入口。',
   dictationLanguage: '选择转写语言，或保持自动识别。',
+  allowAllPermissions: '开启后自动批准命令执行、文件变更和 MCP 工具权限请求。',
+  commandExecutionPermission: '控制 Codex 请求运行命令时是否自动允许。',
+  fileChangePermission: '控制 Codex 请求写入文件时是否自动允许。',
+  mcpToolPermission: '控制 MCP 服务请求运行工具时是否自动允许，例如浏览器自动化工具。',
   projectGithub: '在新标签页打开当前项目的 GitHub 仓库。',
 } as const
 const WHISPER_LANGUAGES: Record<string, string> = {
@@ -613,13 +669,9 @@ const dictationLanguage = ref(loadDictationLanguagePref())
 const dictationLanguageOptions = computed(() => buildDictationLanguageOptions())
 const worktreeGitAutomationEnabled = ref(loadBoolPref(WORKTREE_GIT_AUTOMATION_KEY, true))
 const showGithubTrendingProjects = ref(loadBoolPref(GITHUB_TRENDING_PROJECTS_KEY, true))
-const telegramStatus = ref<TelegramStatus>({
-  configured: false,
-  active: false,
-  mappedChats: 0,
-  mappedThreads: 0,
-  lastError: '',
-})
+const webBridgeSettings = ref<WebBridgeSettings>(DEFAULT_WEB_BRIDGE_SETTINGS)
+const webBridgeSettingsStatus = ref('')
+let webBridgeSettingsStatusTimer: ReturnType<typeof setTimeout> | null = null
 const desktopAppStatus = ref<DesktopAppStatus>({
   available: false,
   platform: '',
@@ -944,13 +996,6 @@ watch(
   },
   { immediate: true },
 )
-const telegramStatusText = computed(() => {
-  if (!telegramStatus.value.configured) return '未配置'
-  const base = telegramStatus.value.active ? '在线' : '已配置（离线）'
-  const mapped = `${telegramStatus.value.mappedChats} 个聊天，${telegramStatus.value.mappedThreads} 个线程`
-  const error = telegramStatus.value.lastError ? `，错误：${telegramStatus.value.lastError}` : ''
-  return `${base}, ${mapped}${error}`
-})
 const isDesktopRefreshAvailable = computed(() => desktopAppStatus.value.available)
 const desktopRefreshButtonTitle = computed(() => {
   if (desktopAppStatus.value.available) {
@@ -1053,7 +1098,7 @@ onMounted(() => {
   queueIdleTask(() => { void loadHomeDirectory() }, 800)
   queueIdleTask(() => { void loadWorkspaceRootOptionsState() }, 950)
   queueIdleTask(() => { void refreshDefaultProjectName() }, 1200)
-  queueIdleTask(() => { void refreshTelegramStatus() }, 1500)
+  queueIdleTask(() => { void refreshWebBridgeSettings() }, 1400)
   queueIdleTask(() => { void refreshDesktopAppAvailability() }, 1700)
   scheduleTrendingProjectsLoad()
 })
@@ -1067,6 +1112,10 @@ onUnmounted(() => {
   if (threadSearchTimer) {
     clearTimeout(threadSearchTimer)
     threadSearchTimer = null
+  }
+  if (webBridgeSettingsStatusTimer) {
+    clearTimeout(webBridgeSettingsStatusTimer)
+    webBridgeSettingsStatusTimer = null
   }
   stopPolling()
 })
@@ -1102,6 +1151,7 @@ watch(sidebarSearchQuery, (value) => {
 watch(isSettingsOpen, (open) => {
   if (open) {
     void refreshRateLimits()
+    void refreshWebBridgeSettings()
     window.addEventListener('pointerdown', onWindowPointerDownForSettings, { capture: true })
     return
   }
@@ -1116,18 +1166,38 @@ function onMarkAllThreadsRead(): void {
   markAllThreadsAsRead()
 }
 
-async function refreshTelegramStatus(): Promise<void> {
+function setWebBridgeSettingsStatus(message: string): void {
+  webBridgeSettingsStatus.value = message
+  if (webBridgeSettingsStatusTimer) {
+    clearTimeout(webBridgeSettingsStatusTimer)
+    webBridgeSettingsStatusTimer = null
+  }
+  if (!message) return
+  webBridgeSettingsStatusTimer = setTimeout(() => {
+    webBridgeSettingsStatus.value = ''
+    webBridgeSettingsStatusTimer = null
+  }, 2200)
+}
+
+async function refreshWebBridgeSettings(): Promise<void> {
   try {
-    telegramStatus.value = await getTelegramStatus()
+    webBridgeSettings.value = await getWebBridgeSettings()
   } catch (error) {
-    const message = error instanceof Error ? error.message : '加载 Telegram 状态失败'
-    telegramStatus.value = {
-      configured: false,
-      active: false,
-      mappedChats: 0,
-      mappedThreads: 0,
-      lastError: message,
-    }
+    const message = error instanceof Error ? error.message : '加载权限设置失败'
+    setWebBridgeSettingsStatus(message)
+  }
+}
+
+async function saveWebBridgeSettings(nextSettings: WebBridgeSettings): Promise<void> {
+  webBridgeSettings.value = nextSettings
+  setWebBridgeSettingsStatus('正在保存权限设置...')
+  try {
+    webBridgeSettings.value = await updateWebBridgeSettings(nextSettings)
+    setWebBridgeSettingsStatus('权限设置已保存')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '保存权限设置失败'
+    setWebBridgeSettingsStatus(message)
+    void refreshWebBridgeSettings()
   }
 }
 
@@ -1416,21 +1486,30 @@ function onRefreshTrendingProjects(): void {
   scheduleTrendingProjectsLoad('immediate')
 }
 
-function onConnectTelegramBot(): void {
-  if (typeof window === 'undefined') return
-  const botToken = window.prompt('请输入 Telegram 机器人 Token')
-  if (!botToken || !botToken.trim()) return
+function permissionDecisionLabel(value: PermissionDecision): string {
+  return value === 'allowForSession' ? '自动允许' : '每次询问'
+}
 
-  void configureTelegramBot(botToken.trim())
-    .then(() => {
-      window.alert('Telegram 机器人已配置完成。打开机器人私聊并发送 /start。')
-      void refreshTelegramStatus()
-    })
-    .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : '连接 Telegram 机器人失败'
-      window.alert(message)
-      void refreshTelegramStatus()
-    })
+function togglePermissionDecision(value: PermissionDecision): PermissionDecision {
+  return value === 'allowForSession' ? 'ask' : 'allowForSession'
+}
+
+function toggleAllowAllPermissionRequests(): void {
+  void saveWebBridgeSettings({
+    permissions: {
+      ...webBridgeSettings.value.permissions,
+      allowAllPermissionRequests: !webBridgeSettings.value.permissions.allowAllPermissionRequests,
+    },
+  })
+}
+
+function cyclePermissionDecision(key: 'commandExecution' | 'fileChange' | 'mcpTools'): void {
+  void saveWebBridgeSettings({
+    permissions: {
+      ...webBridgeSettings.value.permissions,
+      [key]: togglePermissionDecision(webBridgeSettings.value.permissions[key]),
+    },
+  })
 }
 
 function buildTrendingProjectAskPrompt(project: GithubTrendingProject): string {
@@ -2474,6 +2553,22 @@ async function submitFirstMessageForNewThread(
 
 .sidebar-settings-row--select {
   @apply cursor-default items-center gap-2;
+}
+
+.sidebar-settings-section {
+  @apply border-t border-[#f1eadf] py-1;
+}
+
+.sidebar-settings-section-title {
+  @apply m-0 px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9a907f];
+}
+
+.sidebar-settings-hint {
+  @apply m-0 px-3 py-1.5 text-[11px] leading-4 text-[#8f8577];
+}
+
+.sidebar-settings-hint-status {
+  @apply text-[#0f766e];
 }
 
 .sidebar-settings-language-dropdown {

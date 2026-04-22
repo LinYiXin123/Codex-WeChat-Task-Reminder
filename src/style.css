@@ -107,6 +107,19 @@ body,
   @apply border-zinc-700;
 }
 
+:root.dark .sidebar-settings-section {
+  @apply border-zinc-700;
+}
+
+:root.dark .sidebar-settings-section-title,
+:root.dark .sidebar-settings-hint {
+  @apply text-zinc-500;
+}
+
+:root.dark .sidebar-settings-hint-status {
+  @apply text-emerald-300;
+}
+
 :root.dark .sidebar-settings-rate-limits {
   @apply border-zinc-700;
 }

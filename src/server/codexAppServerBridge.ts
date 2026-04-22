@@ -11,7 +11,6 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { writeFile } from 'node:fs/promises'
 import { handleSkillsRoutes, initializeSkillsSyncOnStartup } from './skillsRoutes.js'
-import { TelegramThreadBridge } from './telegramThreadBridge.js'
 import { getDesktopAppRefreshStatus, requestDesktopAppRefresh } from './desktopAppRefresh.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
@@ -72,6 +71,19 @@ type AppServerHealth = {
   pendingServerRequestCount: number
 }
 
+type PermissionDecision = 'ask' | 'allowForSession'
+
+type WebBridgePermissionSettings = {
+  allowAllPermissionRequests: boolean
+  commandExecution: PermissionDecision
+  fileChange: PermissionDecision
+  mcpTools: PermissionDecision
+}
+
+type WebBridgeSettings = {
+  permissions: WebBridgePermissionSettings
+}
+
 type ThreadRuntimeSnapshot = {
   threadId: string
   inProgress: boolean
@@ -114,6 +126,14 @@ const githubDescriptionTranslationCache = new Map<string, TranslationCacheEntry>
 
 const THREAD_RESPONSE_TURN_LIMIT = 10
 const THREAD_METHODS_WITH_TURNS = new Set(['thread/read', 'thread/resume', 'thread/fork', 'thread/rollback'])
+const DEFAULT_WEB_BRIDGE_SETTINGS: WebBridgeSettings = {
+  permissions: {
+    allowAllPermissionRequests: false,
+    commandExecution: 'allowForSession',
+    fileChange: 'allowForSession',
+    mcpTools: 'ask',
+  },
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -747,8 +767,8 @@ function getCodexGlobalStatePath(): string {
   return join(getCodexHomeDir(), '.codex-global-state.json')
 }
 
-function getTelegramBridgeConfigPath(): string {
-  return join(getCodexHomeDir(), 'telegram-bridge.json')
+function getWebBridgeSettingsPath(): string {
+  return join(getCodexHomeDir(), 'web-bridge-settings.json')
 }
 
 function getCodexSessionIndexPath(): string {
@@ -767,11 +787,6 @@ type SessionIndexThreadTitleCacheState = {
 let sessionIndexThreadTitleCacheState: SessionIndexThreadTitleCacheState = {
   fileSignature: null,
   cache: EMPTY_THREAD_TITLE_CACHE,
-}
-
-type TelegramBridgeConfigState = {
-  botToken: string
-  chatIds: number[]
 }
 
 function normalizeThreadTitleCache(value: unknown): ThreadTitleCache {
@@ -995,53 +1010,37 @@ async function writeWorkspaceRootsState(nextState: WorkspaceRootsState): Promise
   await writeFile(statePath, JSON.stringify(payload), 'utf8')
 }
 
-function normalizeTelegramBridgeConfig(value: unknown): TelegramBridgeConfigState {
-  const record = asRecord(value)
-  if (!record) return { botToken: '', chatIds: [] }
-  const botToken = typeof record.botToken === 'string' ? record.botToken.trim() : ''
-  const rawChatIds = Array.isArray(record.chatIds) ? record.chatIds : []
-  const chatIds = Array.from(new Set(rawChatIds
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-    .map((value) => Math.trunc(value)))).slice(0, 50)
-  return { botToken, chatIds }
+function normalizePermissionDecision(value: unknown, fallback: PermissionDecision): PermissionDecision {
+  return value === 'ask' || value === 'allowForSession' ? value : fallback
 }
 
-async function readTelegramBridgeConfig(): Promise<TelegramBridgeConfigState> {
-  const telegramConfigPath = getTelegramBridgeConfigPath()
-  try {
-    const raw = await readFile(telegramConfigPath, 'utf8')
-    const payload = asRecord(JSON.parse(raw)) ?? {}
-    return normalizeTelegramBridgeConfig(payload)
-  } catch {
-    return { botToken: '', chatIds: [] }
+function normalizeWebBridgeSettings(value: unknown): WebBridgeSettings {
+  const record = asRecord(value)
+  const permissions = asRecord(record?.permissions)
+  const defaultPermissions = DEFAULT_WEB_BRIDGE_SETTINGS.permissions
+  return {
+    permissions: {
+      allowAllPermissionRequests: permissions?.allowAllPermissionRequests === true,
+      commandExecution: normalizePermissionDecision(permissions?.commandExecution, defaultPermissions.commandExecution),
+      fileChange: normalizePermissionDecision(permissions?.fileChange, defaultPermissions.fileChange),
+      mcpTools: normalizePermissionDecision(permissions?.mcpTools, defaultPermissions.mcpTools),
+    },
   }
 }
 
-async function writeTelegramBridgeConfig(nextState: TelegramBridgeConfigState): Promise<void> {
-  const normalized = normalizeTelegramBridgeConfig(nextState)
-  const telegramConfigPath = getTelegramBridgeConfigPath()
-  await writeFile(telegramConfigPath, JSON.stringify({
-    botToken: normalized.botToken,
-    chatIds: normalized.chatIds,
-  }), 'utf8')
+async function readWebBridgeSettings(): Promise<WebBridgeSettings> {
+  try {
+    const raw = await readFile(getWebBridgeSettingsPath(), 'utf8')
+    return normalizeWebBridgeSettings(JSON.parse(raw) as unknown)
+  } catch {
+    return DEFAULT_WEB_BRIDGE_SETTINGS
+  }
 }
 
-let telegramBridgeConfigMutation: Promise<void> = Promise.resolve()
-
-function rememberTelegramChatId(chatId: number): Promise<void> {
-  const normalizedChatId = Math.trunc(chatId)
-  if (!Number.isFinite(normalizedChatId)) return Promise.resolve()
-
-  telegramBridgeConfigMutation = telegramBridgeConfigMutation.then(async () => {
-    const current = await readTelegramBridgeConfig()
-    if (current.chatIds.includes(normalizedChatId)) return
-    const next = {
-      ...current,
-      chatIds: [normalizedChatId, ...current.chatIds].slice(0, 50),
-    }
-    await writeTelegramBridgeConfig(next)
-  })
-  return telegramBridgeConfigMutation
+async function writeWebBridgeSettings(settings: WebBridgeSettings): Promise<WebBridgeSettings> {
+  const normalized = normalizeWebBridgeSettings(settings)
+  await writeFile(getWebBridgeSettingsPath(), JSON.stringify(normalized, null, 2), 'utf8')
+  return normalized
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -1215,6 +1214,56 @@ async function proxyTranscribe(
   return result
 }
 
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function looksLikeMcpElicitationPayload(payload: Record<string, unknown> | null): boolean {
+  if (!payload) return false
+  return (
+    readString(payload.message).trim().length > 0 ||
+    readString(payload.mode).trim().length > 0 ||
+    readString(payload.url).trim().length > 0 ||
+    asRecord(payload.requestedSchema) !== null ||
+    asRecord(payload.schema) !== null ||
+    asRecord(payload.inputSchema) !== null ||
+    asRecord(payload.jsonSchema) !== null
+  )
+}
+
+function readMcpElicitationPayload(params: unknown): Record<string, unknown> | null {
+  const row = asRecord(params)
+  if (!row) return null
+  const requestParams = asRecord(asRecord(row.request)?.params)
+  if (looksLikeMcpElicitationPayload(requestParams)) return requestParams
+  const elicitationParams = asRecord(asRecord(row.elicitation)?.params)
+  if (looksLikeMcpElicitationPayload(elicitationParams)) return elicitationParams
+  const nestedParams = asRecord(row.params)
+  if (looksLikeMcpElicitationPayload(nestedParams)) return nestedParams
+  return row
+}
+
+function isMcpElicitationRequestMethod(method: string): boolean {
+  const normalized = method.trim().toLowerCase()
+  return (
+    normalized === 'mcpserver/elicitation/request' ||
+    normalized === 'mcpserver/elication/request' ||
+    normalized === 'elicitation/create'
+  )
+}
+
+function isMcpToolPermissionRequest(method: string, params: unknown): boolean {
+  if (!isMcpElicitationRequestMethod(method)) return false
+  const payload = readMcpElicitationPayload(params)
+  const message = readString(payload?.message).trim()
+  if (/^Allow\s+the\s+.+?\s+MCP\s+server\s+to\s+run\s+tool\s+["“][^"”]+["”]\??$/iu.test(message)) {
+    return true
+  }
+  const serverName = readString(payload?.serverName || payload?.server).trim()
+  const toolName = readString(payload?.toolName || payload?.tool).trim()
+  return serverName.length > 0 && toolName.length > 0
+}
+
 class AppServerProcess {
   private process: ChildProcessWithoutNullStreams | null = null
   private initialized = false
@@ -1225,6 +1274,7 @@ class AppServerProcess {
   private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }>()
   private readonly notificationListeners = new Set<(value: { method: string; params: unknown }) => void>()
   private readonly pendingServerRequests = new Map<number, PendingServerRequest>()
+  private webBridgeSettings: WebBridgeSettings = DEFAULT_WEB_BRIDGE_SETTINGS
   private readonly appServerArgs = [
     'app-server',
     '-c',
@@ -1359,11 +1409,40 @@ class AppServerProcess {
     })
   }
 
-  private isAutoApprovedServerRequest(method: string): boolean {
-    return (
-      method === 'item/commandExecution/requestApproval'
-      || method === 'item/fileChange/requestApproval'
-    )
+  setWebBridgeSettings(settings: WebBridgeSettings): void {
+    this.webBridgeSettings = normalizeWebBridgeSettings(settings)
+  }
+
+  getWebBridgeSettings(): WebBridgeSettings {
+    return this.webBridgeSettings
+  }
+
+  private shouldAutoApproveServerRequest(method: string, params: unknown): boolean {
+    const permissions = this.webBridgeSettings.permissions
+    if (permissions.allowAllPermissionRequests) {
+      return (
+        method === 'item/commandExecution/requestApproval' ||
+        method === 'item/fileChange/requestApproval' ||
+        isMcpToolPermissionRequest(method, params)
+      )
+    }
+    if (method === 'item/commandExecution/requestApproval') {
+      return permissions.commandExecution === 'allowForSession'
+    }
+    if (method === 'item/fileChange/requestApproval') {
+      return permissions.fileChange === 'allowForSession'
+    }
+    if (isMcpToolPermissionRequest(method, params)) {
+      return permissions.mcpTools === 'allowForSession'
+    }
+    return false
+  }
+
+  private buildAutoApprovalResult(method: string, params: unknown): unknown {
+    if (isMcpToolPermissionRequest(method, params)) {
+      return { action: 'accept' }
+    }
+    return { decision: 'acceptForSession' }
   }
 
   private readServerRequestThreadId(params: unknown): string {
@@ -1405,9 +1484,9 @@ class AppServerProcess {
   }
 
   private handleServerRequest(requestId: number, method: string, params: unknown): void {
-    if (this.isAutoApprovedServerRequest(method)) {
+    if (this.shouldAutoApproveServerRequest(method, params)) {
       this.sendServerRequestReply(requestId, {
-        result: { decision: 'acceptForSession' },
+        result: this.buildAutoApprovalResult(method, params),
       })
       this.emitServerRequestResolved(requestId, method, params, 'automatic')
       return
@@ -1698,7 +1777,6 @@ type CodexBridgeMiddleware = ((req: IncomingMessage, res: ServerResponse, next: 
 type SharedBridgeState = {
   appServer: AppServerProcess
   methodCatalog: MethodCatalog
-  telegramBridge: TelegramThreadBridge
 }
 
 const SHARED_BRIDGE_KEY = '__codexRemoteSharedBridge__'
@@ -1715,11 +1793,6 @@ function getSharedBridgeState(): SharedBridgeState {
   const created: SharedBridgeState = {
     appServer,
     methodCatalog: new MethodCatalog(),
-    telegramBridge: new TelegramThreadBridge(appServer, {
-      onChatSeen: (chatId) => {
-        void rememberTelegramChatId(chatId).catch(() => {})
-      },
-    }),
   }
   globalScope[SHARED_BRIDGE_KEY] = created
   return created
@@ -1793,7 +1866,7 @@ async function buildThreadSearchIndex(appServer: AppServerProcess): Promise<Thre
 }
 
 export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
-  const { appServer, methodCatalog, telegramBridge } = getSharedBridgeState()
+  const { appServer, methodCatalog } = getSharedBridgeState()
   let threadSearchIndex: ThreadSearchIndex | null = null
   let threadSearchIndexPromise: Promise<ThreadSearchIndex> | null = null
 
@@ -1819,14 +1892,12 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     .catch((error) => {
       logBridgeError('App server warmup failed', error)
     })
-  void readTelegramBridgeConfig()
-    .then((config) => {
-      if (!config.botToken) return
-      telegramBridge.configureToken(config.botToken)
-      telegramBridge.start()
+  void readWebBridgeSettings()
+    .then((settings) => {
+      appServer.setWebBridgeSettings(settings)
     })
     .catch((error) => {
-      logBridgeError('Telegram bridge startup failed', error)
+      logBridgeError('Web settings load failed', error)
     })
 
   async function readThreadRuntimeSnapshot(threadId: string): Promise<ThreadRuntimeSnapshot> {
@@ -1872,6 +1943,21 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
       if (req.method === 'POST' && url.pathname === '/codex-api/upload-file') {
         handleFileUpload(req, res)
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/web-settings') {
+        const settings = await readWebBridgeSettings()
+        appServer.setWebBridgeSettings(settings)
+        setJson(res, 200, { data: settings })
+        return
+      }
+
+      if (req.method === 'PUT' && url.pathname === '/codex-api/web-settings') {
+        const payload = await readJsonBody(req)
+        const settings = await writeWebBridgeSettings(normalizeWebBridgeSettings(payload))
+        appServer.setWebBridgeSettings(settings)
+        setJson(res, 200, { data: settings })
         return
       }
 
@@ -2366,30 +2452,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         return
       }
 
-      if (req.method === 'POST' && url.pathname === '/codex-api/telegram/configure-bot') {
-        const payload = asRecord(await readJsonBody(req))
-        const botToken = typeof payload?.botToken === 'string' ? payload.botToken.trim() : ''
-        if (!botToken) {
-          setJson(res, 400, { error: 'Missing botToken' })
-          return
-        }
-
-        telegramBridge.configureToken(botToken)
-        telegramBridge.start()
-        const existingConfig = await readTelegramBridgeConfig()
-        await writeTelegramBridgeConfig({
-          botToken,
-          chatIds: existingConfig.chatIds,
-        })
-        setJson(res, 200, { ok: true })
-        return
-      }
-
-      if (req.method === 'GET' && url.pathname === '/codex-api/telegram/status') {
-        setJson(res, 200, { data: telegramBridge.getStatus() })
-        return
-      }
-
       if (req.method === 'GET' && url.pathname === '/codex-api/desktop-app/status') {
         const status = await getDesktopAppRefreshStatus()
         setJson(res, 200, { data: status })
@@ -2449,7 +2511,6 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
   middleware.dispose = () => {
     threadSearchIndex = null
-    telegramBridge.stop()
     appServer.dispose()
   }
   middleware.subscribeNotifications = (

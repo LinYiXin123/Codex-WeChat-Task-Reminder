@@ -13,7 +13,13 @@ export function useDictation(options: {
   onError?: (error: unknown) => void
 }) {
   const state = ref<DictationState>('idle')
-  const isSupported = ref(typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia)
+  const isSupported = ref(
+    typeof window !== 'undefined' &&
+    window.isSecureContext &&
+    typeof MediaRecorder !== 'undefined' &&
+    typeof navigator !== 'undefined' &&
+    !!navigator.mediaDevices?.getUserMedia,
+  )
   const recordingDurationMs = ref(0)
   const waveformCanvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -28,6 +34,31 @@ export function useDictation(options: {
   let isStartingRecording = false
   let stopRequestedBeforeStart = false
   let transcribeAbortController: AbortController | null = null
+
+  function pickSupportedMimeType(): string {
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/aac',
+      'audio/wav',
+    ]
+    if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return ''
+    return candidates.find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) ?? ''
+  }
+
+  function extractTranscriptText(value: unknown): string {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return ''
+    const record = value as Record<string, unknown>
+    const direct = record.text ?? record.transcript
+    if (typeof direct === 'string') return direct.trim()
+    const data = record.data
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      const nested = (data as Record<string, unknown>).text ?? (data as Record<string, unknown>).transcript
+      if (typeof nested === 'string') return nested.trim()
+    }
+    return ''
+  }
 
   function cancelTranscription(): void {
     if (transcribeAbortController) {
@@ -151,9 +182,13 @@ export function useDictation(options: {
     stopRequestedBeforeStart = false
 
     try {
+      if (!window.isSecureContext) {
+        throw new Error('语音输入需要 HTTPS 或 localhost。当前页面不是安全连接，浏览器会禁止麦克风。')
+      }
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } })
       chunks = []
-      mediaRecorder = new MediaRecorder(mediaStream)
+      const mimeType = pickSupportedMimeType()
+      mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType }) : new MediaRecorder(mediaStream)
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunks.push(e.data)
       }
@@ -244,7 +279,7 @@ export function useDictation(options: {
         throw new Error(jsonError || textError || `Transcription failed: ${response.status}`)
       }
 
-      const text = (data?.text ?? '').trim()
+      const text = extractTranscriptText(data)
       if (text.length > 0) {
         options.onTranscript(text)
       } else {

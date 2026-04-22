@@ -276,7 +276,7 @@
           </span>
 
           <button
-            v-if="isDictationSupported && !isCompactViewport"
+            v-if="isDictationSupported"
             class="thread-composer-mic"
             :class="{
               'thread-composer-mic--active': dictationState === 'recording',

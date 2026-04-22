@@ -74,12 +74,15 @@ export type ThreadSearchResult = {
   indexedThreadCount: number
 }
 
-export type TelegramStatus = {
-  configured: boolean
-  active: boolean
-  mappedChats: number
-  mappedThreads: number
-  lastError: string
+export type PermissionDecision = 'ask' | 'allowForSession'
+
+export type WebBridgeSettings = {
+  permissions: {
+    allowAllPermissionRequests: boolean
+    commandExecution: PermissionDecision
+    fileChange: PermissionDecision
+    mcpTools: PermissionDecision
+  }
 }
 
 export type DesktopAppStatus = {
@@ -907,50 +910,60 @@ export async function searchThreads(
   return payload.data ?? { threadIds: [], indexedThreadCount: 0 }
 }
 
-export async function configureTelegramBot(
-  botToken: string,
-): Promise<void> {
-  const response = await fetchWithTimeout('/codex-api/telegram/configure-bot', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      botToken,
-    }),
-  }, {
-    label: 'Telegram bot configure request',
-  })
-  const payload = await response.json()
-  if (!response.ok) {
-    const message = getErrorMessageFromPayload(payload, 'Failed to connect Telegram bot')
-    throw new Error(message)
-  }
+function normalizePermissionDecision(value: unknown, fallback: PermissionDecision): PermissionDecision {
+  return value === 'ask' || value === 'allowForSession' ? value : fallback
 }
 
-export async function getTelegramStatus(): Promise<TelegramStatus> {
-  const response = await fetchWithTimeout('/codex-api/telegram/status', {}, {
-    timeoutMs: GATEWAY_BACKGROUND_FETCH_TIMEOUT_MS,
-    label: 'Telegram status request',
-  })
-  const payload = await response.json()
-  if (!response.ok) {
-    const message = getErrorMessageFromPayload(payload, 'Failed to load Telegram status')
-    throw new Error(message)
-  }
+function normalizeWebBridgeSettingsPayload(value: unknown): WebBridgeSettings {
   const record =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
       : {}
   const data =
     record.data && typeof record.data === 'object' && !Array.isArray(record.data)
       ? (record.data as Record<string, unknown>)
+      : record
+  const permissions =
+    data.permissions && typeof data.permissions === 'object' && !Array.isArray(data.permissions)
+      ? (data.permissions as Record<string, unknown>)
       : {}
   return {
-    configured: data.configured === true,
-    active: data.active === true,
-    mappedChats: typeof data.mappedChats === 'number' ? data.mappedChats : 0,
-    mappedThreads: typeof data.mappedThreads === 'number' ? data.mappedThreads : 0,
-    lastError: typeof data.lastError === 'string' ? data.lastError : '',
+    permissions: {
+      allowAllPermissionRequests: permissions.allowAllPermissionRequests === true,
+      commandExecution: normalizePermissionDecision(permissions.commandExecution, 'allowForSession'),
+      fileChange: normalizePermissionDecision(permissions.fileChange, 'allowForSession'),
+      mcpTools: normalizePermissionDecision(permissions.mcpTools, 'ask'),
+    },
   }
+}
+
+export async function getWebBridgeSettings(): Promise<WebBridgeSettings> {
+  const response = await fetchWithTimeout('/codex-api/web-settings', {}, {
+    timeoutMs: GATEWAY_BACKGROUND_FETCH_TIMEOUT_MS,
+    label: 'Web settings request',
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    const message = getErrorMessageFromPayload(payload, 'Failed to load Web settings')
+    throw new Error(message)
+  }
+  return normalizeWebBridgeSettingsPayload(payload)
+}
+
+export async function updateWebBridgeSettings(settings: WebBridgeSettings): Promise<WebBridgeSettings> {
+  const response = await fetchWithTimeout('/codex-api/web-settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  }, {
+    label: 'Web settings update request',
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    const message = getErrorMessageFromPayload(payload, 'Failed to update Web settings')
+    throw new Error(message)
+  }
+  return normalizeWebBridgeSettingsPayload(payload)
 }
 
 export async function getDesktopAppStatus(): Promise<DesktopAppStatus> {
