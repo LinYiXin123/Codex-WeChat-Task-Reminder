@@ -6,6 +6,15 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeFile } from 'node:fs/promises'
 import { resolvePythonCommand, resolveSkillInstallerScriptPath } from '../commandResolution.js'
+import {
+  buildInstalledHubEntries,
+  extractSkillDescriptionFromMarkdown,
+  fetchSkillsTree,
+  HUB_SKILLS_OWNER,
+  HUB_SKILLS_REPO,
+  searchSkillsHub,
+  type InstalledSkillInfo,
+} from './skillsHubService.js'
 
 type AppServerLike = {
   rpc(method: string, params: unknown): Promise<unknown>
@@ -177,130 +186,6 @@ async function ensureInstalledSkillIsValid(appServer: AppServerLike, skillPath: 
   }
 }
 
-type SkillHubEntry = {
-  name: string
-  owner: string
-  description: string
-  displayName: string
-  publishedAt: number
-  avatarUrl: string
-  url: string
-  installed: boolean
-  path?: string
-  enabled?: boolean
-}
-
-type SkillsTreeEntry = {
-  name: string
-  owner: string
-  url: string
-}
-
-type SkillsTreeCache = {
-  entries: SkillsTreeEntry[]
-  fetchedAt: number
-}
-
-type MetaJson = {
-  displayName?: string
-  owner?: string
-  slug?: string
-  latest?: { publishedAt?: number }
-}
-
-const TREE_CACHE_TTL_MS = 5 * 60 * 1000
-let skillsTreeCache: SkillsTreeCache | null = null
-const metaCache = new Map<string, { description: string; displayName: string; publishedAt: number }>()
-
-async function getGhToken(): Promise<string | null> {
-  try {
-    const proc = spawn('gh', ['auth', 'token'], { stdio: ['ignore', 'pipe', 'ignore'] })
-    let out = ''
-    proc.stdout.on('data', (d: Buffer) => { out += d.toString() })
-    return new Promise((resolve) => {
-      proc.on('close', (code) => resolve(code === 0 ? out.trim() : null))
-      proc.on('error', () => resolve(null))
-    })
-  } catch {
-    return null
-  }
-}
-
-async function ghFetch(url: string): Promise<Response> {
-  const token = await getGhToken()
-  const headers: Record<string, string> = {
-    Accept: 'application/vnd.github+json',
-    'User-Agent': 'codex-web-local',
-  }
-  if (token) headers.Authorization = `Bearer ${token}`
-  return fetch(url, { headers })
-}
-
-async function fetchSkillsTree(): Promise<SkillsTreeEntry[]> {
-  if (skillsTreeCache && Date.now() - skillsTreeCache.fetchedAt < TREE_CACHE_TTL_MS) {
-    return skillsTreeCache.entries
-  }
-
-  const resp = await ghFetch(`https://api.github.com/repos/${HUB_SKILLS_OWNER}/${HUB_SKILLS_REPO}/git/trees/main?recursive=1`)
-  if (!resp.ok) throw new Error(`GitHub tree API returned ${resp.status}`)
-  const data = (await resp.json()) as { tree?: Array<{ path: string; type: string }> }
-
-  const metaPattern = /^skills\/([^/]+)\/([^/]+)\/_meta\.json$/
-  const seen = new Set<string>()
-  const entries: SkillsTreeEntry[] = []
-
-  for (const node of data.tree ?? []) {
-    const match = metaPattern.exec(node.path)
-    if (!match) continue
-    const [, owner, skillName] = match
-    const key = `${owner}/${skillName}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    entries.push({
-      name: skillName,
-      owner,
-      url: `https://github.com/${HUB_SKILLS_OWNER}/${HUB_SKILLS_REPO}/tree/main/skills/${owner}/${skillName}`,
-    })
-  }
-
-  skillsTreeCache = { entries, fetchedAt: Date.now() }
-  return entries
-}
-
-async function fetchMetaBatch(entries: SkillsTreeEntry[]): Promise<void> {
-  const toFetch = entries.filter((e) => !metaCache.has(`${e.owner}/${e.name}`))
-  if (toFetch.length === 0) return
-  const batch = toFetch.slice(0, 50)
-  await Promise.allSettled(
-    batch.map(async (e) => {
-      const rawUrl = `https://raw.githubusercontent.com/${HUB_SKILLS_OWNER}/${HUB_SKILLS_REPO}/main/skills/${e.owner}/${e.name}/_meta.json`
-      const resp = await fetch(rawUrl)
-      if (!resp.ok) return
-      const meta = (await resp.json()) as MetaJson
-      metaCache.set(`${e.owner}/${e.name}`, {
-        displayName: typeof meta.displayName === 'string' ? meta.displayName : '',
-        description: typeof meta.displayName === 'string' ? meta.displayName : '',
-        publishedAt: meta.latest?.publishedAt ?? 0,
-      })
-    }),
-  )
-}
-
-function buildHubEntry(e: SkillsTreeEntry): SkillHubEntry {
-  const cached = metaCache.get(`${e.owner}/${e.name}`)
-  return {
-    name: e.name,
-    owner: e.owner,
-    description: cached?.description ?? '',
-    displayName: cached?.displayName ?? '',
-    publishedAt: cached?.publishedAt ?? 0,
-    avatarUrl: `https://github.com/${e.owner}.png?size=40`,
-    url: e.url,
-    installed: false,
-  }
-}
-
-type InstalledSkillInfo = { name: string; path: string; enabled: boolean }
 type SyncedSkill = { owner?: string; name: string; enabled: boolean }
 
 type SkillsSyncState = {
@@ -334,8 +219,6 @@ const SYNC_UPSTREAM_SKILLS_REPO = 'skills'
 const PRIVATE_SYNC_BRANCH = 'main'
 const PUBLIC_UPSTREAM_BRANCH_ANDROID = 'android'
 const PUBLIC_UPSTREAM_BRANCH_DEFAULT = 'main'
-const HUB_SKILLS_OWNER = 'openclaw'
-const HUB_SKILLS_REPO = 'skills'
 let startupSkillsSyncInitialized = false
 
 type StartupSyncStatus = {
@@ -373,24 +256,6 @@ async function scanInstalledSkillsFromDisk(): Promise<Map<string, InstalledSkill
     }
   } catch {}
   return map
-}
-
-function extractSkillDescriptionFromMarkdown(markdown: string): string {
-  const lines = markdown.split(/\r?\n/)
-  let inCodeFence = false
-  for (const rawLine of lines) {
-    const line = rawLine.trim()
-    if (line.startsWith('```')) {
-      inCodeFence = !inCodeFence
-      continue
-    }
-    if (inCodeFence || line.length === 0) continue
-    if (line.startsWith('#')) continue
-    if (line.startsWith('>')) continue
-    if (line.startsWith('- ') || line.startsWith('* ')) continue
-    return line
-  }
-  return ''
 }
 
 function getSkillsSyncStatePath(): string {
@@ -1022,40 +887,6 @@ async function finalizeGithubLoginAndSync(token: string, username: string, appSe
   await autoPushSyncedSkills(appServer)
 }
 
-async function searchSkillsHub(
-  allEntries: SkillsTreeEntry[],
-  query: string,
-  limit: number,
-  sort: string,
-  installedMap: Map<string, InstalledSkillInfo>,
-): Promise<SkillHubEntry[]> {
-  const q = query.toLowerCase().trim()
-  const filtered = q
-    ? allEntries.filter((s) => {
-      if (s.name.toLowerCase().includes(q) || s.owner.toLowerCase().includes(q)) return true
-      const cached = metaCache.get(`${s.owner}/${s.name}`)
-      return Boolean(cached?.displayName?.toLowerCase().includes(q))
-    })
-    : allEntries
-  const page = filtered.slice(0, Math.min(limit * 2, 200))
-  await fetchMetaBatch(page)
-  let results = page.map(buildHubEntry)
-  if (sort === 'date') {
-    results.sort((a, b) => b.publishedAt - a.publishedAt)
-  } else if (q) {
-    results.sort((a, b) => {
-      const aExact = a.name.toLowerCase() === q ? 1 : 0
-      const bExact = b.name.toLowerCase() === q ? 1 : 0
-      if (aExact !== bExact) return bExact - aExact
-      return b.publishedAt - a.publishedAt
-    })
-  }
-  return results.slice(0, limit).map((s) => {
-    const local = installedMap.get(s.name)
-    return local ? { ...s, installed: true, path: local.path, enabled: local.enabled } : s
-  })
-}
-
 export async function handleSkillsRoutes(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1082,18 +913,7 @@ export async function handleSkillsRoutes(
         }
       } catch {}
 
-      const installedHubEntries = allEntries.filter((e) => installedMap.has(e.name))
-      await fetchMetaBatch(installedHubEntries)
-
-      const installed: SkillHubEntry[] = []
-      for (const [, info] of installedMap) {
-        const hubEntry = allEntries.find((e) => e.name === info.name)
-        const base = hubEntry ? buildHubEntry(hubEntry) : {
-          name: info.name, owner: 'local', description: '', displayName: '', publishedAt: 0, avatarUrl: '', url: '', installed: false,
-        }
-        installed.push({ ...base, installed: true, path: info.path, enabled: info.enabled })
-      }
-
+      const installed = await buildInstalledHubEntries(allEntries, installedMap)
       const results = await searchSkillsHub(allEntries, q, limit, sort, installedMap)
       setJson(res, 200, { data: results, installed, total: allEntries.length })
     } catch (error) {
@@ -1138,23 +958,6 @@ export async function handleSkillsRoutes(
       setJson(res, 200, { data: started })
     } catch (error) {
       setJson(res, 502, { error: getErrorMessage(error, 'Failed to start GitHub login') })
-    }
-    return true
-  }
-
-  if (req.method === 'POST' && url.pathname === '/codex-api/skills-sync/github/token-login') {
-    try {
-      const payload = asRecord(await readJsonBody(req))
-      const token = typeof payload?.token === 'string' ? payload.token.trim() : ''
-      if (!token) {
-        setJson(res, 400, { error: 'Missing GitHub token' })
-        return true
-      }
-      const username = await resolveGithubUsername(token)
-      await finalizeGithubLoginAndSync(token, username, appServer)
-      setJson(res, 200, { ok: true, data: { githubUsername: username } })
-    } catch (error) {
-      setJson(res, 502, { error: getErrorMessage(error, 'Failed to login with GitHub token') })
     }
     return true
   }

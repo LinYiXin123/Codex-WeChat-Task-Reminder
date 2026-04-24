@@ -20,7 +20,7 @@
       </div>
     </div>
 
-    <p v-if="isLoading" class="trending-hub-empty">正在加载热门项目...</p>
+    <LoadingInline v-if="isLoading" class="trending-hub-empty trending-hub-loading" label="正在加载热门项目..." tone="muted" />
     <p v-else-if="projects.length === 0" class="trending-hub-empty">当前没有可展示的热门项目。</p>
 
     <div v-else class="trending-hub-grid">
@@ -96,6 +96,7 @@
 <script setup lang="ts">
 import { defineAsyncComponent } from 'vue'
 import type { GithubTipsScope, GithubTrendingProject } from '../../api/codexGateway'
+import LoadingInline from './LoadingInline.vue'
 
 const ComposerDropdown = defineAsyncComponent(() => import('./ComposerDropdown.vue'))
 
@@ -174,6 +175,10 @@ function showProjectDetails(project: GithubTrendingProject): boolean {
 
 .trending-hub-empty {
   @apply m-0 rounded-2xl border border-dashed border-[#ddd5c7] bg-[#faf6ef] px-4 py-5 text-sm text-[#7b7062];
+}
+
+.trending-hub-loading {
+  @apply flex w-full items-center;
 }
 
 .trending-hub-grid {

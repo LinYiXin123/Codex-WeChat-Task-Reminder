@@ -90,13 +90,6 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes("node_modules")) return undefined;
           if (
-            id.includes("node_modules/firebase/") ||
-            id.includes("node_modules/@firebase/") ||
-            id.includes("node_modules/idb/")
-          ) {
-            return "firebase";
-          }
-          if (
             id.includes("node_modules/vue/") ||
             id.includes("node_modules/@vue/") ||
             id.includes("node_modules/vue-router/")

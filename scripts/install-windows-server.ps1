@@ -12,6 +12,7 @@ param(
   [string]$LauncherPath = "$env:USERPROFILE\.local\bin\codexui-start.cmd",
   [string]$CodexCommand = "",
   [string]$RipgrepCommand = "",
+  [string]$CloudflaredCommand = "",
   [switch]$OpenFirewall,
   [string]$FirewallRuleName = "",
   [switch]$SkipNpmInstall,
@@ -281,6 +282,16 @@ function Wait-ForHealthEndpoint {
 }
 
 function Resolve-CloudflaredCommand {
+  param([string]$PreferredCommand = "")
+
+  if (-not [string]::IsNullOrWhiteSpace($PreferredCommand)) {
+    $preferred = Resolve-OptionalPath -Value $PreferredCommand
+    $version = & $preferred --version 2>$null
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($version)) {
+      return $preferred
+    }
+  }
+
   try {
     $command = Get-Command cloudflared -ErrorAction Stop
     $version = & $command.Source --version 2>$null
@@ -301,7 +312,9 @@ function Resolve-CloudflaredCommand {
 }
 
 function Install-CloudflaredWindows {
-  $existing = Resolve-CloudflaredCommand
+  param([string]$PreferredCommand = "")
+
+  $existing = Resolve-CloudflaredCommand -PreferredCommand $PreferredCommand
   if ($existing) {
     Write-Host "cloudflared already available: $existing"
     return $existing
@@ -326,25 +339,27 @@ function Install-CloudflaredWindows {
 }
 
 function Ensure-CloudflaredForTunnel {
+  param([string]$PreferredCommand = "")
+
   if (-not $Tunnel) {
     if ($InstallCloudflared) {
-      Install-CloudflaredWindows | Out-Null
+      return Install-CloudflaredWindows -PreferredCommand $PreferredCommand
     }
-    return
+    return $null
   }
 
-  $existing = Resolve-CloudflaredCommand
+  $existing = Resolve-CloudflaredCommand -PreferredCommand $PreferredCommand
   if ($existing) {
     Write-Host "cloudflared available: $existing"
-    return
+    return $existing
   }
 
   if ($InstallCloudflared) {
-    Install-CloudflaredWindows | Out-Null
-    return
+    return Install-CloudflaredWindows -PreferredCommand $PreferredCommand
   }
 
   Write-Warning "Tunnel is enabled but cloudflared was not found. Re-run with -InstallCloudflared, or install Cloudflare.cloudflared manually."
+  return $null
 }
 
 function Wait-ForTunnelUrlFromLog {
@@ -410,6 +425,7 @@ try {
 $resolvedProjectPath = Ensure-ProjectDirectory -TargetPath $ProjectPath -CreateIfMissing:$CreateProjectPath.IsPresent
 $resolvedCodexCommand = Resolve-OptionalPath -Value $CodexCommand
 $resolvedRipgrepCommand = Resolve-OptionalPath -Value $RipgrepCommand
+$resolvedCloudflaredCommand = Resolve-OptionalPath -Value $CloudflaredCommand
 $resolvedTaskName = if ([string]::IsNullOrWhiteSpace($TaskName)) { "CodexUI-$Port" } else { $TaskName }
 
 if ($NoPassword) {
@@ -426,7 +442,7 @@ if ($EnsureCodexLogin) {
 
 if ($Tunnel -or $InstallCloudflared) {
   Write-Step "Preparing cloudflared"
-  Ensure-CloudflaredForTunnel
+  $resolvedCloudflaredCommand = Ensure-CloudflaredForTunnel -PreferredCommand $resolvedCloudflaredCommand
 }
 
 $configDir = Split-Path -Parent $ConfigPath
@@ -450,6 +466,9 @@ if ($resolvedCodexCommand) {
 }
 if ($resolvedRipgrepCommand) {
   $config.ripgrepCommand = $resolvedRipgrepCommand
+}
+if ($resolvedCloudflaredCommand) {
+  $config.cloudflaredCommand = $resolvedCloudflaredCommand
 }
 
 $configJson = $config | ConvertTo-Json -Depth 5
@@ -521,6 +540,9 @@ if ($Tunnel) {
   } else {
     Write-Host "Tunnel:   enabled; check $outLogPath for the trycloudflare.com URL"
   }
+}
+if ($resolvedCloudflaredCommand) {
+  Write-Host "cloudflared: $resolvedCloudflaredCommand"
 }
 if ($passwordValue -is [string]) {
   Write-Host "Password: $passwordValue"

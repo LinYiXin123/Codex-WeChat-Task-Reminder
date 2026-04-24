@@ -42,6 +42,7 @@ import type {
   UiRateLimitSnapshot,
   UiServerRequest,
   UiServerRequestReply,
+  UiThreadTokenUsage,
   UiThread,
 } from '../types/codex'
 import { isAbortLikeError } from '../api/codexErrors'
@@ -52,6 +53,7 @@ function flattenThreads(groups: UiProjectGroup[]): UiThread[] {
 }
 
 function shouldRefreshMessagesFromNotification(method: string): boolean {
+  if (method === THREAD_TOKEN_USAGE_UPDATED_METHOD) return false
   return (
     method === 'turn/started' ||
     method === 'turn/completed' ||
@@ -64,6 +66,7 @@ function shouldRefreshMessagesFromNotification(method: string): boolean {
 }
 
 function shouldRefreshThreadListFromNotification(method: string): boolean {
+  if (method === THREAD_TOKEN_USAGE_UPDATED_METHOD) return false
   return (
     method === 'turn/completed' ||
     method === 'thread/name/updated' ||
@@ -76,6 +79,7 @@ function shouldUrgentlyRefreshFromNotification(method: string): boolean {
 }
 
 function shouldBoostSyncForNotification(method: string): boolean {
+  if (method === THREAD_TOKEN_USAGE_UPDATED_METHOD) return false
   return (
     method === 'turn/started' ||
     method === 'turn/completed' ||
@@ -99,19 +103,20 @@ const ACTIVE_THREAD_DETAIL_SYNC_INTERVAL_MS = 2500
 const ACTIVE_THREAD_DETAIL_SYNC_IDLE_MS = 9000
 const ACTIVE_SYNC_BOOST_INTERVAL_MS = 1200
 const ACTIVE_SYNC_BOOST_WINDOW_MS = 18000
-const RESUME_SYNC_RETRY_DELAYS_MS = [0, 700, 1800, 4200]
+const RESUME_SYNC_RETRY_DELAYS_MS = [0, 700, 1800, 4200, 8200, 15000]
 const ACTIVE_SYNC_THREAD_LIST_INTERVAL_MS = 12000
-const ACTIVE_SYNC_STALE_MS = 8000
+const ACTIVE_SYNC_STALE_MS = 14000
 const STALE_THREAD_ACTIVE_TURN_TTL_MS = 5 * 60 * 1000
 const STALE_THREAD_ACTIVE_TURN_IMMEDIATE_MS = 20 * 60 * 1000
 const OPTIMISTIC_EXECUTION_RECOVERY_GRACE_MS = 6000
 const UNKNOWN_ACTIVE_TURN_ID = '__unknown_active_turn__'
 const LIVE_DELTA_BATCH_MS = 48
-const NOTIFICATION_STALE_MS = 10000
+const NOTIFICATION_STALE_MS = 18000
 const THREAD_LIST_REFRESH_INTERVAL_MS = 30000
 const RATE_LIMIT_REFRESH_DEBOUNCE_MS = 500
 const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
 const GLOBAL_SERVER_REQUEST_SCOPE = '__global__'
+const THREAD_TOKEN_USAGE_UPDATED_METHOD = 'thread/tokenUsage/updated'
 const MODEL_FALLBACK_ID = 'gpt-5.2-codex'
 const AUTO_COMMIT_MESSAGE_FALLBACK = 'Auto-commit from Codex rollback chat turn'
 const OPTIMISTIC_USER_MESSAGE_TYPE = 'userMessage.optimistic'
@@ -934,6 +939,7 @@ export function useDesktopState() {
   const liveAgentMessagesByThreadId = ref<Record<string, UiMessage[]>>({})
   const liveReasoningTextByThreadId = ref<Record<string, string>>({})
   const liveCommandsByThreadId = ref<Record<string, UiMessage[]>>({})
+  const threadTokenUsageByThreadId = ref<Record<string, UiThreadTokenUsage>>({})
   const inProgressById = ref<Record<string, boolean>>({})
   type PendingTurnRequest = {
     text: string
@@ -984,6 +990,7 @@ export function useDesktopState() {
   const isUpdatingSpeedMode = ref(false)
   const isRollingBack = ref(false)
   const error = ref('')
+  const syncError = ref('')
   const isPolling = ref(false)
   const notificationHealthTick = ref(Date.now())
   const realtimeConnectionState = ref<RealtimeConnectionState>('connecting')
@@ -1190,6 +1197,11 @@ export function useDesktopState() {
   const selectedThreadExecutionActive = computed(() => (
     selectedThreadId.value ? isThreadExecutionActive(selectedThreadId.value) : false
   ))
+  const selectedThreadTokenUsage = computed<UiThreadTokenUsage | null>(() => {
+    const threadId = selectedThreadId.value
+    if (!threadId) return null
+    return threadTokenUsageByThreadId.value[threadId] ?? null
+  })
   const notificationStale = computed(() => {
     notificationHealthTick.value
     return Date.now() - lastNotificationAtMs >= NOTIFICATION_STALE_MS
@@ -1621,6 +1633,7 @@ export function useDesktopState() {
     liveAgentMessagesByThreadId.value = pruneThreadStateMap(liveAgentMessagesByThreadId.value, activeThreadIds)
     liveReasoningTextByThreadId.value = pruneThreadStateMap(liveReasoningTextByThreadId.value, activeThreadIds)
     liveCommandsByThreadId.value = pruneThreadStateMap(liveCommandsByThreadId.value, activeThreadIds)
+    threadTokenUsageByThreadId.value = pruneThreadStateMap(threadTokenUsageByThreadId.value, activeThreadIds)
     turnSummaryByThreadId.value = pruneThreadStateMap(turnSummaryByThreadId.value, activeThreadIds)
     turnActivityByThreadId.value = pruneThreadStateMap(turnActivityByThreadId.value, activeThreadIds)
     turnErrorByThreadId.value = pruneThreadStateMap(turnErrorByThreadId.value, activeThreadIds)
@@ -1739,6 +1752,51 @@ export function useDesktopState() {
     applyThreadFlags()
   }
 
+  function areTokenUsageBreakdownsEqual(
+    first?: UiThreadTokenUsage['total'],
+    second?: UiThreadTokenUsage['total'],
+  ): boolean {
+    if (!first && !second) return true
+    if (!first || !second) return false
+    return (
+      first.totalTokens === second.totalTokens &&
+      first.inputTokens === second.inputTokens &&
+      first.cachedInputTokens === second.cachedInputTokens &&
+      first.outputTokens === second.outputTokens &&
+      first.reasoningOutputTokens === second.reasoningOutputTokens
+    )
+  }
+
+  function areThreadTokenUsagesEqual(first: UiThreadTokenUsage | null, second: UiThreadTokenUsage | null): boolean {
+    if (!first && !second) return true
+    if (!first || !second) return false
+    return (
+      first.modelContextWindow === second.modelContextWindow &&
+      first.usedPercent === second.usedPercent &&
+      first.remainingTokens === second.remainingTokens &&
+      areTokenUsageBreakdownsEqual(first.total, second.total) &&
+      areTokenUsageBreakdownsEqual(first.last, second.last)
+    )
+  }
+
+  function setThreadTokenUsage(threadId: string, tokenUsage: UiThreadTokenUsage | null): void {
+    if (!threadId) return
+    const previous = threadTokenUsageByThreadId.value[threadId] ?? null
+    if (areThreadTokenUsagesEqual(previous, tokenUsage)) return
+
+    if (tokenUsage) {
+      threadTokenUsageByThreadId.value = {
+        ...threadTokenUsageByThreadId.value,
+        [threadId]: tokenUsage,
+      }
+      return
+    }
+
+    if (previous) {
+      threadTokenUsageByThreadId.value = omitKey(threadTokenUsageByThreadId.value, threadId)
+    }
+  }
+
   function markThreadUnreadByEvent(threadId: string): void {
     if (!threadId) return
     if (threadId === selectedThreadId.value) return
@@ -1813,6 +1871,21 @@ export function useDesktopState() {
       if (typeof maybeError === 'string') return maybeError
     }
     return ''
+  }
+
+  function setSyncErrorMessage(message: string | null): void {
+    const normalizedMessage = message ? normalizeMessageText(message) : ''
+    if (syncError.value === normalizedMessage) return
+    syncError.value = normalizedMessage
+  }
+
+  function setSyncErrorFromUnknown(error: unknown): void {
+    setSyncErrorMessage(readErrorMessage(error))
+  }
+
+  function clearSyncError(): void {
+    if (!syncError.value) return
+    syncError.value = ''
   }
 
   function isThreadMaterializingError(error: unknown): boolean {
@@ -1927,6 +2000,17 @@ export function useDesktopState() {
 
     const normalizedActiveTurnId = activeTurnId.trim()
     if (!inProgress) {
+      const currentActiveTurnId = activeTurnIdByThreadId.value[threadId]?.trim() ?? ''
+      const hasRecoverableTransientState =
+        hasPendingServerRequestSignal(threadId) ||
+        hasQueuedThreadWork(threadId) ||
+        hasFreshExecutionSignal(threadId, OPTIMISTIC_EXECUTION_RECOVERY_GRACE_MS)
+      if (hasRecoverableTransientState) {
+        return {
+          inProgress: true,
+          activeTurnId: currentActiveTurnId || normalizedActiveTurnId,
+        }
+      }
       clearThreadExecutionTracking(threadId)
       return { inProgress: false, activeTurnId: '' }
     }
@@ -2107,6 +2191,7 @@ export function useDesktopState() {
     const now = Date.now()
     lastSuccessfulSyncAtMs.value = now
     notificationHealthTick.value = now
+    clearSyncError()
   }
 
   function isDocumentVisible(): boolean {
@@ -2534,6 +2619,77 @@ export function useDesktopState() {
 
   function readNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null
+  }
+
+  function readNumberByAliases(record: Record<string, unknown>, ...keys: string[]): number | null {
+    for (const key of keys) {
+      const value = readNumber(record[key])
+      if (typeof value === 'number') return value
+    }
+    return null
+  }
+
+  function normalizeTokenUsageBreakdown(value: unknown): UiThreadTokenUsage['total'] | null {
+    const record = asRecord(value)
+    if (!record) return null
+    return {
+      totalTokens: Math.max(0, readNumberByAliases(record, 'totalTokens', 'total_tokens') ?? 0),
+      inputTokens: Math.max(0, readNumberByAliases(record, 'inputTokens', 'input_tokens') ?? 0),
+      cachedInputTokens: Math.max(0, readNumberByAliases(record, 'cachedInputTokens', 'cached_input_tokens') ?? 0),
+      outputTokens: Math.max(0, readNumberByAliases(record, 'outputTokens', 'output_tokens') ?? 0),
+      reasoningOutputTokens: Math.max(0, readNumberByAliases(record, 'reasoningOutputTokens', 'reasoning_output_tokens') ?? 0),
+    }
+  }
+
+  function normalizeThreadTokenUsage(value: unknown): UiThreadTokenUsage | null {
+    const record = asRecord(value)
+    if (!record) return null
+    const total = normalizeTokenUsageBreakdown(record.total ?? record.total_token_usage)
+    const last = normalizeTokenUsageBreakdown(record.last ?? record.last_token_usage)
+    if (!total || !last) return null
+
+    const rawContextWindow = readNumberByAliases(record, 'modelContextWindow', 'model_context_window')
+    const modelContextWindow =
+      typeof rawContextWindow === 'number' && rawContextWindow > 0
+        ? Math.max(0, rawContextWindow)
+        : null
+    const rawUsedPercent = readNumberByAliases(record, 'usedPercent', 'used_percent')
+    const derivedUsedTokens =
+      typeof modelContextWindow === 'number' && modelContextWindow > 0
+        ? Math.min(Math.max(last.totalTokens, 0), modelContextWindow)
+        : null
+    const usedPercent =
+      typeof rawUsedPercent === 'number'
+        ? clamp(rawUsedPercent, 0, 100)
+        : typeof derivedUsedTokens === 'number' && typeof modelContextWindow === 'number' && modelContextWindow > 0
+          ? clamp((derivedUsedTokens / modelContextWindow) * 100, 0, 100)
+          : null
+    const rawRemainingTokens = readNumberByAliases(record, 'remainingTokens', 'remaining_tokens')
+    const remainingTokens =
+      typeof rawRemainingTokens === 'number'
+        ? Math.max(0, rawRemainingTokens)
+        : typeof derivedUsedTokens === 'number' && typeof modelContextWindow === 'number'
+          ? Math.max(modelContextWindow - derivedUsedTokens, 0)
+          : null
+
+    return {
+      total,
+      last,
+      modelContextWindow,
+      usedPercent,
+      remainingTokens,
+    }
+  }
+
+  function readThreadTokenUsageUpdate(notification: RpcNotification): { threadId: string; tokenUsage: UiThreadTokenUsage | null } | null {
+    if (notification.method !== THREAD_TOKEN_USAGE_UPDATED_METHOD) return null
+    const params = asRecord(notification.params)
+    const threadId = readString(params?.threadId).trim()
+    if (!threadId) return null
+    return {
+      threadId,
+      tokenUsage: normalizeThreadTokenUsage(params?.tokenUsage),
+    }
   }
 
   function getRateLimitSnapshotKey(snapshot: UiRateLimitSnapshot): string {
@@ -3104,6 +3260,11 @@ export function useDesktopState() {
       scheduleRateLimitRefresh()
     }
 
+    const threadTokenUsageUpdate = readThreadTokenUsageUpdate(notification)
+    if (threadTokenUsageUpdate) {
+      setThreadTokenUsage(threadTokenUsageUpdate.threadId, threadTokenUsageUpdate.tokenUsage)
+    }
+
     if (shouldBoostSyncForNotification(notification.method)) {
       markActiveSyncBoost()
     }
@@ -3504,6 +3665,7 @@ export function useDesktopState() {
       const nextMessages = snapshot.messages
       const inProgress = snapshot.inProgress
       const activeTurnId = snapshot.activeTurnId
+      setThreadTokenUsage(threadId, snapshot.tokenUsage)
       const normalizedPendingRequests = snapshot.pendingServerRequests
         .map((row) => normalizeServerRequest(row))
         .filter((request): request is UiServerRequest => request !== null)
@@ -3566,6 +3728,9 @@ export function useDesktopState() {
         void processQueuedMessages(threadId)
       }
     } catch (error) {
+      if (isAbortLikeError(error)) {
+        throw error
+      }
       if (isThreadMaterializingError(error)) {
         lastThreadDetailSyncAtById.value = {
           ...lastThreadDetailSyncAtById.value,
@@ -3578,6 +3743,7 @@ export function useDesktopState() {
         }
         return
       }
+      setSyncErrorFromUnknown(error)
       throw error
     } finally {
       if (shouldShowLoading && foregroundMessageLoadId === loadId) {
@@ -3630,16 +3796,56 @@ export function useDesktopState() {
     const abortController = new AbortController()
     threadSelectionAbortController = abortController
 
-    try {
-      await loadMessages(normalizedThreadId, { signal: abortController.signal })
+    const completeThreadSelection = (): void => {
       if (threadSelectionAbortController !== abortController) return
       void refreshSkills()
       if (normalizedThreadId && isThreadExecutionActive(normalizedThreadId)) {
         markActiveSyncBoost()
       }
-    } catch (unknownError) {
-      if (isAbortLikeError(unknownError)) return
-      error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+    }
+
+    const runThreadLoad = async (silent: boolean): Promise<void> => {
+      try {
+        await loadMessages(normalizedThreadId, {
+          silent,
+          signal: abortController.signal,
+        })
+        completeThreadSelection()
+      } catch (unknownError) {
+        if (isAbortLikeError(unknownError)) return
+        error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+      } finally {
+        if (threadSelectionAbortController === abortController) {
+          threadSelectionAbortController = null
+        }
+      }
+    }
+
+    const alreadyLoaded = loadedMessagesByThreadId.value[normalizedThreadId] === true
+    if (alreadyLoaded) {
+      const currentVersion = currentThreadVersion(normalizedThreadId)
+      const loadedVersion = loadedVersionByThreadId.value[normalizedThreadId] ?? ''
+      const lastDetailSyncAt = lastThreadDetailSyncAtById.value[normalizedThreadId] ?? 0
+      const shouldRefreshInBackground =
+        pendingThreadMessageRefresh.has(normalizedThreadId) ||
+        notificationStale.value ||
+        syncLagging.value ||
+        isThreadExecutionActive(normalizedThreadId) ||
+        (currentVersion.length > 0 && currentVersion !== loadedVersion) ||
+        lastDetailSyncAt <= 0 ||
+        Date.now() - lastDetailSyncAt >= ACTIVE_THREAD_DETAIL_SYNC_IDLE_MS
+
+      completeThreadSelection()
+      if (shouldRefreshInBackground) {
+        void runThreadLoad(true)
+      } else if (threadSelectionAbortController === abortController) {
+        threadSelectionAbortController = null
+      }
+      return
+    }
+
+    try {
+      await runThreadLoad(false)
     } finally {
       if (threadSelectionAbortController === abortController) {
         threadSelectionAbortController = null
@@ -4256,7 +4462,9 @@ export function useDesktopState() {
       }
     } catch (error) {
       wasAborted = isAbortLikeError(error)
-      // ignore poll failures and keep last known state
+      if (!wasAborted) {
+        setSyncErrorFromUnknown(error)
+      }
     } finally {
       clearSyncAbortController(controller)
       isPolling.value = false
@@ -4322,6 +4530,12 @@ export function useDesktopState() {
 
     const scheduleResumeSync = (): void => {
       if (document.hidden) return
+      const shouldRestartNotifications =
+        realtimeConnectionState.value !== 'connected' ||
+        (notificationStale.value && (hasSyncDemand.value || Boolean(selectedThreadId.value)))
+      if (shouldRestartNotifications) {
+        restartNotificationStream()
+      }
       clearVisibilitySyncTimer()
       clearResumeSyncTimers()
       for (const delayMs of RESUME_SYNC_RETRY_DELAYS_MS) {
@@ -4427,7 +4641,9 @@ export function useDesktopState() {
       }
     } catch (error) {
       wasAborted = isAbortLikeError(error)
-      // Keep UI stable on transient event sync failures.
+      if (!wasAborted) {
+        setSyncErrorFromUnknown(error)
+      }
     } finally {
       clearSyncAbortController(controller)
       isPolling.value = false
@@ -4443,14 +4659,8 @@ export function useDesktopState() {
     }
   }
 
-  function startPolling(): void {
-    if (typeof window === 'undefined') return
-
-    if (stopNotificationStream) return
+  function openNotificationStream(): void {
     realtimeConnectionState.value = 'connecting'
-    void loadPendingServerRequestsFromBridge()
-    scheduleBackgroundSync()
-    scheduleVisibilitySync()
     stopNotificationStream = subscribeCodexNotifications(
       (notification) => {
         lastNotificationAtMs = Date.now()
@@ -4463,6 +4673,9 @@ export function useDesktopState() {
           const previousState = realtimeConnectionState.value
           realtimeConnectionState.value = state
           notificationHealthTick.value = Date.now()
+          if (state === 'connected') {
+            clearSyncError()
+          }
           queueSelectedThreadSync({
             includeThreadList: true,
             forceMessageRefresh: hasSyncDemand.value,
@@ -4484,6 +4697,25 @@ export function useDesktopState() {
         },
       },
     )
+  }
+
+  function restartNotificationStream(): void {
+    if (typeof window === 'undefined') return
+    if (stopNotificationStream) {
+      stopNotificationStream()
+      stopNotificationStream = null
+    }
+    openNotificationStream()
+  }
+
+  function startPolling(): void {
+    if (typeof window === 'undefined') return
+
+    if (stopNotificationStream) return
+    void loadPendingServerRequestsFromBridge()
+    scheduleBackgroundSync()
+    scheduleVisibilitySync()
+    openNotificationStream()
   }
 
   async function loadPendingServerRequestsFromBridge(): Promise<void> {
@@ -4557,6 +4789,7 @@ export function useDesktopState() {
     liveAgentMessagesByThreadId.value = {}
     liveReasoningTextByThreadId.value = {}
     liveCommandsByThreadId.value = {}
+    threadTokenUsageByThreadId.value = {}
     turnActivityByThreadId.value = {}
     turnSummaryByThreadId.value = {}
     turnErrorByThreadId.value = {}
@@ -4609,6 +4842,7 @@ export function useDesktopState() {
     selectedThreadServerRequests,
     selectedLiveOverlay,
     selectedThreadExecutionActive,
+    selectedThreadTokenUsage,
     selectedThreadId,
     availableModelIds,
     selectedModelId,
@@ -4625,6 +4859,7 @@ export function useDesktopState() {
     notificationStale,
     realtimeConnectionState,
     syncLagging,
+    syncError,
     error,
     refreshAll,
     refreshSkills,

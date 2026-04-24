@@ -4,75 +4,76 @@
     <template #sidebar>
       <section class="sidebar-root">
         <div class="sidebar-scrollable">
-          <SidebarThreadControls
-            v-if="!isSidebarCollapsed"
-            class="sidebar-thread-controls-host"
-            :is-sidebar-collapsed="isSidebarCollapsed"
-            :show-new-thread-button="true"
-            @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
-            @start-new-thread="onStartNewThreadFromToolbar"
-          >
-            <button
-              class="sidebar-search-toggle"
-              type="button"
-              :aria-pressed="isSidebarSearchVisible"
-              aria-label="搜索会话"
-              title="搜索会话"
-              @click="toggleSidebarSearch"
+          <div v-if="!isSidebarCollapsed" class="sidebar-top-shell">
+            <SidebarThreadControls
+              class="sidebar-thread-controls-host"
+              :is-sidebar-collapsed="isSidebarCollapsed"
+              :show-new-thread-button="true"
+              @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
+              @start-new-thread="onStartNewThreadFromToolbar"
             >
-              <IconTablerSearch class="sidebar-search-toggle-icon" />
-            </button>
-            <button
-              class="sidebar-toolbar-pill"
-              type="button"
-              :disabled="!hasUnreadThreads"
-              :aria-disabled="!hasUnreadThreads"
-              title="清除当前列表里的未读标记"
-              @click="onMarkAllThreadsRead"
-            >
-              全部已读
-            </button>
-          </SidebarThreadControls>
+              <button
+                class="sidebar-search-toggle"
+                type="button"
+                :aria-pressed="isSidebarSearchVisible"
+                aria-label="搜索会话"
+                title="搜索会话"
+                @click="toggleSidebarSearch"
+              >
+                <IconTablerSearch class="sidebar-search-toggle-icon" />
+              </button>
+              <button
+                class="sidebar-toolbar-pill"
+                type="button"
+                :disabled="!hasUnreadThreads"
+                :aria-disabled="!hasUnreadThreads"
+                title="清除当前列表里的未读标记"
+                @click="onMarkAllThreadsRead"
+              >
+                全部已读
+              </button>
+            </SidebarThreadControls>
 
-          <div v-if="!isSidebarCollapsed && isSidebarSearchVisible" class="sidebar-search-bar">
-            <IconTablerSearch class="sidebar-search-bar-icon" />
-            <input
-              ref="sidebarSearchInputRef"
-              v-model="sidebarSearchQuery"
-              class="sidebar-search-input"
-              type="text"
-              placeholder="筛选会话..."
-              @keydown="onSidebarSearchKeydown"
-            />
-            <button
-              v-if="sidebarSearchQuery.length > 0"
-              class="sidebar-search-clear"
-              type="button"
-              aria-label="清空搜索"
-              @click="clearSidebarSearch"
-            >
-              <IconTablerX class="sidebar-search-clear-icon" />
-            </button>
-          </div>
+            <div v-if="isSidebarSearchVisible" class="sidebar-search-bar">
+              <IconTablerSearch class="sidebar-search-bar-icon" />
+              <input
+                ref="sidebarSearchInputRef"
+                v-model="sidebarSearchQuery"
+                class="sidebar-search-input"
+                type="text"
+                placeholder="筛选会话..."
+                @keydown="onSidebarSearchKeydown"
+              />
+              <button
+                v-if="sidebarSearchQuery.length > 0"
+                class="sidebar-search-clear"
+                type="button"
+                aria-label="清空搜索"
+                @click="clearSidebarSearch"
+              >
+                <IconTablerX class="sidebar-search-clear-icon" />
+              </button>
+            </div>
 
-          <div v-if="!isSidebarCollapsed" class="sidebar-explore-nav">
-            <button
-              class="sidebar-skills-link"
-              :class="{ 'is-active': isSkillsRoute }"
-              type="button"
-              @click="router.push({ name: 'skills' }); isMobile && setSidebarCollapsed(true)"
-            >
-              技能中心
-            </button>
-            <button
-              v-if="showGithubTrendingProjects"
-              class="sidebar-skills-link"
-              :class="{ 'is-active': isGithubTrendingRoute }"
-              type="button"
-              @click="router.push({ name: 'github-trending' }); isMobile && setSidebarCollapsed(true)"
-            >
-              GitHub 热门
-            </button>
+            <div class="sidebar-explore-nav">
+              <button
+                class="sidebar-skills-link"
+                :class="{ 'is-active': isSkillsRoute }"
+                type="button"
+                @click="router.push({ name: 'skills' }); isMobile && setSidebarCollapsed(true)"
+              >
+                技能中心
+              </button>
+              <button
+                v-if="showGithubTrendingProjects"
+                class="sidebar-skills-link"
+                :class="{ 'is-active': isGithubTrendingRoute }"
+                type="button"
+                @click="router.push({ name: 'github-trending' }); isMobile && setSidebarCollapsed(true)"
+              >
+                GitHub 热门
+              </button>
+            </div>
           </div>
 
           <SidebarThreadTree :groups="projectGroups" :project-display-name-by-id="projectDisplayNameById"
@@ -90,8 +91,39 @@
         </div>
 
         <div v-if="!isSidebarCollapsed" ref="sidebarSettingsAreaRef" class="sidebar-settings-area">
-          <Transition name="settings-panel">
-            <div v-if="isSettingsOpen" class="sidebar-settings-panel">
+          <Transition name="settings-mobile-backdrop">
+            <button
+              v-if="isSettingsOpen && isMobile"
+              class="sidebar-settings-mobile-backdrop"
+              type="button"
+              aria-label="关闭设置"
+              @click="isSettingsOpen = false"
+            />
+          </Transition>
+          <Transition :name="isMobile ? 'settings-mobile-panel' : 'settings-panel'">
+            <div
+              v-if="isSettingsOpen"
+              class="sidebar-settings-panel"
+              :class="{ 'sidebar-settings-panel-mobile': isMobile }"
+              :role="isMobile ? 'dialog' : undefined"
+              :aria-modal="isMobile ? 'true' : undefined"
+              aria-label="设置"
+            >
+              <div v-if="isMobile" class="sidebar-settings-mobile-handle" aria-hidden="true" />
+              <div v-if="isMobile" class="sidebar-settings-mobile-header">
+                <div class="sidebar-settings-mobile-copy">
+                  <p class="sidebar-settings-mobile-title">设置</p>
+                  <p class="sidebar-settings-mobile-subtitle">向上滑动查看全部内容</p>
+                </div>
+                <button
+                  class="sidebar-settings-mobile-close"
+                  type="button"
+                  aria-label="关闭设置"
+                  @click="isSettingsOpen = false"
+                >
+                  <IconTablerX class="sidebar-settings-mobile-close-icon" />
+                </button>
+              </div>
               <p class="sidebar-settings-section-title">基础设置</p>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.sendWithEnter" @click="toggleSendWithEnter">
                 <span class="sidebar-settings-label">发送需按 ⌘ + Enter</span>
@@ -160,6 +192,79 @@
                   {{ webBridgeSettingsStatus }}
                 </p>
               </section>
+              <section class="sidebar-settings-section" aria-label="Cloudflare Tunnel">
+                <p class="sidebar-settings-section-title">Cloudflare Tunnel</p>
+                <button
+                  class="sidebar-settings-row"
+                  type="button"
+                  :disabled="isTunnelConfigSaving"
+                  @click="toggleTunnelEnabled"
+                >
+                  <span class="sidebar-settings-label">自动启用 Tunnel</span>
+                  <span class="sidebar-settings-toggle" :class="{ 'is-on': tunnelStatus.enabled !== false }" />
+                </button>
+                <div class="sidebar-settings-row sidebar-settings-row--static">
+                  <span class="sidebar-settings-label">状态</span>
+                  <span class="sidebar-settings-value">{{ tunnelStatusLabel }}</span>
+                </div>
+                <div class="sidebar-settings-row sidebar-settings-row--static sidebar-settings-row--stacked">
+                  <span class="sidebar-settings-label">公网地址</span>
+                  <span class="sidebar-settings-code">{{ tunnelPublicUrlLabel }}</span>
+                </div>
+                <div class="sidebar-settings-row sidebar-settings-row--static sidebar-settings-row--stacked">
+                  <span class="sidebar-settings-label">cloudflared</span>
+                  <span class="sidebar-settings-code">{{ tunnelCommandLabel }}</span>
+                </div>
+                <div class="sidebar-settings-actions">
+                  <button
+                    class="sidebar-settings-github-button"
+                    type="button"
+                    :disabled="!canOpenTunnelPublicUrl"
+                    @click="openTunnelPublicUrl"
+                  >
+                    打开公网地址
+                  </button>
+                  <button
+                    class="sidebar-settings-github-button"
+                    type="button"
+                    :disabled="!tunnelStatus.publicUrl"
+                    @click="copyTunnelPublicUrl"
+                  >
+                    复制公网地址
+                  </button>
+                  <button
+                    class="sidebar-settings-github-button sidebar-settings-github-button--secondary"
+                    type="button"
+                    :disabled="isTunnelStatusLoading || isTunnelConfigSaving || !canSaveResolvedCloudflaredCommand"
+                    @click="saveDetectedCloudflaredCommand"
+                  >
+                    保存检测到的路径
+                  </button>
+                  <button
+                    class="sidebar-settings-github-button sidebar-settings-github-button--secondary"
+                    type="button"
+                    :disabled="isTunnelStatusLoading || isTunnelConfigSaving"
+                    @click="refreshTunnelStatus"
+                  >
+                    {{ isTunnelStatusLoading ? '检测中...' : '重新检测' }}
+                  </button>
+                </div>
+                <p class="sidebar-settings-hint">
+                  {{ tunnelStatus.reason || '读取配置和日志后，会在这里显示当前 Tunnel 状态。' }}
+                </p>
+                <p class="sidebar-settings-hint">
+                  {{ tunnelToggleHint }}
+                </p>
+                <p v-if="tunnelLastDetectedHint" class="sidebar-settings-hint">
+                  {{ tunnelLastDetectedHint }}
+                </p>
+                <p v-if="tunnelPathsHint" class="sidebar-settings-hint">
+                  {{ tunnelPathsHint }}
+                </p>
+                <p v-if="tunnelStatusMessage" class="sidebar-settings-hint sidebar-settings-hint-status">
+                  {{ tunnelStatusMessage }}
+                </p>
+              </section>
               <section class="sidebar-settings-section" aria-label="语音输入">
                 <p class="sidebar-settings-section-title">语音输入</p>
               <div class="sidebar-settings-row sidebar-settings-row--select" :title="SETTINGS_HELP.dictationLanguage">
@@ -212,7 +317,7 @@
               </section>
             </div>
           </Transition>
-          <button class="sidebar-settings-button" type="button" @click="isSettingsOpen = !isSettingsOpen">
+          <button class="sidebar-settings-button" type="button" :aria-expanded="isSettingsOpen" @click="isSettingsOpen = !isSettingsOpen">
             <IconTablerSettings class="sidebar-settings-icon" />
             <span>设置</span>
           </button>
@@ -223,6 +328,31 @@
     <template #content>
       <section id="main-content" class="content-root" tabindex="-1">
         <ContentHeader :title="contentTitle">
+          <template #title-prefix>
+            <span
+              v-if="showContentContextBadge"
+              class="content-context-badge"
+              :data-tone="contentContextTone"
+              :data-empty="!contentContextHasReliablePercent"
+              :title="contentContextTooltip"
+              :aria-label="contentContextAriaLabel"
+            >
+              <span class="content-context-badge-icon" aria-hidden="true">
+                <svg class="content-context-badge-ring" viewBox="0 0 40 40">
+                  <circle class="content-context-badge-track" cx="20" cy="20" r="16" />
+                  <circle
+                    class="content-context-badge-progress"
+                    cx="20"
+                    cy="20"
+                    r="16"
+                    :stroke-dasharray="contentContextRingDashArray"
+                    :stroke-dashoffset="contentContextRingDashOffset"
+                  />
+                </svg>
+              </span>
+              <span class="content-context-badge-number">{{ contentContextPercentLabel }}</span>
+            </span>
+          </template>
           <template #subtitle>
             <p v-if="headerSubtitle" class="content-header-subtitle">{{ headerSubtitle }}</p>
           </template>
@@ -236,13 +366,27 @@
               @start-new-thread="onStartNewThreadFromToolbar"
             />
           </template>
+          <template #actions>
+            <button
+              class="content-favorites-button"
+              type="button"
+              title="查看全局收藏内容"
+              @click="isFavoritesModalVisible = true"
+            >
+              <IconTablerBookmark class="content-favorites-button-icon" :filled="favoriteCount > 0" />
+              <span>收藏</span>
+              <span v-if="favoriteCount > 0" class="content-favorites-button-badge">{{ favoriteCount }}</span>
+            </button>
+          </template>
           <template #meta>
-            <div class="content-status-strip" aria-live="polite">
-              <span class="content-status-pill" :data-tone="contentStatusTone">
-                <span class="content-status-pill-label">{{ contentStatusCaption }}</span>
-                <span>{{ contentStatusLabel }}</span>
-              </span>
-              <span v-if="contentStatusDetail" class="content-status-detail">{{ contentStatusDetail }}</span>
+            <div class="content-meta-row" aria-live="polite">
+              <div class="content-status-strip">
+                <span class="content-status-pill" :data-tone="contentStatusTone">
+                  <span class="content-status-pill-label">{{ contentStatusCaption }}</span>
+                  <span>{{ contentStatusLabel }}</span>
+                </span>
+                <span v-if="contentStatusDetail" class="content-status-detail">{{ contentStatusDetail }}</span>
+              </div>
             </div>
           </template>
         </ContentHeader>
@@ -314,16 +458,18 @@
           <template v-else>
             <div class="content-grid">
               <div class="content-thread">
-                <ThreadConversation :messages="displayedThreadMessages" :is-loading="isLoadingMessages"
+                <ThreadConversation ref="threadConversationRef" :messages="displayedThreadMessages" :is-loading="isLoadingMessages"
                   :active-thread-id="displayedThreadConversationId" :cwd="displayedThreadCwd" :scroll-state="displayedThreadScrollState"
                   :live-overlay="displayedThreadLiveOverlay"
                   :pending-requests="displayedThreadPendingRequests"
+                  :favorite-message-ids="favoriteMessageIdsForDisplayedThread"
                   :is-thread-switching="isThreadContentSwitching"
                   :show-empty-thread-actions="isRouteOnlyEmptyThread"
                   :is-turn-in-progress="isSelectedThreadInProgress"
                   :is-rolling-back="isRollingBack"
                   @update-scroll-state="onUpdateThreadScrollState"
                   @respond-server-request="onRespondServerRequest"
+                  @toggle-favorite="onToggleFavoriteMessage"
                   @return-to-new-thread="onReturnToNewThreadFromEmptyThread"
                   @dismiss-empty-thread="onDismissEmptyThread"
                   @rollback="onRollback" />
@@ -393,6 +539,17 @@
       </div>
     </div>
   </Teleport>
+
+  <FavoritesModal
+    :visible="isFavoritesModalVisible"
+    :favorites="displayFavorites"
+    :active-thread-id="displayedThreadConversationId"
+    :status-text="favoritesStatusText"
+    @close="closeFavoritesModal"
+    @copy="onCopyFavorite"
+    @open="onOpenFavorite"
+    @remove="onRemoveFavorite"
+  />
 </template>
 
 <script setup lang="ts">
@@ -406,10 +563,13 @@ import ThreadComposer from './components/content/ThreadComposer.vue'
 import QueuedMessages from './components/content/QueuedMessages.vue'
 import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
+import FavoritesModal from './components/content/FavoritesModal.vue'
+import IconTablerBookmark from './components/icons/IconTablerBookmark.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
 import { useDesktopState } from './composables/useDesktopState'
+import { useFavorites, type FavoriteRecord } from './composables/useFavorites'
 import { useMobile } from './composables/useMobile'
 import {
   createWorktree,
@@ -417,17 +577,27 @@ import {
   getGithubProjectsForScope,
   getHomeDirectory,
   getProjectRootSuggestion,
+  getTunnelStatus,
   getThreadRuntimeSnapshot,
   getWebBridgeSettings,
   getWorkspaceRootsState,
   openProjectRoot,
   refreshDesktopApp,
   searchThreads,
+  updateTunnelStatus,
   updateWebBridgeSettings,
 } from './api/codexGateway'
-import type { ReasoningEffort, SpeedMode, ThreadScrollState, UiLiveOverlay, UiMessage, UiServerRequest } from './types/codex'
+import type { ReasoningEffort, SpeedMode, ThreadScrollState, UiLiveOverlay, UiMessage, UiServerRequest, UiThread } from './types/codex'
 import type { ComposerDraftPayload, ThreadComposerExposed } from './components/content/ThreadComposer.vue'
-import type { DesktopAppStatus, GithubTipsScope, GithubTrendingProject, PermissionDecision, WebBridgeSettings } from './api/codexGateway'
+import type { ThreadConversationExposed } from './components/content/ThreadConversation.vue'
+import type {
+  DesktopAppStatus,
+  GithubTipsScope,
+  GithubTrendingProject,
+  PermissionDecision,
+  TunnelStatus,
+  WebBridgeSettings,
+} from './api/codexGateway'
 import { getPathLeafName, getPathParent } from './pathUtils.js'
 
 const SkillsHub = defineAsyncComponent(() => import('./components/content/SkillsHub.vue'))
@@ -439,6 +609,8 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
 const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
 const PROJECT_GITHUB_URL = 'https://github.com/Qjzn/codexui-server-bridge'
+const CONTEXT_RING_RADIUS = 16
+const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_RING_RADIUS
 const DEFAULT_WEB_BRIDGE_SETTINGS: WebBridgeSettings = {
   permissions: {
     allowAllPermissionRequests: false,
@@ -446,6 +618,18 @@ const DEFAULT_WEB_BRIDGE_SETTINGS: WebBridgeSettings = {
     fileChange: 'allowForSession',
     mcpTools: 'ask',
   },
+}
+const DEFAULT_TUNNEL_STATUS: TunnelStatus = {
+  enabled: null,
+  active: false,
+  publicUrl: '',
+  configPath: '',
+  configuredCommand: '',
+  resolvedCommand: '',
+  cloudflaredAvailable: false,
+  logPath: '',
+  lastDetectedAtIso: '',
+  reason: '',
 }
 const SETTINGS_HELP = {
   sendWithEnter: '开启后直接按 Enter 发送，关闭后使用 Command + Enter 发送。',
@@ -564,6 +748,32 @@ const WHISPER_LANGUAGES: Record<string, string> = {
   yue: 'cantonese',
 }
 
+const tokenCountFormatter = new Intl.NumberFormat('zh-CN')
+
+function formatTokenCount(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '--'
+  return tokenCountFormatter.format(Math.max(0, Math.round(value)))
+}
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.min(Math.max(value, 0), 100)
+}
+
+function humanizeActivityLabel(raw: string): string {
+  const label = raw.trim()
+  if (!label) return ''
+
+  if (/等待授权|waiting for approval|approval required/iu.test(label)) return '等待确认'
+  if (/等待确认|requires confirmation|needs confirmation/iu.test(label)) return '等待确认'
+  if (/等待输入|request user input|needs input/iu.test(label)) return '等待补充'
+  if (/等待处理|pending request/iu.test(label)) return '等待处理'
+  if (/执行命令|running command|executing command/iu.test(label)) return '执行命令'
+  if (/writing response|thinking|reasoning|整理回复|思考/iu.test(label)) return '思考中'
+
+  return label
+}
+
 const {
   projectGroups,
   projectDisplayNameById,
@@ -571,6 +781,7 @@ const {
   selectedThreadScrollState,
   selectedThreadServerRequests,
   selectedLiveOverlay,
+  selectedThreadTokenUsage,
   selectedThreadId,
   availableModelIds,
   selectedModelId,
@@ -587,7 +798,7 @@ const {
   notificationStale,
   realtimeConnectionState,
   syncLagging,
-  error,
+  syncError,
   refreshAll,
   refreshSkills,
   refreshRateLimits,
@@ -624,8 +835,10 @@ const {
 const route = useRoute()
 const router = useRouter()
 const { isMobile } = useMobile()
+const { favorites, toggleFavorite, removeFavorite, refreshFavorites } = useFavorites()
 const homeThreadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadComposerRef = ref<ThreadComposerExposed | null>(null)
+const threadConversationRef = ref<ThreadConversationExposed | null>(null)
 const sidebarSettingsAreaRef = ref<HTMLElement | null>(null)
 const trendingProjects = ref<GithubTrendingProject[]>([])
 const isTrendingProjectsLoading = ref(false)
@@ -644,6 +857,9 @@ const worktreeInitStatus = ref<{ phase: 'idle' | 'running' | 'error'; title: str
   message: '',
 })
 const isSidebarCollapsed = ref(loadSidebarCollapsed())
+const isFavoritesModalVisible = ref(false)
+const favoritesStatusText = ref('')
+const pendingFavoriteJump = ref<{ threadId: string; messageId: string } | null>(null)
 const sidebarSearchQuery = ref('')
 const isSidebarSearchVisible = ref(false)
 const sidebarSearchInputRef = ref<HTMLInputElement | null>(null)
@@ -672,6 +888,12 @@ const showGithubTrendingProjects = ref(loadBoolPref(GITHUB_TRENDING_PROJECTS_KEY
 const webBridgeSettings = ref<WebBridgeSettings>(DEFAULT_WEB_BRIDGE_SETTINGS)
 const webBridgeSettingsStatus = ref('')
 let webBridgeSettingsStatusTimer: ReturnType<typeof setTimeout> | null = null
+const tunnelStatus = ref<TunnelStatus>(DEFAULT_TUNNEL_STATUS)
+const tunnelStatusMessage = ref('')
+let favoritesStatusTimer: ReturnType<typeof setTimeout> | null = null
+const isTunnelStatusLoading = ref(false)
+const isTunnelConfigSaving = ref(false)
+let tunnelStatusMessageTimer: ReturnType<typeof setTimeout> | null = null
 const desktopAppStatus = ref<DesktopAppStatus>({
   available: false,
   platform: '',
@@ -720,6 +942,50 @@ const displayWorktreeName = computed(() => {
   const name = String(worktreeName).trim()
   return name && name !== 'unknown' ? name : '默认工作区'
 })
+const tunnelStatusLabel = computed(() => {
+  if (isTunnelStatusLoading.value) return '检测中'
+  if (tunnelStatus.value.active) return '已连接'
+  if (tunnelStatus.value.enabled === false) return '已关闭'
+  if (tunnelStatus.value.cloudflaredAvailable) return '待启动'
+  return '未就绪'
+})
+const tunnelToggleLabel = computed(() => (tunnelStatus.value.enabled === false ? '已关闭' : '已开启'))
+const tunnelPublicUrlLabel = computed(() => (
+  tunnelStatus.value.publicUrl.trim() || '未检测到'
+))
+const tunnelCommandLabel = computed(() => (
+  tunnelStatus.value.resolvedCommand.trim()
+  || tunnelStatus.value.configuredCommand.trim()
+  || '未检测到'
+))
+const canOpenTunnelPublicUrl = computed(() => tunnelStatus.value.publicUrl.trim().length > 0)
+const canSaveResolvedCloudflaredCommand = computed(() => {
+  const resolved = tunnelStatus.value.resolvedCommand.trim()
+  if (!resolved) return false
+  return resolved !== tunnelStatus.value.configuredCommand.trim()
+})
+const tunnelPathsHint = computed(() => {
+  const hints: string[] = []
+  if (tunnelStatus.value.configPath.trim()) {
+    hints.push(`配置: ${tunnelStatus.value.configPath.trim()}`)
+  }
+  if (tunnelStatus.value.logPath.trim()) {
+    hints.push(`日志: ${tunnelStatus.value.logPath.trim()}`)
+  }
+  return hints.join(' · ')
+})
+const tunnelLastDetectedHint = computed(() => {
+  const detectedAtIso = tunnelStatus.value.lastDetectedAtIso.trim()
+  if (!detectedAtIso) return ''
+  const date = new Date(detectedAtIso)
+  if (Number.isNaN(date.getTime())) return ''
+  return `最近识别时间：${date.toLocaleString()}`
+})
+const tunnelToggleHint = computed(() => (
+  tunnelStatus.value.active
+    ? '当前 Tunnel 已在运行。修改开关会写入配置，并在下次重启 7420 时继续沿用。'
+    : '这里会直接写入本机配置。若当前服务已启动，开关修改通常需要重启 7420 后完全生效。'
+))
 const isRouteOnlyEmptyThread = computed(() => (
   route.name === 'thread'
   && !!routeThreadId.value
@@ -750,6 +1016,98 @@ const headerSubtitle = computed(() => {
   const cwd = selectedThread.value?.cwd?.trim() ?? ''
   return cwd || ''
 })
+const contentContextUsage = computed(() => {
+  if (isNonThreadRoute.value || isRouteOnlyEmptyThread.value) return null
+  if (!selectedThread.value) return null
+  return selectedThreadTokenUsage.value
+})
+const showContentContextBadge = computed(() => (
+  !isNonThreadRoute.value &&
+  !isRouteOnlyEmptyThread.value &&
+  Boolean(selectedThread.value)
+))
+const contentContextHasReliablePercent = computed(() => (
+  typeof contentContextUsage.value?.usedPercent === 'number'
+))
+const contentContextPercent = computed<number | null>(() => (
+  contentContextHasReliablePercent.value
+    ? clampPercent(contentContextUsage.value?.usedPercent ?? 0)
+    : null
+))
+const contentContextUsedTokens = computed<number | null>(() => {
+  if (!contentContextUsage.value) return null
+  const currentTokens = Math.max(contentContextUsage.value.last.totalTokens, 0)
+  if (
+    typeof contentContextUsage.value.modelContextWindow === 'number' &&
+    contentContextUsage.value.modelContextWindow > 0
+  ) {
+    return Math.min(currentTokens, contentContextUsage.value.modelContextWindow)
+  }
+  return currentTokens > 0 ? currentTokens : null
+})
+const contentContextPercentLabel = computed(() => (
+  typeof contentContextPercent.value === 'number'
+    ? String(Math.round(contentContextPercent.value))
+    : '--'
+))
+const contentContextRingDashArray = `${CONTEXT_RING_CIRCUMFERENCE} ${CONTEXT_RING_CIRCUMFERENCE}`
+const contentContextRingDashOffset = computed(() => {
+  const progress =
+    typeof contentContextPercent.value === 'number'
+      ? contentContextPercent.value / 100
+      : 0
+  return CONTEXT_RING_CIRCUMFERENCE * (1 - progress)
+})
+const contentContextTone = computed<'live' | 'warning' | 'danger'>(() => {
+  if (typeof contentContextPercent.value !== 'number') return 'warning'
+  if (contentContextPercent.value >= 90) return 'danger'
+  if (contentContextPercent.value >= 70) return 'warning'
+  return 'live'
+})
+const contentContextTooltip = computed(() => {
+  if (!contentContextUsage.value) return '当前会话上下文统计暂未就绪，稍后会自动补齐。'
+  const totalTokens = formatTokenCount(contentContextUsage.value.total.totalTokens)
+  const currentContextTokens =
+    typeof contentContextUsedTokens.value === 'number'
+      ? formatTokenCount(contentContextUsedTokens.value)
+      : null
+  const cumulativeTokens =
+    contentContextUsage.value.total.totalTokens > contentContextUsage.value.last.totalTokens
+      ? `，累计 ${totalTokens}`
+      : ''
+  if (
+    typeof contentContextPercent.value === 'number' &&
+    typeof contentContextUsage.value.modelContextWindow === 'number' &&
+    contentContextUsage.value.modelContextWindow > 0
+  ) {
+    const contextWindow = formatTokenCount(contentContextUsage.value.modelContextWindow)
+    const usedTokens = currentContextTokens ?? formatTokenCount(contentContextUsage.value.last.totalTokens)
+    return `上下文已使用 ${Math.round(contentContextPercent.value)}%，已用 ${usedTokens} / ${contextWindow}${cumulativeTokens}`
+  }
+  if (typeof contentContextUsage.value.modelContextWindow === 'number' && contentContextUsage.value.modelContextWindow > 0) {
+    const contextWindow = formatTokenCount(contentContextUsage.value.modelContextWindow)
+    return `当前上下文已用 ${currentContextTokens ?? '未知'} / ${contextWindow}${cumulativeTokens}。百分比会按客户端同口径继续补齐。`
+  }
+  return `当前会话累计已使用 ${totalTokens} tokens，上下文窗口大小暂未提供`
+})
+const contentContextAriaLabel = computed(() => {
+  if (!contentContextUsage.value) return '当前会话上下文统计暂未就绪'
+  return contentContextTooltip.value
+})
+const threadById = computed<Record<string, UiThread>>(() => {
+  const next: Record<string, UiThread> = {}
+  for (const group of projectGroups.value) {
+    for (const thread of group.threads) {
+      next[thread.id] = thread
+    }
+  }
+  return next
+})
+const displayedThreadTitle = computed(() => (
+  threadById.value[displayedThreadConversationId.value]?.title
+  ?? selectedThread.value?.title
+  ?? ''
+))
 const hasActiveSyncDemand = computed(() => {
   if (isLoadingMessages.value || isSendingMessage.value) return true
   if (selectedThreadExecutionActive.value) return true
@@ -758,7 +1116,7 @@ const hasActiveSyncDemand = computed(() => {
   return false
 })
 const serviceStatusTone = computed<'live' | 'syncing' | 'warning' | 'danger'>(() => {
-  if (error.value.trim().length > 0) return 'danger'
+  if (syncError.value.trim().length > 0) return 'danger'
   if (realtimeConnectionState.value === 'disconnected' && hasActiveSyncDemand.value) return 'danger'
   if (realtimeConnectionState.value === 'connecting') return 'syncing'
   if (realtimeConnectionState.value === 'reconnecting' && hasActiveSyncDemand.value) return 'warning'
@@ -768,29 +1126,29 @@ const serviceStatusTone = computed<'live' | 'syncing' | 'warning' | 'danger'>(()
   return 'live'
 })
 const serviceStatusLabel = computed(() => {
-  if (error.value.trim().length > 0) return '出现异常'
+  if (syncError.value.trim().length > 0) return '同步异常'
   if (realtimeConnectionState.value === 'disconnected' && hasActiveSyncDemand.value) return '连接中断'
   if (realtimeConnectionState.value === 'connecting') return '连接中'
-  if (realtimeConnectionState.value === 'reconnecting' && hasActiveSyncDemand.value) return '回补同步中'
-  if (syncLagging.value && hasActiveSyncDemand.value) return '同步延迟'
-  if (notificationStale.value && hasActiveSyncDemand.value) return '回补同步中'
+  if (realtimeConnectionState.value === 'reconnecting' && hasActiveSyncDemand.value) return '正在恢复'
+  if (syncLagging.value && hasActiveSyncDemand.value) return '补同步中'
+  if (notificationStale.value && hasActiveSyncDemand.value) return '补同步中'
   if (realtimeConnectionState.value === 'reconnecting' || realtimeConnectionState.value === 'disconnected') return '自动同步中'
-  if (notificationStale.value) return '已同步'
+  if (notificationStale.value) return '连接正常'
   if (isLoadingMessages.value || isSendingMessage.value) return '同步中'
-  return '已连接'
+  return '连接正常'
 })
 const serviceStatusDetail = computed(() => {
-  if (error.value.trim().length > 0) return error.value.trim()
-  if (realtimeConnectionState.value === 'disconnected' && hasActiveSyncDemand.value) return '实时通知通道已断开，页面正在等待重新建立连接。'
-  if (realtimeConnectionState.value === 'connecting') return '正在建立实时通知连接。'
-  if (realtimeConnectionState.value === 'reconnecting' && hasActiveSyncDemand.value) return '实时通知正在重连，页面会继续短周期补同步。'
-  if (syncLagging.value && hasActiveSyncDemand.value) return '最近同步结果偏旧，页面正在主动补拉最新消息。'
-  if (notificationStale.value && hasActiveSyncDemand.value) return '实时通知暂时安静，页面正在主动校验任务状态并补拉最新进度。'
-  if (selectedThreadServerRequests.value.length > 0) return '当前任务正在等待你的确认或补充输入，处理后会自动继续。'
-  if (realtimeConnectionState.value === 'reconnecting' || realtimeConnectionState.value === 'disconnected') return '网络或通知通道恢复后会自动加载最新内容，无需手动确认。'
+  if (syncError.value.trim().length > 0) return syncError.value.trim()
+  if (realtimeConnectionState.value === 'disconnected' && hasActiveSyncDemand.value) return '实时通道暂时断开，页面会自动重连并补齐最新内容。'
+  if (realtimeConnectionState.value === 'connecting') return '正在建立实时连接。'
+  if (realtimeConnectionState.value === 'reconnecting' && hasActiveSyncDemand.value) return '实时通道正在恢复，页面会继续补拉最新进度。'
+  if (syncLagging.value && hasActiveSyncDemand.value) return '检测到内容偏旧，页面正在主动补同步。'
+  if (notificationStale.value && hasActiveSyncDemand.value) return '页面正在主动校验任务状态并补齐新输出。'
+  if (selectedThreadServerRequests.value.length > 0) return '当前任务需要你的确认或补充，处理后会自动继续。'
+  if (realtimeConnectionState.value === 'reconnecting' || realtimeConnectionState.value === 'disconnected') return '网络或通知恢复后会自动加载最新内容。'
   if (notificationStale.value) return '当前没有进行中的任务，页面会在回到前台或网络恢复时自动同步。'
-  if (selectedLiveOverlay.value?.activityLabel) return selectedLiveOverlay.value.activityLabel
-  return 'Web 服务状态正常。'
+  if (selectedLiveOverlay.value?.activityLabel) return humanizeActivityLabel(selectedLiveOverlay.value.activityLabel)
+  return '实时连接正常。'
 })
 const filteredMessages = computed(() =>
   messages.value.filter((message) => {
@@ -823,18 +1181,43 @@ const displayedThreadPendingRequests = ref<UiServerRequest[]>([])
 const displayedThreadLiveOverlay = ref<UiLiveOverlay | null>(null)
 const displayedThreadScrollState = ref<ThreadScrollState | null>(null)
 const isThreadContentSwitching = ref(false)
+const favoriteMessageIdsForDisplayedThread = computed(() => {
+  const threadId = displayedThreadConversationId.value.trim()
+  if (!threadId) return []
+  const ids: string[] = []
+  for (const entry of favorites.value) {
+    if (entry.threadId !== threadId) continue
+    ids.push(entry.messageId)
+  }
+  return ids
+})
+const favoriteCount = computed(() => favorites.value.length)
+const displayFavorites = computed<FavoriteRecord[]>(() => (
+  favorites.value.map((record) => {
+    const latestThread = threadById.value[record.threadId]
+    if (!latestThread) return record
+    const nextTitle = latestThread.title.trim() || record.threadTitle
+    const nextCwd = latestThread.cwd.trim() || record.threadCwd
+    if (nextTitle === record.threadTitle && nextCwd === record.threadCwd) return record
+    return {
+      ...record,
+      threadTitle: nextTitle,
+      threadCwd: nextCwd,
+    }
+  })
+))
 const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selectedThread.value?.inProgress === true)
 const threadStatusLabel = computed(() => {
   if (isNonThreadRoute.value) return ''
   if (isRouteOnlyEmptyThread.value) return '空会话'
   if (!selectedThread.value) return ''
   if (selectedThreadServerRequests.value.length > 0) {
-    return selectedLiveOverlay.value?.activityLabel || '等待处理'
+    return humanizeActivityLabel(selectedLiveOverlay.value?.activityLabel ?? '') || '等待处理'
   }
   if (selectedThreadExecutionActive.value) {
-    return selectedLiveOverlay.value?.activityLabel || '执行中'
+    return humanizeActivityLabel(selectedLiveOverlay.value?.activityLabel ?? '') || '处理中'
   }
-  if (selectedThread.value.unread) return '有未读更新'
+  if (selectedThread.value.unread) return '有新进展'
   return '就绪'
 })
 const desktopStatusTone = computed<'live' | 'syncing' | 'warning' | 'danger'>(() => {
@@ -844,7 +1227,7 @@ const desktopStatusTone = computed<'live' | 'syncing' | 'warning' | 'danger'>(()
 })
 const desktopStatusLabel = computed(() => {
   if (isDesktopRefreshRunning.value) return '刷新中'
-  if (desktopAppStatus.value.available) return desktopAppStatus.value.appRunning ? '已连接' : '可用'
+  if (desktopAppStatus.value.available) return desktopAppStatus.value.appRunning ? '已连接' : '未开启'
   return '不可用'
 })
 const showDesktopStatusPill = computed(() => (
@@ -870,31 +1253,31 @@ const contentStatusCaption = computed(() => {
     return '会话'
   }
   if (showDesktopStatusPill.value && serviceStatusTone.value === 'live') {
-    return '客户端'
+    return '桌面端'
   }
-  return '服务'
+  return '同步'
 })
 const contentStatusLabel = computed(() => {
   if (selectedThreadServerRequests.value.length > 0) return threadStatusLabel.value || '等待处理'
-  if (selectedThreadExecutionActive.value) return threadStatusLabel.value || '执行中'
+  if (selectedThreadExecutionActive.value) return threadStatusLabel.value || '处理中'
   if (isRouteOnlyEmptyThread.value) return '空会话'
-  if (selectedThread.value?.unread) return '有未读更新'
+  if (selectedThread.value?.unread) return '有新进展'
   if (showDesktopStatusPill.value && serviceStatusTone.value === 'live') return desktopStatusLabel.value
   return serviceStatusLabel.value
 })
 const contentStatusDetail = computed(() => {
   if (selectedThreadServerRequests.value.length > 0) {
-    return '当前任务等待你的确认或补充输入，处理后会自动继续。'
+    return '这条任务现在卡在你的确认或补充输入，处理后会继续推进。'
   }
   if (selectedThreadExecutionActive.value) {
-    return selectedLiveOverlay.value?.activityLabel || '当前任务仍在进行中。'
+    return humanizeActivityLabel(selectedLiveOverlay.value?.activityLabel ?? '') || '当前任务仍在继续处理。'
   }
   if (serviceStatusTone.value !== 'live' && showServiceStatusDetail.value) {
     return serviceStatusDetail.value
   }
   if (showDesktopStatusPill.value && serviceStatusTone.value === 'live') {
-    if (isDesktopRefreshRunning.value) return '桌面端正在刷新，完成后会自动恢复连接状态。'
-    if (!desktopAppStatus.value.available) return '未检测到可用桌面端，Web 端仍可单独使用。'
+    if (isDesktopRefreshRunning.value) return '桌面端正在刷新，完成后会自动恢复连接。'
+    if (!desktopAppStatus.value.available) return '当前未检测到可用桌面端，Web 端仍可单独使用。'
     if (!desktopAppStatus.value.appRunning) return '桌面端可用但当前未运行，需要时可从设置里手动刷新。'
   }
   return ''
@@ -968,6 +1351,10 @@ watch(
       displayedThreadMessages.value.length > 0 ||
       displayedThreadPendingRequests.value.length > 0 ||
       displayedThreadLiveOverlay.value !== null
+    const hasNextConversation =
+      nextMessages.length > 0 ||
+      nextPendingRequests.length > 0 ||
+      nextLiveOverlay !== null
 
     if (!nextThreadId || homeRoute) {
       isThreadContentSwitching.value = false
@@ -982,6 +1369,16 @@ watch(
 
     const isSwitchingToAnotherThread = displayedThreadConversationId.value !== '' && displayedThreadConversationId.value !== nextThreadId
     if (loading && isSwitchingToAnotherThread && hasDisplayedConversation) {
+      if (!hasNextConversation) {
+        displayedThreadConversationId.value = nextThreadId
+        displayedThreadCwd.value = nextCwd
+        displayedThreadMessages.value = []
+        displayedThreadPendingRequests.value = []
+        displayedThreadLiveOverlay.value = null
+        displayedThreadScrollState.value = nextScrollState
+        isThreadContentSwitching.value = false
+        return
+      }
       isThreadContentSwitching.value = true
       return
     }
@@ -995,6 +1392,23 @@ watch(
     isThreadContentSwitching.value = false
   },
   { immediate: true },
+)
+
+watch(
+  () => [
+    pendingFavoriteJump.value?.threadId ?? '',
+    pendingFavoriteJump.value?.messageId ?? '',
+    displayedThreadConversationId.value,
+    displayedThreadMessages.value.length,
+    isLoadingMessages.value,
+    isThreadContentSwitching.value,
+  ] as const,
+  ([pendingThreadId, pendingMessageId, currentThreadId, _messageCount, loading, switching]) => {
+    if (!pendingThreadId || !pendingMessageId) return
+    if (loading || switching) return
+    if (pendingThreadId !== currentThreadId) return
+    void tryFocusPendingFavoriteJump()
+  },
 )
 const isDesktopRefreshAvailable = computed(() => desktopAppStatus.value.available)
 const desktopRefreshButtonTitle = computed(() => {
@@ -1091,6 +1505,7 @@ function scheduleTrendingProjectsLoad(priority: 'idle' | 'immediate' = 'idle'): 
 
 onMounted(() => {
   window.addEventListener('keydown', onWindowKeyDown)
+  window.addEventListener('focus', onWindowFocusRefreshAccountState)
   applyDarkMode()
   darkModeMediaQuery?.addEventListener('change', applyDarkMode)
   void initialize()
@@ -1099,12 +1514,15 @@ onMounted(() => {
   queueIdleTask(() => { void loadWorkspaceRootOptionsState() }, 950)
   queueIdleTask(() => { void refreshDefaultProjectName() }, 1200)
   queueIdleTask(() => { void refreshWebBridgeSettings() }, 1400)
+  queueIdleTask(() => { void refreshFavorites() }, 1500)
+  queueIdleTask(() => { void refreshTunnelStatus() }, 1550)
   queueIdleTask(() => { void refreshDesktopAppAvailability() }, 1700)
   scheduleTrendingProjectsLoad()
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onWindowKeyDown)
+  window.removeEventListener('focus', onWindowFocusRefreshAccountState)
   window.removeEventListener('pointerdown', onWindowPointerDownForSettings, { capture: true })
   darkModeMediaQuery?.removeEventListener('change', applyDarkMode)
   clearQueuedIdleTasks()
@@ -1117,8 +1535,20 @@ onUnmounted(() => {
     clearTimeout(webBridgeSettingsStatusTimer)
     webBridgeSettingsStatusTimer = null
   }
+  if (tunnelStatusMessageTimer) {
+    clearTimeout(tunnelStatusMessageTimer)
+    tunnelStatusMessageTimer = null
+  }
+  if (favoritesStatusTimer) {
+    clearTimeout(favoritesStatusTimer)
+    favoritesStatusTimer = null
+  }
   stopPolling()
 })
+
+function onWindowFocusRefreshAccountState(): void {
+  void refreshFavorites()
+}
 
 watch(sidebarSearchQuery, (value) => {
   const query = value.trim()
@@ -1158,6 +1588,11 @@ watch(isSettingsOpen, (open) => {
   window.removeEventListener('pointerdown', onWindowPointerDownForSettings, { capture: true })
 })
 
+watch(isFavoritesModalVisible, (visible) => {
+  if (!visible) return
+  void refreshFavorites()
+})
+
 function onSkillsChanged(): void {
   void refreshSkills()
 }
@@ -1179,6 +1614,48 @@ function setWebBridgeSettingsStatus(message: string): void {
   }, 2200)
 }
 
+function setTunnelStatusMessage(message: string): void {
+  tunnelStatusMessage.value = message
+  if (tunnelStatusMessageTimer) {
+    clearTimeout(tunnelStatusMessageTimer)
+    tunnelStatusMessageTimer = null
+  }
+  if (!message) return
+  tunnelStatusMessageTimer = setTimeout(() => {
+    tunnelStatusMessage.value = ''
+    tunnelStatusMessageTimer = null
+  }, 2600)
+}
+
+function setFavoritesStatusText(message: string): void {
+  favoritesStatusText.value = message
+  if (favoritesStatusTimer) {
+    clearTimeout(favoritesStatusTimer)
+    favoritesStatusTimer = null
+  }
+  if (!message) return
+  favoritesStatusTimer = setTimeout(() => {
+    favoritesStatusText.value = ''
+    favoritesStatusTimer = null
+  }, 2200)
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+}
+
 async function refreshWebBridgeSettings(): Promise<void> {
   try {
     webBridgeSettings.value = await getWebBridgeSettings()
@@ -1198,6 +1675,33 @@ async function saveWebBridgeSettings(nextSettings: WebBridgeSettings): Promise<v
     const message = error instanceof Error ? error.message : '保存权限设置失败'
     setWebBridgeSettingsStatus(message)
     void refreshWebBridgeSettings()
+  }
+}
+
+async function refreshTunnelStatus(): Promise<void> {
+  isTunnelStatusLoading.value = true
+  try {
+    tunnelStatus.value = await getTunnelStatus()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '加载 Tunnel 状态失败'
+    tunnelStatus.value = {
+      ...DEFAULT_TUNNEL_STATUS,
+      reason: message,
+    }
+  } finally {
+    isTunnelStatusLoading.value = false
+  }
+}
+
+async function updateTunnelConfig(options: { enabled?: boolean | null; cloudflaredCommand?: string }): Promise<void> {
+  isTunnelConfigSaving.value = true
+  try {
+    tunnelStatus.value = await updateTunnelStatus(options)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '保存 Tunnel 配置失败'
+    setTunnelStatusMessage(message)
+  } finally {
+    isTunnelConfigSaving.value = false
   }
 }
 
@@ -1225,6 +1729,53 @@ function onRefreshDesktopApp(): void {
   }
 
   isDesktopRefreshConfirmVisible.value = true
+}
+
+async function copyTunnelPublicUrl(): Promise<void> {
+  const url = tunnelStatus.value.publicUrl.trim()
+  if (!url) {
+    setTunnelStatusMessage('当前没有可复制的公网地址')
+    return
+  }
+
+  try {
+    await copyTextToClipboard(url)
+    setTunnelStatusMessage('公网地址已复制')
+  } catch {
+    setTunnelStatusMessage('复制失败，请手动复制地址')
+  }
+}
+
+function openTunnelPublicUrl(): void {
+  const url = tunnelStatus.value.publicUrl.trim()
+  if (!url) {
+    setTunnelStatusMessage('当前没有可打开的公网地址')
+    return
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function toggleTunnelEnabled(): void {
+  const nextEnabled = tunnelStatus.value.enabled === false
+  setTunnelStatusMessage(nextEnabled ? '正在启用 Tunnel 配置...' : '正在关闭 Tunnel 配置...')
+  void updateTunnelConfig({ enabled: nextEnabled })
+    .then(() => {
+      setTunnelStatusMessage(nextEnabled ? 'Tunnel 已写入为开启状态，重启 7420 后会继续启用' : 'Tunnel 已写入为关闭状态')
+    })
+}
+
+function saveDetectedCloudflaredCommand(): void {
+  const resolvedCommand = tunnelStatus.value.resolvedCommand.trim()
+  if (!resolvedCommand) {
+    setTunnelStatusMessage('当前没有可保存的 cloudflared 路径')
+    return
+  }
+
+  setTunnelStatusMessage('正在保存 cloudflared 路径...')
+  void updateTunnelConfig({ cloudflaredCommand: resolvedCommand })
+    .then(() => {
+      setTunnelStatusMessage('cloudflared 路径已保存到本机配置')
+    })
 }
 
 function closeDesktopRefreshConfirm(): void {
@@ -1283,6 +1834,74 @@ function onSelectThread(threadId: string): void {
     void router.push({ name: 'thread', params: { threadId } })
   }
   if (isMobile.value) setSidebarCollapsed(true)
+}
+
+function closeFavoritesModal(): void {
+  isFavoritesModalVisible.value = false
+}
+
+function onToggleFavoriteMessage(message: UiMessage): void {
+  const threadId = displayedThreadConversationId.value.trim()
+  const messageId = message.id.trim()
+  const text = message.text.trim()
+  if (!threadId || !messageId || !text) return
+
+  const threadSnapshot = threadById.value[threadId]
+  const added = toggleFavorite({
+    threadId,
+    messageId,
+    threadTitle: displayedThreadTitle.value.trim() || threadSnapshot?.title?.trim() || '未命名会话',
+    threadCwd: displayedThreadCwd.value.trim() || threadSnapshot?.cwd?.trim() || '',
+    role: message.role,
+    text,
+    turnIndex: typeof message.turnIndex === 'number' ? message.turnIndex : null,
+  })
+  setFavoritesStatusText(added ? '已加入收藏' : '已取消收藏')
+}
+
+async function onCopyFavorite(record: FavoriteRecord): Promise<void> {
+  try {
+    await copyTextToClipboard(record.text)
+    setFavoritesStatusText('收藏内容已复制')
+  } catch {
+    setFavoritesStatusText('复制失败，请手动复制')
+  }
+}
+
+function onRemoveFavorite(record: FavoriteRecord): void {
+  removeFavorite(record.threadId, record.messageId)
+  setFavoritesStatusText('已取消收藏')
+}
+
+async function tryFocusPendingFavoriteJump(): Promise<void> {
+  const pending = pendingFavoriteJump.value
+  if (!pending) return
+  if (isLoadingMessages.value || isThreadContentSwitching.value) return
+  if (displayedThreadConversationId.value !== pending.threadId) return
+  const focused = await threadConversationRef.value?.focusMessage(pending.messageId)
+  if (focused) {
+    pendingFavoriteJump.value = null
+    setFavoritesStatusText('已跳转到收藏内容')
+  }
+}
+
+async function onOpenFavorite(record: FavoriteRecord): Promise<void> {
+  const targetThreadId = record.threadId.trim()
+  const targetMessageId = record.messageId.trim()
+  if (!targetThreadId || !targetMessageId) return
+
+  closeFavoritesModal()
+  pendingFavoriteJump.value = { threadId: targetThreadId, messageId: targetMessageId }
+
+  if (selectedThreadId.value !== targetThreadId) {
+    await selectThread(targetThreadId)
+  }
+  if (route.name !== 'thread' || routeThreadId.value !== targetThreadId) {
+    await router.push({ name: 'thread', params: { threadId: targetThreadId } })
+  }
+  if (isMobile.value) setSidebarCollapsed(true)
+  await nextTick()
+  void tryFocusPendingFavoriteJump()
 }
 
 async function onExportThread(threadId: string): Promise<void> {
@@ -1410,6 +2029,9 @@ function onRespondServerRequest(payload: { id: number; result?: unknown; error?:
 function setSidebarCollapsed(nextValue: boolean): void {
   if (isSidebarCollapsed.value === nextValue) return
   isSidebarCollapsed.value = nextValue
+  if (nextValue) {
+    isSettingsOpen.value = false
+  }
   saveSidebarCollapsed(nextValue)
 }
 
@@ -2253,24 +2875,30 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-scrollable {
-  @apply flex-1 min-h-0 overflow-y-auto py-3 px-2.5 flex flex-col gap-2;
+  @apply flex-1 min-h-0 overflow-y-auto py-3 px-2.5 flex flex-col gap-3;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }
 
+.sidebar-top-shell {
+  @apply flex flex-col gap-2 rounded-[26px] border border-[#e7dece] bg-[#fffdf8] px-2.5 py-2.5;
+  box-shadow: 0 16px 30px -32px rgba(31, 41, 55, 0.18);
+}
+
 .content-root {
   @apply h-full min-h-0 w-full flex flex-col overflow-y-hidden overflow-x-visible;
+  --content-shell-max-width: min(88rem, calc(100vw - 2.75rem));
   background:
-    radial-gradient(circle at top right, rgba(13, 148, 136, 0.028), transparent 22%),
-    linear-gradient(180deg, rgba(255,255,255,0.94) 0%, rgba(250,247,240,0.97) 100%);
+    radial-gradient(circle at top right, rgba(13, 148, 136, 0.02), transparent 22%),
+    linear-gradient(180deg, rgba(255,255,255,0.975) 0%, rgba(250,247,240,0.99) 100%);
 }
 
 .sidebar-thread-controls-host {
-  @apply mt-1 -translate-y-px px-2 pb-1;
+  @apply mt-0 px-0 pb-0;
 }
 
 .sidebar-search-toggle {
-  @apply h-7 w-7 rounded-xl border border-transparent bg-transparent text-[#6e6458] flex items-center justify-center transition-colors duration-100 hover:border-[#ddd5c7] hover:bg-[#fffdf8];
+  @apply h-8 w-8 rounded-xl border border-transparent bg-transparent text-[#6e6458] flex items-center justify-center transition-colors duration-100 hover:border-[#ddd5c7] hover:bg-[#fffdf8];
 }
 
 .sidebar-search-toggle[aria-pressed='true'] {
@@ -2282,7 +2910,9 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-toolbar-pill {
-  @apply h-7 rounded-xl border border-[#ddd5c7] bg-[#fffdf8] px-2.5 text-[11px] font-medium text-[#5f5548] transition-colors duration-100;
+  @apply h-8 rounded-xl border border-[#ddd5c7] bg-[#fffdf8] px-3 text-[11px] font-semibold text-[#5f5548] transition-colors duration-100;
+  font-family: var(--font-sans-ui);
+  letter-spacing: -0.012em;
 }
 
 .sidebar-toolbar-pill:hover,
@@ -2295,7 +2925,7 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-search-bar {
-  @apply sticky top-0 z-10 flex items-center gap-1.5 mx-2 px-3 py-2 rounded-2xl border border-[#e6dccb] bg-[#fffdf8] transition-colors;
+  @apply z-10 flex items-center gap-1.5 px-3 py-2 rounded-2xl border border-[#e6dccb] bg-[#fcfaf4] transition-colors;
 }
 
 .sidebar-search-bar-icon {
@@ -2315,11 +2945,11 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-explore-nav {
-  @apply mx-2 grid grid-cols-2 gap-2;
+  @apply grid grid-cols-2 gap-1.5;
 }
 
 .sidebar-skills-link {
-  @apply mx-2 flex items-center justify-center rounded-2xl border border-[#e8decd] bg-[#fffdf8] px-3 py-2.5 text-sm text-[#5b5146] transition-[background-color,border-color,color,transform] duration-150 cursor-pointer;
+  @apply mx-0 flex items-center justify-center rounded-2xl border border-[#e8decd] bg-[#fcfaf4] px-3 py-2 text-[13px] font-medium text-[#5b5146] transition-[background-color,border-color,color,transform] duration-150 cursor-pointer;
 }
 
 .sidebar-explore-nav .sidebar-skills-link {
@@ -2327,12 +2957,12 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-skills-link.is-active {
-  @apply border-[#99f6e4] bg-[#f0fdfa] text-[#134e4a] font-medium;
+  @apply border-[#bde7df] bg-[#eef8f5] text-[#134e4a] font-semibold;
 }
 
 .sidebar-skills-link:hover,
 .sidebar-skills-link:focus-visible {
-  @apply bg-[#f7f4ed] text-[#2d261f];
+  @apply border-[#ddd3c2] bg-[#f7f4ed] text-[#2d261f];
 }
 
 .sidebar-thread-controls-header-host {
@@ -2341,6 +2971,8 @@ async function submitFirstMessageForNewThread(
 
 .desktop-refresh-button {
   @apply inline-flex items-center gap-1.5 rounded-full border border-[#ddd3c2] bg-[#fffdf8] px-3 py-1.5 text-[11px] font-semibold text-[#544a3d] transition-[background-color,border-color,color] duration-150 hover:border-[#c8b9a2] hover:bg-[#f6f2ea] hover:text-[#1f2937] disabled:cursor-not-allowed disabled:opacity-60;
+  font-family: var(--font-sans-ui);
+  letter-spacing: -0.01em;
 }
 
 .desktop-refresh-button[data-busy='true'] {
@@ -2352,25 +2984,96 @@ async function submitFirstMessageForNewThread(
 }
 
 .content-body {
-  @apply flex-1 min-h-0 w-full flex flex-col gap-2 pt-0.5 pb-2 sm:pb-4 overflow-y-hidden overflow-x-visible;
+  @apply flex-1 min-h-0 w-full flex flex-col gap-2.5 pt-0.5 pb-2 sm:pb-4 overflow-y-hidden overflow-x-visible;
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }
 
 .content-header-subtitle {
   @apply m-0 text-[11px] leading-4 text-[#8f8577] truncate;
+  font-family: var(--font-sans-ui);
+  letter-spacing: -0.006em;
+}
+
+.content-favorites-button {
+  @apply inline-flex items-center gap-1.5 rounded-full border border-[#ddd3c2] bg-[#fffdf8] px-3 py-1.5 text-[11px] font-semibold text-[#544a3d] transition-[background-color,border-color,color] duration-150 hover:border-[#ccb89c] hover:bg-[#f7f1e5] hover:text-[#1f2937];
+  font-family: var(--font-sans-ui);
+  letter-spacing: -0.01em;
+}
+
+.content-favorites-button-icon {
+  @apply h-3.5 w-3.5;
+}
+
+.content-favorites-button-badge {
+  @apply inline-flex min-w-5 items-center justify-center rounded-full bg-[#0f766e] px-1.5 py-0.5 text-[10px] text-white;
+}
+
+.content-meta-row {
+  @apply flex w-full min-w-0 flex-wrap items-center gap-2;
+}
+
+.content-context-badge {
+  @apply inline-flex items-center gap-1.5 rounded-full border border-transparent px-1.5 py-0.5 text-[11px] font-semibold leading-none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 244, 236, 0.9) 100%);
+  box-shadow: 0 8px 20px -20px rgba(31, 41, 55, 0.34);
+}
+
+.content-context-badge[data-tone='live'] {
+  @apply text-[#0f766e];
+}
+
+.content-context-badge[data-tone='warning'] {
+  @apply text-[#8a6a11];
+}
+
+.content-context-badge[data-tone='danger'] {
+  @apply text-[#c2410c];
+}
+
+.content-context-badge[data-empty='true'] {
+  @apply text-[#7b7062];
+}
+
+.content-context-badge-icon {
+  @apply relative h-[1.15rem] w-[1.15rem] shrink-0;
+}
+
+.content-context-badge-ring {
+  @apply h-full w-full;
+  transform: rotate(-90deg);
+}
+
+.content-context-badge-track {
+  fill: none;
+  stroke: rgba(148, 163, 184, 0.22);
+  stroke-width: 3.6;
+}
+
+.content-context-badge-progress {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 3.6;
+  transition: stroke-dashoffset 180ms ease, stroke 180ms ease;
+}
+
+.content-context-badge-number {
+  @apply min-w-[1.35rem] text-center text-[11px] font-semibold tabular-nums;
+  letter-spacing: -0.02em;
 }
 
 .content-status-strip {
-  @apply flex min-h-0 flex-wrap items-center gap-1.5;
+  @apply flex min-h-0 min-w-0 flex-1 flex-wrap items-center gap-1.5;
 }
 
 .content-status-pill {
   @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium;
-  box-shadow: 0 6px 18px -18px rgba(31, 41, 55, 0.24);
+  box-shadow: 0 8px 18px -20px rgba(31, 41, 55, 0.2);
 }
 
 .content-status-pill-label {
-  @apply uppercase tracking-[0.08em] text-[9px] font-semibold opacity-70;
+  @apply text-[9px] font-semibold opacity-60;
+  letter-spacing: 0.01em;
 }
 
 .content-status-pill[data-tone='live'] {
@@ -2391,7 +3094,7 @@ async function submitFirstMessageForNewThread(
 
 .content-status-detail {
   @apply hidden sm:inline text-[11px] leading-4 text-[#8f8577] truncate;
-  max-width: min(34rem, 50vw);
+  max-width: min(40rem, 52vw);
 }
 
 
@@ -2400,7 +3103,9 @@ async function submitFirstMessageForNewThread(
 }
 
 .content-grid {
-  @apply flex-1 min-h-0 flex flex-col gap-2;
+  @apply flex-1 min-h-0 flex flex-col gap-2.5 w-full;
+  width: min(100%, var(--content-shell-max-width));
+  margin-inline: auto;
 }
 
 .content-thread {
@@ -2410,7 +3115,7 @@ async function submitFirstMessageForNewThread(
 .composer-with-queue {
   @apply w-full sticky bottom-0 z-10 pt-2;
   background:
-    linear-gradient(180deg, rgba(250,247,240,0) 0%, rgba(250,247,240,0.82) 18%, rgba(250,247,240,0.95) 100%);
+    linear-gradient(180deg, rgba(250,247,240,0) 0%, rgba(250,247,240,0.84) 18%, rgba(250,247,240,0.965) 100%);
   padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
 }
 
@@ -2528,7 +3233,7 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-settings-area {
-  @apply shrink-0 pt-2 px-2 pb-2 border-t border-[#e6dccb] bg-[#f7f4ed];
+  @apply relative shrink-0 pt-2 px-2 pb-2 border-t border-[#e6dccb] bg-[#f7f4ed];
 }
 
 .sidebar-settings-button {
@@ -2543,6 +3248,50 @@ async function submitFirstMessageForNewThread(
   @apply mb-1 rounded-[24px] border border-[#e5dbca] bg-[#fffdf8] overflow-hidden;
 }
 
+.sidebar-settings-mobile-backdrop {
+  @apply fixed inset-0 z-[68] border-0 bg-[#1f2937]/32 p-0;
+  backdrop-filter: blur(2px);
+}
+
+.sidebar-settings-panel-mobile {
+  @apply fixed inset-x-0 bottom-0 z-[69] m-0 rounded-t-[28px] rounded-b-none border-[#ddd5c7] shadow-2xl shadow-[#1f2937]/18;
+  max-height: min(78dvh, calc(100dvh - max(4rem, env(safe-area-inset-top) + 1rem)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: max(0.9rem, env(safe-area-inset-bottom));
+}
+
+.sidebar-settings-mobile-handle {
+  @apply mx-auto mt-2 h-1.5 w-12 rounded-full bg-[#ddd5c7];
+}
+
+.sidebar-settings-mobile-header {
+  @apply sticky top-0 z-[1] flex items-center justify-between gap-3 px-4 pb-2 pt-3;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.985) 0%, rgba(255, 253, 248, 0.95) 100%);
+  border-bottom: 1px solid #f1eadf;
+}
+
+.sidebar-settings-mobile-copy {
+  @apply min-w-0 flex flex-col gap-0.5;
+}
+
+.sidebar-settings-mobile-title {
+  @apply m-0 text-sm font-semibold text-[#2d261f];
+}
+
+.sidebar-settings-mobile-subtitle {
+  @apply m-0 text-[11px] leading-4 text-[#8f8577];
+}
+
+.sidebar-settings-mobile-close {
+  @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-[#e4dac9] bg-[#fffdf8] text-[#5b5146] transition-colors duration-100 hover:bg-[#f7f1e5] hover:text-[#2d261f];
+}
+
+.sidebar-settings-mobile-close-icon {
+  @apply h-4.5 w-4.5;
+}
+
 .sidebar-settings-row {
   @apply flex items-center justify-between w-full px-3 py-2.5 text-sm text-[#544a3d] border-0 bg-transparent transition-colors duration-150 hover:bg-[#f7f4ed] cursor-pointer;
 }
@@ -2553,6 +3302,14 @@ async function submitFirstMessageForNewThread(
 
 .sidebar-settings-row--select {
   @apply cursor-default items-center gap-2;
+}
+
+.sidebar-settings-row--static {
+  @apply cursor-default hover:bg-transparent;
+}
+
+.sidebar-settings-row--stacked {
+  @apply items-start flex-col gap-1.5;
 }
 
 .sidebar-settings-section {
@@ -2595,6 +3352,14 @@ async function submitFirstMessageForNewThread(
   @apply text-xs text-[#7b7062] bg-[#f1ebde] rounded-full px-2 py-0.5;
 }
 
+.sidebar-settings-code {
+  @apply block w-full rounded-2xl border border-[#e6dccb] bg-[#f7f4ed] px-3 py-2 text-[11px] leading-4 text-[#5f5446] break-all;
+}
+
+.sidebar-settings-actions {
+  @apply flex flex-wrap gap-2 px-3 py-2;
+}
+
 .sidebar-settings-toggle {
   @apply relative w-9 h-5 rounded-full bg-[#d8cfbf] transition-colors shrink-0;
 }
@@ -2620,6 +3385,29 @@ async function submitFirstMessageForNewThread(
 .settings-panel-enter-from,
 .settings-panel-leave-to {
   opacity: 0;
+}
+
+.settings-mobile-backdrop-enter-active,
+.settings-mobile-backdrop-leave-active {
+  transition: opacity 160ms ease;
+}
+
+.settings-mobile-backdrop-enter-from,
+.settings-mobile-backdrop-leave-to {
+  opacity: 0;
+}
+
+.settings-mobile-panel-enter-active,
+.settings-mobile-panel-leave-active {
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-mobile-panel-enter-from,
+.settings-mobile-panel-leave-to {
+  opacity: 0;
+  transform: translateY(1.5rem);
 }
 
 .sidebar-settings-rate-limits {
@@ -2650,6 +3438,14 @@ async function submitFirstMessageForNewThread(
   @apply inline-flex min-h-9 shrink-0 items-center justify-center rounded-full border border-[#cbe7e1] bg-[#f0fdfa] px-3 text-xs font-semibold text-[#0f766e] transition-colors duration-100 hover:border-[#99f6e4] hover:bg-[#ccfbf1] hover:text-[#115e59] cursor-pointer;
 }
 
+.sidebar-settings-github-button:disabled {
+  @apply cursor-not-allowed opacity-55 hover:border-[#cbe7e1] hover:bg-[#f0fdfa] hover:text-[#0f766e];
+}
+
+.sidebar-settings-github-button--secondary {
+  @apply border-[#ddd5c7] bg-white text-[#6a6052] hover:border-[#d1c7b7] hover:bg-[#f7f4ed] hover:text-[#3f372d];
+}
+
 .sidebar-settings-about-meta {
   @apply flex items-center justify-between gap-2 text-[11px] leading-4 text-[#8f8577];
 }
@@ -2664,9 +3460,33 @@ async function submitFirstMessageForNewThread(
     padding-top: max(0.75rem, env(safe-area-inset-top));
   }
 
+  .sidebar-top-shell {
+    @apply gap-1.5 px-1.5 py-1.5 rounded-[24px];
+  }
+
   .sidebar-settings-area {
     @apply px-1.5 pt-1.5;
     padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+
+  .sidebar-settings-panel-mobile .sidebar-settings-section-title {
+    @apply px-4;
+  }
+
+  .sidebar-settings-panel-mobile .sidebar-settings-row,
+  .sidebar-settings-panel-mobile .sidebar-settings-hint,
+  .sidebar-settings-panel-mobile .sidebar-settings-actions,
+  .sidebar-settings-panel-mobile .sidebar-settings-about,
+  .sidebar-settings-panel-mobile .sidebar-settings-rate-limits {
+    @apply px-4;
+  }
+
+  .sidebar-settings-panel-mobile .sidebar-settings-row {
+    @apply py-3;
+  }
+
+  .sidebar-settings-panel-mobile .sidebar-settings-about {
+    @apply py-3;
   }
 
   .sidebar-thread-controls-host {
@@ -2675,7 +3495,7 @@ async function submitFirstMessageForNewThread(
 
   .sidebar-search-bar,
   .sidebar-skills-link {
-    @apply mx-1.5;
+    @apply mx-0;
   }
 
   .content-body {
@@ -2684,6 +3504,26 @@ async function submitFirstMessageForNewThread(
 
   .content-grid {
     @apply gap-1.5;
+  }
+
+  .content-meta-row {
+    @apply gap-1.5;
+  }
+
+  .content-context-badge {
+    @apply gap-1 px-1 py-0.5 text-[10px];
+  }
+
+  .content-context-badge-icon {
+    @apply h-4 w-4;
+  }
+
+  .content-context-badge-number {
+    @apply min-w-[1.1rem] text-[10px];
+  }
+
+  .content-status-strip {
+    @apply basis-full;
   }
 
   .composer-with-queue {
@@ -2701,6 +3541,28 @@ async function submitFirstMessageForNewThread(
     right: 0.75rem;
     top: max(0.5rem, env(safe-area-inset-top));
     text-align: center;
+  }
+}
+
+@media (min-width: 1024px) {
+  .sidebar-scrollable {
+    @apply px-3 py-3.5;
+  }
+
+  .sidebar-top-shell {
+    @apply px-3 py-3;
+  }
+
+  .content-body {
+    @apply px-4;
+  }
+
+  .content-grid {
+    @apply gap-3.5;
+  }
+
+  .content-status-detail {
+    max-width: min(44rem, 48vw);
   }
 }
 
@@ -2743,6 +3605,10 @@ async function submitFirstMessageForNewThread(
 @media (prefers-reduced-motion: reduce) {
   .settings-panel-enter-active,
   .settings-panel-leave-active,
+  .settings-mobile-backdrop-enter-active,
+  .settings-mobile-backdrop-leave-active,
+  .settings-mobile-panel-enter-active,
+  .settings-mobile-panel-leave-active,
   .sidebar-search-toggle,
   .sidebar-search-clear,
   .sidebar-skills-link,

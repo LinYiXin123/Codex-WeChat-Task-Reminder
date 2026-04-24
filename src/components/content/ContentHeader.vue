@@ -5,7 +5,12 @@
         <slot name="leading" />
       </div>
       <div class="content-title-wrap">
-        <h1 class="content-title">{{ title }}</h1>
+        <div class="content-title-line">
+          <div v-if="hasTitlePrefix" class="content-title-prefix">
+            <slot name="title-prefix" />
+          </div>
+          <h1 class="content-title">{{ title }}</h1>
+        </div>
         <slot name="subtitle" />
       </div>
       <div class="content-actions">
@@ -27,6 +32,7 @@ defineProps<{
 
 const slots = useSlots()
 const hasMeta = computed(() => Boolean(slots.meta))
+const hasTitlePrefix = computed(() => Boolean(slots['title-prefix']))
 </script>
 
 <style scoped>
@@ -34,19 +40,31 @@ const hasMeta = computed(() => Boolean(slots.meta))
 
 .content-header {
   @apply sticky top-0 z-20 w-full flex flex-col gap-1 px-3 sm:px-4 pt-2 sm:pt-2 pb-2 border-b border-[#e8dfcf] bg-[#fcfbf8]/96;
+  backdrop-filter: blur(10px);
 }
 
 .content-header-main {
-  @apply w-full min-h-10 sm:min-h-11 flex items-center gap-2 sm:gap-2.5;
+  @apply w-full min-h-11 sm:min-h-12 flex items-center gap-2 sm:gap-3;
+  width: min(100%, var(--content-shell-max-width, 88rem));
+  margin-inline: auto;
 }
 
 .content-title {
-  @apply m-0 min-w-0 truncate text-[15px] sm:text-[16px] font-semibold leading-5 text-[#1f2937];
-  letter-spacing: -0.01em;
+  @apply m-0 min-w-0 truncate text-[16px] sm:text-[17px] font-semibold leading-6 text-[#1f2937];
+  font-family: var(--font-sans-reading);
+  letter-spacing: var(--tracking-tight-soft);
 }
 
 .content-title-wrap {
   @apply min-w-0 flex-1 flex flex-col gap-0.5;
+}
+
+.content-title-line {
+  @apply min-w-0 flex items-center gap-1.5;
+}
+
+.content-title-prefix {
+  @apply shrink-0 flex items-center;
 }
 
 .content-actions {
@@ -59,6 +77,14 @@ const hasMeta = computed(() => Boolean(slots.meta))
 
 .content-meta {
   @apply flex flex-wrap items-center gap-1.5 min-h-0;
+  width: min(100%, var(--content-shell-max-width, 88rem));
+  margin-inline: auto;
+}
+
+@media (min-width: 1024px) {
+  .content-header {
+    @apply px-4 pt-2.5 pb-2.5;
+  }
 }
 
 @media (max-width: 767px) {

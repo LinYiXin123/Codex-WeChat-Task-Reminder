@@ -5,8 +5,14 @@
         <p class="queued-messages-title">消息队列</p>
         <span class="queued-messages-count">{{ messages.length }}</span>
       </div>
-      <p class="queued-messages-caption">
-        {{ isProcessing ? '正在提交队列中的下一条消息' : '当前任务结束后按顺序执行。点正文可继续编辑。' }}
+      <LoadingInline
+        v-if="isProcessing"
+        class="queued-messages-caption queued-messages-caption-loading"
+        label="正在提交队列中的下一条消息"
+        compact
+      />
+      <p v-else class="queued-messages-caption">
+        当前任务结束后按顺序执行。点正文可继续编辑。
       </p>
 
       <div v-for="(msg, index) in messages" :key="msg.id" class="queued-row">
@@ -37,6 +43,8 @@
 </template>
 
 <script setup lang="ts">
+import LoadingInline from './LoadingInline.vue'
+
 type QueuedMessageRow = {
   id: string
   text: string
@@ -111,6 +119,10 @@ function getMessageMeta(message: QueuedMessageRow): string {
 
 .queued-messages-caption {
   @apply m-0 text-xs leading-4 text-[#8a7f72];
+}
+
+.queued-messages-caption-loading {
+  @apply flex items-center text-[#0f766e];
 }
 
 .queued-row {

@@ -3,6 +3,9 @@
     <p v-if="dictationErrorText" class="thread-composer-dictation-error">
       {{ dictationErrorText }}
     </p>
+    <p v-else-if="dictationHelperText" class="thread-composer-dictation-helper">
+      {{ dictationHelperText }}
+    </p>
 
     <div class="thread-composer-shell" :class="{ 'thread-composer-shell--no-top-radius': hasQueueAbove }">
       <div v-if="selectedImages.length > 0" class="thread-composer-attachments">
@@ -284,11 +287,16 @@
             type="button"
             :aria-label="dictationButtonLabel"
             :title="dictationButtonLabel"
-            :disabled="isInteractionDisabled"
+            :disabled="isInteractionDisabled || dictationState === 'transcribing'"
             @click="onDictationToggle"
             @pointerdown="onDictationPressStart"
             @pointerup="onDictationPressEnd"
             @pointercancel="onDictationPressEnd"
+            @lostpointercapture="onDictationPressEnd"
+            @touchstart.prevent="onDictationTouchStart"
+            @touchend.prevent="onDictationTouchEnd"
+            @touchcancel.prevent="onDictationTouchEnd"
+            @contextmenu.prevent
           >
             <IconTablerPlayerStopFilled
               v-if="dictationState === 'recording'"
@@ -387,6 +395,15 @@
       capture="environment"
       :disabled="isInteractionDisabled"
       @change="onCameraCaptureChange"
+    />
+    <input
+      ref="audioCaptureInputRef"
+      class="thread-composer-hidden-input"
+      type="file"
+      accept="audio/*"
+      capture
+      :disabled="isInteractionDisabled"
+      @change="onAudioCaptureChange"
     />
     <input
       ref="folderPickerInputRef"
@@ -496,11 +513,13 @@ const dictationFeedback = ref('')
 const {
   state: dictationState,
   isSupported: isDictationSupported,
+  supportsLiveRecording,
   recordingDurationMs,
   waveformCanvasRef: dictationWaveformCanvasRef,
   startRecording,
   stopRecording,
   toggleRecording,
+  transcribeFile,
   cancel: cancelDictation,
 } = useDictation({
   getLanguage: () => props.dictationLanguage ?? 'auto',
@@ -533,6 +552,7 @@ const {
 const attachMenuRootRef = ref<HTMLElement | null>(null)
 const photoLibraryInputRef = ref<HTMLInputElement | null>(null)
 const cameraCaptureInputRef = ref<HTMLInputElement | null>(null)
+const audioCaptureInputRef = ref<HTMLInputElement | null>(null)
 const folderPickerInputRef = ref<HTMLInputElement | null>(null)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const isAttachMenuOpen = ref(false)
@@ -616,13 +636,28 @@ const speedModeDescription = computed(() => {
     : '默认速度，按正常额度消耗'
 })
 const isDictationRecording = computed(() => dictationState.value === 'recording')
+const usesDictationUploadFallback = computed(() =>
+  isDictationSupported.value && !supportsLiveRecording.value,
+)
 const dictationButtonLabel = computed(() => {
   if (dictationState.value === 'recording') return '停止听写'
+  if (dictationState.value === 'transcribing') return '正在转写'
+  if (usesDictationUploadFallback.value) return '上传语音或录音'
   return props.dictationClickToToggle ? '点击开始听写' : '按住开始听写'
 })
 const dictationErrorText = computed(() =>
   dictationState.value === 'idle' ? dictationFeedback.value.trim() : '',
 )
+const dictationHelperText = computed(() => {
+  if (dictationState.value !== 'idle') return ''
+  if (usesDictationUploadFallback.value) {
+    return '当前地址不支持直接长按录音，点按麦克风会打开系统录音或音频上传。切到 HTTPS 或 localhost 后可直接长按说话。'
+  }
+  if (props.dictationClickToToggle) {
+    return '点击一次开始录音，再点击一次结束并转写。'
+  }
+  return '按住麦克风开始录音，松手后自动转写。'
+})
 const dictationDurationLabel = computed(() => {
   const totalSeconds = Math.max(0, Math.floor(recordingDurationMs.value / 1000))
   const minutes = Math.floor(totalSeconds / 60)
@@ -833,6 +868,10 @@ function closeCompactSettings(): void {
 }
 
 function onDictationToggle(): void {
+  if (usesDictationUploadFallback.value) {
+    triggerAudioCapture()
+    return
+  }
   if (!props.dictationClickToToggle) return
   if (dictationFeedback.value) {
     dictationFeedback.value = ''
@@ -844,6 +883,7 @@ function onDictationToggle(): void {
 }
 
 function onDictationPressStart(event: PointerEvent): void {
+  if (!supportsLiveRecording.value) return
   if (props.dictationClickToToggle) return
   event.preventDefault()
   if (isHoldPressActive) return
@@ -863,6 +903,7 @@ function onDictationPressStart(event: PointerEvent): void {
   window.addEventListener('pointerup', onDictationPressEnd)
   window.addEventListener('pointercancel', onDictationPressEnd)
   window.addEventListener('blur', onDictationPressEnd)
+  document.addEventListener('visibilitychange', onDocumentVisibilityChange)
   void startRecording()
 }
 
@@ -873,7 +914,26 @@ function onDictationPressEnd(): void {
   window.removeEventListener('pointerup', onDictationPressEnd)
   window.removeEventListener('pointercancel', onDictationPressEnd)
   window.removeEventListener('blur', onDictationPressEnd)
+  document.removeEventListener('visibilitychange', onDocumentVisibilityChange)
   stopRecording()
+}
+
+function onDictationTouchStart(event: TouchEvent): void {
+  if (!supportsLiveRecording.value) return
+  if (props.dictationClickToToggle) return
+  onDictationPressStart(event as unknown as PointerEvent)
+}
+
+function onDictationTouchEnd(): void {
+  if (!supportsLiveRecording.value) return
+  if (props.dictationClickToToggle) return
+  onDictationPressEnd()
+}
+
+function onDocumentVisibilityChange(): void {
+  if (document.hidden) {
+    onDictationPressEnd()
+  }
 }
 
 function toggleAttachMenu(): void {
@@ -889,8 +949,35 @@ function triggerCameraCapture(): void {
   cameraCaptureInputRef.value?.click()
 }
 
+function triggerAudioCapture(): void {
+  if (isInteractionDisabled.value) return
+  if (dictationFeedback.value) {
+    dictationFeedback.value = ''
+  }
+  const input = audioCaptureInputRef.value
+  if (!input) return
+  input.value = ''
+  input.click()
+}
+
 function triggerFolderPicker(): void {
   folderPickerInputRef.value?.click()
+}
+
+async function onAudioCaptureChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement | null
+  const file = input?.files?.[0]
+  if (input) {
+    input.value = ''
+  }
+  if (!file) return
+  dictationShouldRollbackLatestUserTurn = false
+  dictationFeedback.value = ''
+  try {
+    await transcribeFile(file)
+  } catch (error) {
+    dictationFeedback.value = error instanceof Error ? error.message : '语音听写失败。'
+  }
 }
 
 function removeImage(id: string): void {
@@ -1288,6 +1375,7 @@ defineExpose<ThreadComposerExposed>({
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('visibilitychange', onDocumentVisibilityChange)
   window.removeEventListener('resize', syncCompactViewport)
   window.visualViewport?.removeEventListener('resize', syncCompactViewport)
   window.removeEventListener('pointerup', onDictationPressEnd)
@@ -1346,11 +1434,13 @@ watch(
 @reference "tailwindcss";
 
 .thread-composer {
-  @apply w-full max-w-175 mx-auto px-2 sm:px-6;
+  @apply w-full mx-auto px-2 sm:px-6;
+  max-width: min(var(--content-shell-max-width, 88rem), 100%);
 }
 
 .thread-composer-shell {
-  @apply relative rounded-[24px] border border-[#ddd5c7] bg-[#fffdf8] p-2.5 sm:p-3;
+  @apply relative rounded-[24px] border border-[#e3d9c8] bg-[#fffdf8] p-2.5 sm:p-3;
+  box-shadow: 0 18px 34px -36px rgba(31, 41, 55, 0.18);
 }
 
 .thread-composer-shell--no-top-radius {
@@ -1447,6 +1537,7 @@ watch(
 
 .thread-composer-file-mention-row {
   @apply flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-xs text-zinc-700 transition hover:bg-zinc-100;
+  font-family: var(--font-sans-ui);
 }
 
 .thread-composer-file-mention-row.is-active {
@@ -1483,10 +1574,12 @@ watch(
 
 .thread-composer-file-mention-name {
   @apply truncate text-zinc-900;
+  font-family: var(--font-sans-reading);
 }
 
 .thread-composer-file-mention-dir {
   @apply truncate text-zinc-400;
+  font-family: var(--font-sans-ui);
 }
 
 .thread-composer-file-mention-empty {
@@ -1495,6 +1588,10 @@ watch(
 
 .thread-composer-input {
   @apply w-full min-w-0 min-h-10 sm:min-h-11 max-h-40 rounded-xl border-0 bg-transparent px-1 py-2 text-sm text-zinc-900 outline-none transition resize-none overflow-y-auto;
+  font-family: var(--font-sans-reading);
+  font-size: var(--font-size-reading, 15px);
+  line-height: 1.65;
+  letter-spacing: var(--tracking-body-soft);
 }
 
 .thread-composer-input:focus {
@@ -1600,7 +1697,7 @@ watch(
 }
 
 .thread-composer-control-strip {
-  @apply min-w-0 flex flex-1 items-center gap-2 sm:gap-3;
+  @apply min-w-0 flex flex-1 items-center gap-2 sm:gap-2;
 }
 
 .thread-composer-control :deep(.composer-dropdown-value) {
@@ -1658,6 +1755,9 @@ watch(
 .thread-composer-mic {
   @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#e2d8c8] bg-[#f7f3ea] text-zinc-600 transition hover:bg-[#efe8dc] hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .thread-composer-mic--active {
@@ -1684,12 +1784,27 @@ watch(
   @apply mb-2 px-1 text-xs text-amber-700;
 }
 
+.thread-composer-dictation-helper {
+  @apply mb-2 px-1 text-xs text-[#7a705f];
+}
+
 .thread-composer-submit {
-  @apply inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-0 bg-[#0d9488] text-white transition hover:bg-[#0f766e] disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500;
+  @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-0 bg-[#0d9488] text-white transition hover:bg-[#0f766e] disabled:cursor-not-allowed disabled:bg-zinc-200 disabled:text-zinc-500;
+  box-shadow: 0 12px 24px -20px rgba(13, 148, 136, 0.56);
 }
 
 .thread-composer-submit--queue {
   @apply bg-[#ea580c] hover:bg-[#c2410c];
+}
+
+@media (min-width: 1024px) {
+  .thread-composer {
+    @apply px-5;
+  }
+
+  .thread-composer-shell {
+    @apply px-4.5 py-3.5 rounded-[26px];
+  }
 }
 
 .thread-composer-submit-icon {

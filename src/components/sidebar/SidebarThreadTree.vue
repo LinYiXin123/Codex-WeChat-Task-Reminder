@@ -17,7 +17,7 @@
           >
             <template #left>
               <span class="thread-left-stack">
-                <span class="thread-status-indicator" :data-state="getThreadState(thread)" />
+                <span class="thread-status-indicator" :data-state="getThreadState(thread)" :title="getThreadStatusLabel(thread)" />
                 <button class="thread-pin-button" type="button" title="置顶" @click="togglePin(thread.id)">
                   <IconTablerPin class="thread-icon" />
                 </button>
@@ -29,10 +29,7 @@
                   <span class="thread-row-title">{{ thread.title }}</span>
                   <IconTablerGitFork v-if="thread.hasWorktree" class="thread-row-worktree-icon" title="工作树会话" />
                 </span>
-                <span class="thread-row-meta">
-                  <span class="thread-status-pill" :data-state="getThreadState(thread)">{{ getThreadStatusLabel(thread) }}</span>
-                  <span class="thread-row-preview">{{ getThreadPreview(thread) }}</span>
-                </span>
+                <span class="thread-row-preview">{{ getThreadPreview(thread) }}</span>
               </span>
             </button>
             <template #right>
@@ -89,7 +86,12 @@
           >
             <template #left>
               <span class="thread-left-stack">
-                <span v-if="thread.inProgress || thread.unread" class="thread-status-indicator" :data-state="getThreadState(thread)" />
+                <span
+                  v-if="thread.inProgress || thread.unread"
+                  class="thread-status-indicator"
+                  :data-state="getThreadState(thread)"
+                  :title="getThreadStatusLabel(thread)"
+                />
                 <button class="thread-pin-button" type="button" title="置顶" @click="togglePin(thread.id)">
                   <IconTablerPin class="thread-icon" />
                 </button>
@@ -101,12 +103,7 @@
                   <span class="thread-row-title">{{ thread.title }}</span>
                   <IconTablerGitFork v-if="thread.hasWorktree" class="thread-row-worktree-icon" title="工作树会话" />
                 </span>
-                <span class="thread-row-meta">
-                  <span v-if="thread.inProgress || thread.unread" class="thread-status-pill" :data-state="getThreadState(thread)">
-                    {{ getThreadStatusLabel(thread) }}
-                  </span>
-                  <span class="thread-row-preview">{{ getThreadPreview(thread) }}</span>
-                </span>
+                <span class="thread-row-preview">{{ getThreadPreview(thread) }}</span>
               </span>
             </button>
             <template #right>
@@ -211,6 +208,7 @@
                 v-if="thread.inProgress || thread.unread"
                 class="thread-status-indicator"
                 :data-state="getThreadState(thread)"
+                :title="getThreadStatusLabel(thread)"
               />
               <button class="thread-pin-button" type="button" title="置顶" @click="togglePin(thread.id)">
                 <IconTablerPin class="thread-icon" />
@@ -223,12 +221,7 @@
                 <span class="thread-row-title">{{ thread.title }}</span>
                 <IconTablerGitFork v-if="thread.hasWorktree" class="thread-row-worktree-icon" title="工作树会话" />
               </span>
-              <span class="thread-row-meta">
-                <span v-if="thread.inProgress || thread.unread" class="thread-status-pill" :data-state="getThreadState(thread)">
-                  {{ getThreadStatusLabel(thread) }}
-                </span>
-                <span class="thread-row-preview">{{ getThreadPreview(thread) }}</span>
-              </span>
+              <span class="thread-row-preview">{{ getThreadPreview(thread) }}</span>
             </span>
           </button>
           <template #right>
@@ -376,6 +369,7 @@
                       v-if="thread.inProgress || thread.unread"
                       class="thread-status-indicator"
                       :data-state="getThreadState(thread)"
+                      :title="getThreadStatusLabel(thread)"
                     />
                     <button class="thread-pin-button" type="button" title="置顶" @click="togglePin(thread.id)">
                       <IconTablerPin class="thread-icon" />
@@ -388,12 +382,7 @@
                       <span class="thread-row-title">{{ thread.title }}</span>
                       <IconTablerGitFork v-if="thread.hasWorktree" class="thread-row-worktree-icon" title="工作树会话" />
                     </span>
-                    <span class="thread-row-meta">
-                      <span v-if="thread.inProgress || thread.unread" class="thread-status-pill" :data-state="getThreadState(thread)">
-                        {{ getThreadStatusLabel(thread) }}
-                      </span>
-                      <span class="thread-row-preview">{{ getThreadPreview(thread) }}</span>
-                    </span>
+                    <span class="thread-row-preview">{{ getThreadPreview(thread) }}</span>
                   </span>
                 </button>
                 <template #right>
@@ -490,8 +479,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
+import { getPinnedThreadIds, updatePinnedThreadIds } from '../../api/codexGateway'
 import type { UiProjectGroup, UiThread } from '../../types/codex'
 import IconTablerChevronDown from '../icons/IconTablerChevronDown.vue'
 import IconTablerChevronRight from '../icons/IconTablerChevronRight.vue'
@@ -560,6 +550,9 @@ const expandedProjects = ref<Record<string, boolean>>({})
 const collapsedProjects = ref<Record<string, boolean>>({})
 const PINNED_THREAD_STORAGE_KEY = 'codex-web-local.pinned-thread-ids.v1'
 const pinnedThreadIds = ref<string[]>(loadPinnedThreadIds())
+const hasPinnedThreadIdsHydrated = ref(false)
+let pinnedThreadIdsSequence = 0
+let pinnedThreadIdsHydrationPromise: Promise<void> | null = null
 const openProjectMenuId = ref('')
 const openThreadMenuId = ref('')
 const projectMenuMode = ref<'actions' | 'rename'>('actions')
@@ -663,9 +656,61 @@ function setPinnedThreadIds(value: string[]): void {
   if (areStringArraysEqual(pinnedThreadIds.value, normalized)) return
   pinnedThreadIds.value = normalized
   savePinnedThreadIds(normalized)
+  if (!hasPinnedThreadIdsHydrated.value) return
+  void persistPinnedThreadIds(normalized)
+}
+
+async function hydratePinnedThreadIds(): Promise<void> {
+  if (pinnedThreadIdsHydrationPromise) {
+    await pinnedThreadIdsHydrationPromise
+    return
+  }
+
+  pinnedThreadIdsHydrationPromise = (async () => {
+    try {
+      const serverPinnedThreadIds = await getPinnedThreadIds()
+      if (serverPinnedThreadIds.length === 0 && pinnedThreadIds.value.length > 0) {
+        const migrated = await updatePinnedThreadIds(pinnedThreadIds.value)
+        pinnedThreadIds.value = migrated
+        savePinnedThreadIds(migrated)
+        return
+      }
+
+      pinnedThreadIds.value = serverPinnedThreadIds
+      savePinnedThreadIds(serverPinnedThreadIds)
+    } catch {
+      // Keep local cache when account-level sync is temporarily unavailable.
+    } finally {
+      hasPinnedThreadIdsHydrated.value = true
+    }
+  })()
+
+  await pinnedThreadIdsHydrationPromise
+}
+
+async function persistPinnedThreadIds(nextPinnedThreadIds: string[]): Promise<void> {
+  const sequence = pinnedThreadIdsSequence + 1
+  pinnedThreadIdsSequence = sequence
+  try {
+    const saved = await updatePinnedThreadIds(nextPinnedThreadIds)
+    if (pinnedThreadIdsSequence !== sequence) return
+    pinnedThreadIds.value = saved
+    savePinnedThreadIds(saved)
+  } catch {
+    // Keep local cache when sync fails; a later hydration can reconcile the state.
+  }
 }
 
 collapsedProjects.value = loadCollapsedState()
+
+onMounted(() => {
+  window.addEventListener('focus', onWindowFocusRefreshPinned)
+  void hydratePinnedThreadIds()
+})
+
+function onWindowFocusRefreshPinned(): void {
+  void hydratePinnedThreadIds()
+}
 
 watch(
   collapsedProjects,
@@ -1135,7 +1180,7 @@ function getProjectOuterHeight(projectName: string): number {
   const dragHeight = drag?.projectName === projectName ? drag.groupHeight : null
   const baseHeight = dragHeight ?? measuredHeight
   const gap = isCollapsed(projectName) ? 0 : PROJECT_GROUP_EXPANDED_GAP_PX
-  return Math.max(0, baseHeight + gap)
+  return Math.max(0, Math.round(baseHeight + gap))
 }
 
 function setProjectMenuWrapRef(projectName: string, element: Element | ComponentPublicInstance | null): void {
@@ -1255,11 +1300,11 @@ function unbindProjectMenuDismissListeners(): void {
 }
 
 function updateMeasuredProjectHeight(projectName: string, element: HTMLElement): void {
-  const nextHeight = element.getBoundingClientRect().height
+  const nextHeight = Math.round(element.getBoundingClientRect().height)
   if (!Number.isFinite(nextHeight) || nextHeight <= 0) return
 
   const previousHeight = measuredHeightByProject.value[projectName]
-  if (previousHeight !== undefined && Math.abs(previousHeight - nextHeight) < 0.5) {
+  if (previousHeight !== undefined && Math.abs(previousHeight - nextHeight) < 1) {
     return
   }
 
@@ -1487,7 +1532,7 @@ function isDraggingProject(projectName: string): boolean {
 
 function projectGroupStyle(projectName: string): Record<string, string> | undefined {
   const drag = activeProjectDrag.value
-  const targetTop = layoutTopByProject.value[projectName] ?? 0
+  const targetTop = Math.round(layoutTopByProject.value[projectName] ?? 0)
   const openThreadMenuProjectName = openThreadMenuId.value
     ? (threadProjectNameById.value.get(openThreadMenuId.value) ?? '')
     : ''
@@ -1497,27 +1542,25 @@ function projectGroupStyle(projectName: string): Record<string, string> | undefi
   if (!drag || drag.projectName !== projectName) {
     return {
       position: 'absolute',
-      top: '0',
+      top: `${targetTop}px`,
       left: '0',
       right: '0',
       zIndex: shouldElevateForMenu ? '40' : '1',
-      transform: `translate3d(0, ${targetTop}px, 0)`,
-      willChange: 'transform',
-      transition: 'transform 180ms ease',
+      transform: 'none',
+      transition: 'top 180ms ease',
     }
   }
 
   return {
     position: 'fixed',
-    top: '0',
-    left: `${drag.groupLeft}px`,
-    width: `${drag.groupWidth}px`,
-    height: `${drag.groupHeight}px`,
+    top: `${Math.round(drag.ghostTop)}px`,
+    left: `${Math.round(drag.groupLeft)}px`,
+    width: `${Math.round(drag.groupWidth)}px`,
+    height: `${Math.round(drag.groupHeight)}px`,
     zIndex: '50',
     pointerEvents: 'none',
-    transform: `translate3d(0, ${drag.ghostTop}px, 0)`,
-    willChange: 'transform',
-    transition: 'transform 0ms linear',
+    transform: 'none',
+    transition: 'top 0ms linear',
   }
 }
 
@@ -1582,6 +1625,7 @@ watch(hasOpenDismissableMenu, (isOpen) => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('focus', onWindowFocusRefreshPinned)
   for (const element of projectGroupElementByName.values()) {
     projectGroupResizeObserver?.unobserve(element)
   }
@@ -1596,7 +1640,10 @@ onBeforeUnmount(() => {
 @reference "tailwindcss";
 
 .thread-tree-root {
-  @apply flex flex-col gap-2;
+  @apply flex flex-col gap-3;
+  text-rendering: auto;
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
 }
 
 .thread-section {
@@ -1608,7 +1655,7 @@ onBeforeUnmount(() => {
 }
 
 .thread-section-heading {
-  @apply px-3.5 flex items-center justify-between gap-3;
+  @apply px-2 flex items-center justify-between gap-3;
 }
 
 .thread-section-label {
@@ -1628,8 +1675,8 @@ onBeforeUnmount(() => {
 }
 
 .thread-tree-header {
-  @apply text-sm font-semibold text-[#433b31] select-none;
-  letter-spacing: -0.01em;
+  @apply text-[13px] font-semibold text-[#433b31] select-none;
+  letter-spacing: 0;
 }
 
 .thread-tree-header-subtitle {
@@ -1692,8 +1739,8 @@ onBeforeUnmount(() => {
 }
 
 .project-group {
-  @apply m-0 rounded-[22px] border border-[#e8decd] bg-[#fffdf8];
-  box-shadow: 0 10px 24px -28px rgba(31, 41, 55, 0.12);
+  @apply m-0 rounded-[22px] border border-[#d7c7ad] bg-[#fcf8ef];
+  box-shadow: 0 10px 24px -26px rgba(31, 41, 55, 0.12);
 }
 
 .project-group[data-dragging='true'] {
@@ -1702,15 +1749,15 @@ onBeforeUnmount(() => {
 
 .project-header-row {
   @apply cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b8a98d];
-  background: linear-gradient(180deg, rgba(255,255,255,0.72) 0%, rgba(249,245,236,0.9) 100%);
+  background: linear-gradient(180deg, rgba(247, 238, 221, 0.98) 0%, rgba(241, 230, 209, 1) 100%);
 }
 
 .project-header-row:hover {
-  background: linear-gradient(180deg, rgba(245,239,229,0.96) 0%, rgba(241,234,222,0.96) 100%);
+  background: linear-gradient(180deg, rgba(243, 232, 212, 0.98) 0%, rgba(237, 224, 199, 1) 100%);
 }
 
 .project-main-button {
-  @apply min-w-0 w-full text-left rounded px-0 py-0 flex items-center min-h-5 cursor-grab;
+  @apply min-w-0 w-full text-left rounded px-0 py-0 flex items-start min-h-6 cursor-grab;
 }
 
 .project-main-button[data-dragging-handle='true'] {
@@ -1730,16 +1777,24 @@ onBeforeUnmount(() => {
 }
 
 .project-title {
-  @apply text-sm font-semibold text-[#433b31] truncate select-none;
+  @apply text-[14px] font-semibold text-[#352c22] truncate select-none;
+  font-family: var(--font-sans-reading);
+  line-height: 1.25rem;
+  letter-spacing: 0;
 }
 
 .project-title-wrap {
-  @apply min-w-0 flex flex-col;
+  @apply min-w-0 flex flex-col gap-1;
 }
 
 .project-summary {
-  @apply text-[11px] text-[#8c8171] truncate;
-  line-height: 1.1rem;
+  @apply text-[11px] font-medium text-[#625545];
+  font-family: var(--font-sans-ui);
+  line-height: 1.05rem;
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-menu-wrap {
@@ -1747,7 +1802,7 @@ onBeforeUnmount(() => {
 }
 
 .project-hover-controls {
-  @apply flex items-center gap-1;
+  @apply flex items-start gap-1;
 }
 
 .project-menu-trigger {
@@ -1795,7 +1850,7 @@ onBeforeUnmount(() => {
 }
 
 .project-group > .thread-list {
-  @apply mt-1 px-1 pb-1;
+  @apply mt-1 px-1.25 pb-1.25;
 }
 
 .thread-row-item {
@@ -1803,31 +1858,37 @@ onBeforeUnmount(() => {
 }
 
 .thread-row {
-  @apply border border-[#efe7d9] bg-[#fffdf9];
+  @apply border border-[#e2d4bf] bg-[#fffdfa];
+  min-height: 3.55rem;
+  align-items: center;
   transition:
     background-color 160ms ease,
     border-color 160ms ease,
-    color 160ms ease;
+    color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .thread-row-priority {
-  @apply border-[#d9cfbe] bg-[#fffaf1];
+  @apply border-[#d1bea0] bg-[#fff5e3];
 }
 
 .thread-left-stack {
   @apply relative w-5 h-5 flex items-center justify-center;
+  margin-top: 0;
+  align-self: center;
 }
 
 .thread-pin-button {
-  @apply absolute inset-[-2px] z-[1] w-5 h-5 rounded-md text-[#6e6458] opacity-0 pointer-events-none transition-colors duration-100 flex items-center justify-center;
+  @apply absolute inset-[-1px] z-[1] w-5 h-5 rounded-md text-[#6e6458] opacity-0 pointer-events-none transition-colors duration-100 flex items-center justify-center;
 }
 
 .thread-main-button {
-  @apply min-w-0 w-full text-left rounded px-0 py-0 flex items-center min-h-5;
+  @apply min-w-0 w-full text-left rounded px-0 py-0 flex items-center min-h-0;
 }
 
 .thread-row-content {
-  @apply min-w-0 flex flex-col gap-0.5;
+  @apply min-w-0 flex flex-col justify-center gap-[0.12rem];
+  min-height: 2.7rem;
 }
 
 .thread-row-title-wrap {
@@ -1835,10 +1896,11 @@ onBeforeUnmount(() => {
 }
 
 .thread-row-title {
-  @apply block text-sm font-medium text-[#2d261f] truncate whitespace-nowrap;
-  line-height: 1.35rem;
-  padding-block: 1px;
-  letter-spacing: -0.01em;
+  @apply block text-[14px] font-semibold text-[#2c241c] truncate whitespace-nowrap;
+  font-family: var(--font-sans-reading);
+  line-height: 1.12rem;
+  letter-spacing: 0;
+  text-shadow: none;
 }
 
 .thread-row-worktree-icon {
@@ -1850,22 +1912,28 @@ onBeforeUnmount(() => {
 }
 
 .thread-row-meta {
-  @apply min-w-0 flex items-center gap-1;
+  @apply min-w-0 flex flex-wrap items-start gap-x-1.5 gap-y-1;
 }
 
 .thread-row-preview {
-  @apply min-w-0 truncate text-[11px] text-[#9a907f];
+  @apply block min-w-0 text-[12px] text-[#685b4b];
+  font-family: var(--font-sans-ui);
   line-height: 1rem;
-}
-
-.thread-status-pill {
-  @apply inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em];
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: none;
 }
 
 .thread-row-time {
-  @apply block text-[11px] font-medium text-[#9a907f];
+  @apply block self-center text-[10px] font-medium text-[#8d806f];
+  font-family: var(--font-sans-ui);
+  font-variant-numeric: tabular-nums;
   line-height: 1rem;
-  padding-inline: 0.2rem;
+  min-width: 2.4rem;
+  padding-top: 0;
+  text-align: right;
   background: transparent;
 }
 
@@ -1914,12 +1982,22 @@ onBeforeUnmount(() => {
 }
 
 .thread-row[data-active='true'] {
-  @apply border-[#99f6e4] bg-[#f0fdfa];
+  @apply border-[#4fb39f] bg-[#eefaf7];
+  box-shadow: 0 12px 24px -28px rgba(15, 118, 110, 0.18);
+}
+
+.thread-row[data-active='true'] .thread-row-title {
+  @apply text-[#0b4d43];
+}
+
+.thread-row[data-active='true'] .thread-row-preview {
+  @apply text-[#44675f];
 }
 
 .thread-row:hover,
 .thread-row:focus-within {
-  @apply border-[#e3d8c5] bg-[#f9f4eb];
+  @apply border-[#d7c5a9] bg-[#fbf5e8];
+  box-shadow: 0 10px 20px -28px rgba(31, 41, 55, 0.14);
 }
 
 .thread-row:hover .thread-pin-button,
@@ -1940,18 +2018,6 @@ onBeforeUnmount(() => {
 
 .thread-status-indicator[data-state='working'] {
   @apply border-2 border-[#0f766e] border-t-transparent bg-transparent animate-spin;
-}
-
-.thread-status-pill[data-state='working'] {
-  @apply bg-[#d7efea] text-[#0f766e];
-}
-
-.thread-status-pill[data-state='unread'] {
-  @apply bg-[#efe7d7] text-[#7b5d14];
-}
-
-.thread-status-pill[data-state='idle'] {
-  @apply bg-[#ebe4d8] text-[#6d6354];
 }
 
 .thread-row:hover .thread-status-indicator[data-state='unread'],
@@ -2034,6 +2100,24 @@ onBeforeUnmount(() => {
   .thread-row-time {
     background: transparent;
     padding-inline: 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  .thread-tree-root {
+    @apply gap-3;
+  }
+
+  .thread-section-heading {
+    @apply px-2;
+  }
+
+  .project-group > .thread-list {
+    @apply px-1.5 pb-1.5;
+  }
+
+  .thread-row {
+    min-height: 3.7rem;
   }
 }
 

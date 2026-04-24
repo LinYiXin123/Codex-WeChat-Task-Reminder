@@ -8,6 +8,7 @@ output/
 *.tsbuildinfo
 test-*.png
 tmp-*.png
+logs/
 
 pnpm-lock.yaml
 .codex/

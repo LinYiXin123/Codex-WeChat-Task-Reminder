@@ -30,7 +30,13 @@
     "android",
     "termux",
     "lan",
-    "cli"
+    "cli",
+    "mobile-browser",
+    "cloudflare-tunnel",
+    "self-hosted-codex",
+    "windows-friendly",
+    "remote-development",
+    "ai-coding-agent"
   ],
   "engines": {
     "node": ">=18"
@@ -57,7 +63,6 @@
   "dependencies": {
     "commander": "^13.1.0",
     "express": "^5.1.0",
-    "firebase": "^12.2.1",
     "qrcode-terminal": "^0.12.0",
     "ws": "^8.18.3"
   },

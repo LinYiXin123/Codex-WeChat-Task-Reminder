@@ -14,6 +14,7 @@ param(
   [switch]$SkipLogin,
   [switch]$EnableCloudflareTunnel,
   [switch]$SkipCloudflaredInstall,
+  [string]$CloudflaredCommand = "",
   [switch]$NoStart,
   [string]$SourceRepoRoot = ""
 )
@@ -171,6 +172,9 @@ if ($EnableCloudflareTunnel) {
   if (-not $SkipCloudflaredInstall) {
     $invokeArgs += "-InstallCloudflared"
   }
+}
+if (-not [string]::IsNullOrWhiteSpace($CloudflaredCommand)) {
+  $invokeArgs += @("-CloudflaredCommand", $CloudflaredCommand)
 }
 if (-not $NoStart) {
   $invokeArgs += "-StartNow"

@@ -64,7 +64,8 @@ defineEmits<{
 }
 
 .sidebar-thread-controls-button:active {
-  transform: scale(0.98);
+  @apply border-[#c7b79b] bg-[#f2eadb] text-[#2d261f];
+  box-shadow: inset 0 1px 2px rgba(77, 67, 50, 0.12);
 }
 
 .sidebar-thread-controls-icon {

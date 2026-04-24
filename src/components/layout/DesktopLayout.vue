@@ -110,30 +110,17 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 
 .desktop-layout {
   @apply grid text-slate-900 overflow-hidden;
-  width: calc(100vw * var(--app-ui-scale-inverse, 1));
-  height: calc(100vh * var(--app-ui-scale-inverse, 1));
-  height: calc(100dvh * var(--app-ui-scale-inverse, 1));
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
   grid-template-columns: var(--layout-columns);
-  transform-origin: top left;
   background:
-    radial-gradient(circle at top left, rgba(13, 148, 136, 0.035), transparent 18%),
-    linear-gradient(180deg, #faf7f0 0%, #f5f0e6 100%);
-}
-
-@supports (zoom: 1) {
-  .desktop-layout {
-    zoom: var(--app-ui-scale, 1);
-  }
-}
-
-@supports not (zoom: 1) {
-  .desktop-layout {
-    transform: scale(var(--app-ui-scale, 1));
-  }
+    radial-gradient(circle at top left, rgba(13, 148, 136, 0.03), transparent 18%),
+    linear-gradient(180deg, #fbf8f2 0%, #f6f1e7 100%);
 }
 
 .desktop-sidebar {
-  @apply min-h-0 overflow-hidden border-r border-[#e4dac9] bg-[#faf7f0];
+  @apply min-h-0 overflow-hidden border-r border-[#e6dccb] bg-[#faf7f0];
 }
 
 .desktop-resize-handle {
@@ -147,7 +134,7 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 
 .desktop-main {
   @apply relative min-h-0 overflow-y-hidden overflow-x-visible;
-  background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(250,247,240,0.96) 100%);
+  background: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(250,247,240,0.985) 100%);
 }
 
 .mobile-drawer-backdrop {

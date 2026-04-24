@@ -30,6 +30,10 @@ function getCodexHomePath(): string {
   return process.env.CODEX_HOME?.trim() || join(homedir(), '.codex')
 }
 
+function getCloudflaredUserBinDir(): string {
+  return join(homedir(), '.local', 'bin')
+}
+
 function getCloudflaredPromptMarkerPath(): string {
   return join(getCodexHomePath(), '.cloudflared-install-prompted')
 }
@@ -71,22 +75,6 @@ function runWithStatus(command: string, args: string[]): number {
   return result.status ?? -1
 }
 
-function resolveCloudflaredCommand(): string | null {
-  if (canRunCommand('cloudflared', ['--version'])) {
-    return 'cloudflared'
-  }
-  const localCandidates = [
-    join(homedir(), '.local', 'bin', 'cloudflared'),
-    join(homedir(), '.local', 'bin', 'cloudflared.exe'),
-  ]
-  for (const localCandidate of localCandidates) {
-    if (existsSync(localCandidate) && canRunCommand(localCandidate, ['--version'])) {
-      return localCandidate
-    }
-  }
-  return null
-}
-
 function mapCloudflaredLinuxArch(arch: NodeJS.Architecture): string | null {
   if (arch === 'x64') {
     return 'amd64'
@@ -94,6 +82,40 @@ function mapCloudflaredLinuxArch(arch: NodeJS.Architecture): string | null {
   if (arch === 'arm64') {
     return 'arm64'
   }
+  return null
+}
+
+function mapCloudflaredWindowsArch(arch: NodeJS.Architecture): string | null {
+  if (arch === 'x64') {
+    return 'amd64'
+  }
+  if (arch === 'ia32') {
+    return '386'
+  }
+  if (arch === 'arm64') {
+    return 'arm64'
+  }
+  return null
+}
+
+function resolveCloudflaredCommand(): string | null {
+  const explicit = process.env.CODEXUI_CLOUDFLARED_COMMAND?.trim()
+  const candidates = [
+    explicit,
+    'cloudflared',
+    join(getCloudflaredUserBinDir(), 'cloudflared'),
+    join(getCloudflaredUserBinDir(), 'cloudflared.exe'),
+  ]
+
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    if (existsSync(candidate) || candidate === 'cloudflared') {
+      if (canRunCommand(candidate, ['--version'])) {
+        return candidate
+      }
+    }
+  }
+
   return null
 }
 
@@ -126,6 +148,37 @@ function downloadFile(url: string, destination: string): Promise<void> {
   })
 }
 
+async function ensureCloudflaredInstalledWindows(): Promise<string | null> {
+  const current = resolveCloudflaredCommand()
+  if (current) {
+    return current
+  }
+  if (process.platform !== 'win32') {
+    return null
+  }
+
+  const mappedArch = mapCloudflaredWindowsArch(process.arch)
+  if (!mappedArch) {
+    throw new Error(`cloudflared auto-install is not supported for Windows architecture: ${process.arch}`)
+  }
+
+  const userBinDir = getCloudflaredUserBinDir()
+  mkdirSync(userBinDir, { recursive: true })
+  const destination = join(userBinDir, 'cloudflared.exe')
+  const downloadUrl = `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-${mappedArch}.exe`
+
+  console.log(`\ncloudflared not found. Installing to ${userBinDir}...\n`)
+  await downloadFile(downloadUrl, destination)
+  process.env.PATH = prependPathEntry(process.env.PATH ?? '', userBinDir)
+
+  const installed = resolveCloudflaredCommand()
+  if (!installed) {
+    throw new Error('cloudflared download completed but executable is still not available')
+  }
+  console.log('\ncloudflared installed.\n')
+  return installed
+}
+
 async function ensureCloudflaredInstalledLinux(): Promise<string | null> {
   const current = resolveCloudflaredCommand()
   if (current) {
@@ -140,7 +193,7 @@ async function ensureCloudflaredInstalledLinux(): Promise<string | null> {
     throw new Error(`cloudflared auto-install is not supported for Linux architecture: ${process.arch}`)
   }
 
-  const userBinDir = join(homedir(), '.local', 'bin')
+  const userBinDir = getCloudflaredUserBinDir()
   mkdirSync(userBinDir, { recursive: true })
   const destination = join(userBinDir, 'cloudflared')
   const downloadUrl = `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${mappedArch}`
@@ -165,10 +218,6 @@ async function shouldInstallCloudflaredInteractively(): Promise<boolean> {
   hasPromptedCloudflaredInstall = true
   await persistCloudflaredInstallPrompted()
 
-  if (process.platform === 'win32') {
-    return false
-  }
-
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.warn('\n[cloudflared] cloudflared is missing and terminal is non-interactive, skipping install.')
     return false
@@ -176,7 +225,8 @@ async function shouldInstallCloudflaredInteractively(): Promise<boolean> {
 
   const prompt = createInterface({ input: process.stdin, output: process.stdout })
   try {
-    const answer = await prompt.question('cloudflared is not installed. Install it now to ~/.local/bin? [y/N] ')
+    const installDir = getCloudflaredUserBinDir()
+    const answer = await prompt.question(`cloudflared is not installed. Install it now to ${installDir}? [y/N] `)
     const normalized = answer.trim().toLowerCase()
     return normalized === 'y' || normalized === 'yes'
   } finally {
@@ -190,13 +240,13 @@ async function resolveCloudflaredForTunnel(): Promise<string | null> {
     return current
   }
 
-  if (process.platform === 'win32') {
-    return null
-  }
-
   const installApproved = await shouldInstallCloudflaredInteractively()
   if (!installApproved) {
     return null
+  }
+
+  if (process.platform === 'win32') {
+    return ensureCloudflaredInstalledWindows()
   }
 
   return ensureCloudflaredInstalledLinux()
@@ -474,6 +524,7 @@ async function startServer(options: {
   projectPath?: string
   codexCommand?: string
   ripgrepCommand?: string
+  cloudflaredCommand?: string
 }) {
   const version = await readCliVersion()
   const projectPath = options.projectPath?.trim() ?? ''
@@ -490,6 +541,9 @@ async function startServer(options: {
   }
   if (options.ripgrepCommand) {
     process.env.CODEXUI_RG_COMMAND = options.ripgrepCommand
+  }
+  if (options.cloudflaredCommand) {
+    process.env.CODEXUI_CLOUDFLARED_COMMAND = options.cloudflaredCommand
   }
 
   const codexCommand = ensureCodexInstalled() ?? resolveCodexCommand()
@@ -516,13 +570,15 @@ async function startServer(options: {
   const port = await listenWithFallback(server, requestedPort, host)
   let tunnelChild: ReturnType<typeof spawn> | null = null
   let tunnelUrl: string | null = null
+  let resolvedCloudflaredCommand: string | null = null
 
   if (options.tunnel) {
     try {
       const cloudflaredCommand = await resolveCloudflaredForTunnel()
       if (!cloudflaredCommand) {
-        throw new Error('cloudflared is not installed')
+        throw new Error('cloudflared is not installed. Install it first, rerun in an interactive terminal to allow auto-install, or set cloudflaredCommand / CODEXUI_CLOUDFLARED_COMMAND.')
       }
+      resolvedCloudflaredCommand = cloudflaredCommand
       const tunnel = await startCloudflaredTunnel(cloudflaredCommand, port)
       tunnelChild = tunnel.process
       tunnelUrl = tunnel.url
@@ -564,6 +620,9 @@ async function startServer(options: {
   if (tunnelUrl) {
     lines.push(`  Tunnel:   ${tunnelUrl}`)
     lines.push('  Tunnel QR code below')
+  }
+  if (resolvedCloudflaredCommand) {
+    lines.push(`  cloudflared: ${resolvedCloudflaredCommand}`)
   }
 
   printTermuxKeepAlive(lines)
@@ -612,6 +671,7 @@ program
   .option('--no-password', 'disable password protection')
   .option('--tunnel', 'start cloudflared tunnel', true)
   .option('--no-tunnel', 'disable cloudflared tunnel startup')
+  .option('--cloudflared-command <path>', 'set explicit cloudflared executable path')
   .option('--open', 'open browser on startup', true)
   .option('--no-open', 'do not open browser on startup')
   .action(async (

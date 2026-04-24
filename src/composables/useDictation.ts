@@ -1,4 +1,4 @@
-import { onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 
 export type DictationState = 'idle' | 'recording' | 'transcribing'
 const DICTATION_SILENCE_THRESHOLD = 0.0025
@@ -12,14 +12,21 @@ export function useDictation(options: {
   onEmpty?: () => void
   onError?: (error: unknown) => void
 }) {
-  const state = ref<DictationState>('idle')
-  const isSupported = ref(
+  const liveRecordingSupported =
     typeof window !== 'undefined' &&
     window.isSecureContext &&
     typeof MediaRecorder !== 'undefined' &&
     typeof navigator !== 'undefined' &&
-    !!navigator.mediaDevices?.getUserMedia,
-  )
+    !!navigator.mediaDevices?.getUserMedia
+  const fileUploadSupported =
+    typeof window !== 'undefined' &&
+    typeof fetch !== 'undefined' &&
+    typeof FormData !== 'undefined' &&
+    typeof File !== 'undefined'
+  const state = ref<DictationState>('idle')
+  const isSupported = computed(() => liveRecordingSupported || fileUploadSupported)
+  const supportsLiveRecording = ref(liveRecordingSupported)
+  const supportsFileUpload = ref(fileUploadSupported)
   const recordingDurationMs = ref(0)
   const waveformCanvasRef = ref<HTMLCanvasElement | null>(null)
 
@@ -177,14 +184,11 @@ export function useDictation(options: {
     if (state.value === 'transcribing') {
       cancelTranscription()
     }
-    if (state.value !== 'idle' || !isSupported.value || isStartingRecording) return
+    if (state.value !== 'idle' || !supportsLiveRecording.value || isStartingRecording) return
     isStartingRecording = true
     stopRequestedBeforeStart = false
 
     try {
-      if (!window.isSecureContext) {
-        throw new Error('语音输入需要 HTTPS 或 localhost。当前页面不是安全连接，浏览器会禁止麦克风。')
-      }
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } })
       chunks = []
       const mimeType = pickSupportedMimeType()
@@ -245,13 +249,38 @@ export function useDictation(options: {
     }
 
     const blob = new Blob(recordedChunks, { type: mimeType })
+    await transcribeBlob(blob, {
+      mimeType,
+    })
+  }
+
+  function normalizeAudioExtension(mimeType: string, fileName = ''): string {
+    const fileExtMatch = fileName.trim().match(/\.([A-Za-z0-9]+)$/u)
+    if (fileExtMatch?.[1]) {
+      return fileExtMatch[1].toLowerCase()
+    }
+    const mimeMatch = mimeType.trim().match(/^audio\/([a-z0-9.+-]+)/iu)
+    if (mimeMatch?.[1]) {
+      return mimeMatch[1].toLowerCase().replace('x-', '').replace('mpeg', 'mp3')
+    }
+    return 'webm'
+  }
+
+  async function transcribeBlob(
+    blob: Blob,
+    optionsForBlob: {
+      mimeType?: string
+      fileName?: string
+    } = {},
+  ) {
     state.value = 'transcribing'
     let requestAbortController: AbortController | null = null
 
     try {
-      const ext = mimeType.split(/[/;]/)[1] ?? 'webm'
+      const mimeType = optionsForBlob.mimeType?.trim() || blob.type || 'audio/webm'
+      const ext = normalizeAudioExtension(mimeType, optionsForBlob.fileName)
       const formData = new FormData()
-      formData.append('file', blob, `codex.${ext}`)
+      formData.append('file', blob, optionsForBlob.fileName?.trim() || `codex.${ext}`)
       const selectedLanguage = options.getLanguage?.().trim() ?? ''
       if (selectedLanguage && selectedLanguage.toLowerCase() !== 'auto') {
         formData.append('language', selectedLanguage)
@@ -300,6 +329,20 @@ export function useDictation(options: {
     }
   }
 
+  async function transcribeFile(file: File) {
+    if (!supportsFileUpload.value) {
+      throw new Error('当前浏览器不支持语音文件上传。')
+    }
+    if (!(file instanceof File) || file.size <= 0) {
+      options.onEmpty?.()
+      return
+    }
+    await transcribeBlob(file, {
+      mimeType: file.type || 'audio/webm',
+      fileName: file.name || undefined,
+    })
+  }
+
   function cleanup() {
     stopWaveformCapture()
     resetWaveformDisplay()
@@ -332,11 +375,14 @@ export function useDictation(options: {
   return {
     state,
     isSupported,
+    supportsLiveRecording,
+    supportsFileUpload,
     recordingDurationMs,
     waveformCanvasRef,
     startRecording,
     stopRecording,
     toggleRecording,
+    transcribeFile,
     cancel,
   }
 }

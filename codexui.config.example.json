@@ -6,5 +6,6 @@
   "open": false,
   "projectPath": "C:\\Users\\your-user\\Documents\\Playground",
   "codexCommand": "C:\\path\\to\\codex.exe",
-  "ripgrepCommand": "C:\\path\\to\\rg.exe"
+  "ripgrepCommand": "C:\\path\\to\\rg.exe",
+  "cloudflaredCommand": "C:\\Users\\your-user\\.local\\bin\\cloudflared.exe"
 }

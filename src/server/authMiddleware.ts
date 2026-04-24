@@ -1,6 +1,11 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import type { RequestHandler, Request, Response, NextFunction } from 'express'
+import {
+  WEB_AUTH_REQUIRED_ERROR_CODE,
+  WEB_AUTH_REQUIRED_HEADER,
+  WEB_AUTH_REQUIRED_VALUE,
+} from '../shared/webAuth.js'
 
 const TOKEN_COOKIE = 'codex_web_local_token'
 
@@ -31,6 +36,14 @@ function isLocalhostRemote(remote: string): boolean {
 function isLocalhostHost(host: string): boolean {
   const normalized = host.toLowerCase()
   return normalized.startsWith('localhost:') || normalized === 'localhost' || normalized.startsWith('127.0.0.1:')
+}
+
+function isCodexApiPath(path: string): boolean {
+  return path === '/codex-api' || path.startsWith('/codex-api/')
+}
+
+function clearTokenCookie(res: Response): void {
+  res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`)
 }
 
 function isAuthorizedByRequestLike(
@@ -136,7 +149,18 @@ export function createAuthSession(password: string): AuthSession {
       return
     }
 
+    if (isCodexApiPath(req.path)) {
+      clearTokenCookie(res)
+      res.setHeader(WEB_AUTH_REQUIRED_HEADER, WEB_AUTH_REQUIRED_VALUE)
+      res.status(401).json({
+        error: '登录已失效，请重新登录。',
+        code: WEB_AUTH_REQUIRED_ERROR_CODE,
+      })
+      return
+    }
+
     // No valid session — serve login page
+    clearTokenCookie(res)
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.status(200).send(LOGIN_PAGE_HTML)
   }

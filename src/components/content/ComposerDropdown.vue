@@ -254,6 +254,8 @@ onBeforeUnmount(() => {
 
 .composer-dropdown-trigger {
   @apply inline-flex h-7 min-w-0 items-center gap-1 border-0 bg-transparent p-0 text-sm leading-none text-zinc-500 outline-none transition;
+  font-family: var(--font-sans-ui);
+  letter-spacing: -0.01em;
 }
 
 .composer-dropdown-prefix-icon {
@@ -305,6 +307,8 @@ onBeforeUnmount(() => {
 
 .composer-dropdown-dialog-title {
   @apply m-0 px-2 text-center text-sm font-semibold text-zinc-800;
+  font-family: var(--font-sans-reading);
+  letter-spacing: var(--tracking-tight-soft);
 }
 
 .composer-dropdown-search-wrap {

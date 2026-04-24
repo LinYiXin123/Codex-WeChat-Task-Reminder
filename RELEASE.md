@@ -63,3 +63,4 @@ Release 压缩包默认包含：
 - `README.zh-CN.md` 只保留兼容跳转
 - 更新日志统一写入 `docs/changelog.zh-CN.md`
 - `.github/release-body.md` 默认使用中文
+- 每次发版前优先参考 `docs/release-template.zh-CN.md`，先整理用户可感知变化，再发布

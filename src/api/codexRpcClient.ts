@@ -216,6 +216,7 @@ export function subscribeRpcNotifications(
   let reconnectAttempt = 0
   let activeAttempt = 0
   let hasEverConnected = false
+  let authProbeInFlight = false
   let connectionState: RpcConnectionState = 'connecting'
 
   const preferredTransport = (): Transport => (typeof WebSocket !== 'undefined' ? 'ws' : 'sse')
@@ -239,6 +240,18 @@ export function subscribeRpcNotifications(
     currentCleanup?.()
   }
 
+  const probeAuthorization = () => {
+    if (authProbeInFlight) return
+    authProbeInFlight = true
+    void fetchWithTimeout('/codex-api/meta/methods', {}, META_FETCH_TIMEOUT_MS, 'Authorization probe')
+      .catch(() => {
+        // The global fetch guard handles auth expiry redirects. Network failures can be ignored here.
+      })
+      .finally(() => {
+        authProbeInFlight = false
+      })
+  }
+
   const isStaleAttempt = (attemptId: number): boolean => closed || attemptId !== activeAttempt
 
   const handleNotificationPayload = (payload: string): void => {
@@ -255,6 +268,9 @@ export function subscribeRpcNotifications(
 
   const scheduleReconnect = (transport: Transport) => {
     if (closed || reconnectTimer !== null) return
+    if (hasEverConnected) {
+      probeAuthorization()
+    }
     setConnectionState('reconnecting')
     const delay = Math.min(
       RECONNECT_BASE_DELAY_MS * (2 ** Math.min(reconnectAttempt, 3)),

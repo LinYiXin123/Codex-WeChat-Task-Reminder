@@ -24,7 +24,7 @@ import {
   normalizeThreadMessagesV2,
   readThreadInProgressFromResponse,
 } from './normalizers/v2'
-import type { SpeedMode, UiMessage, UiProjectGroup } from '../types/codex'
+import type { SpeedMode, UiMessage, UiProjectGroup, UiThreadTokenUsage, UiTokenUsageBreakdown } from '../types/codex'
 import { normalizePathForUi } from '../pathUtils.js'
 
 type CurrentModelConfig = {
@@ -41,6 +41,7 @@ export type ThreadRuntimeSnapshot = {
   activeTurnId: string
   updatedAtIso: string
   pendingServerRequests: unknown[]
+  tokenUsage: UiThreadTokenUsage | null
 }
 
 export type WorkspaceRootsState = {
@@ -97,6 +98,37 @@ export type DesktopAppStatus = {
 export type DesktopAppRefreshResult = {
   requested: boolean
   message: string
+}
+
+export type TunnelStatus = {
+  enabled: boolean | null
+  active: boolean
+  publicUrl: string
+  configPath: string
+  configuredCommand: string
+  resolvedCommand: string
+  cloudflaredAvailable: boolean
+  logPath: string
+  lastDetectedAtIso: string
+  reason: string
+}
+
+export type TunnelConfigUpdate = {
+  enabled?: boolean | null
+  cloudflaredCommand?: string
+}
+
+export type FavoriteRecord = {
+  id: string
+  threadId: string
+  messageId: string
+  threadTitle: string
+  threadCwd: string
+  role: 'user' | 'assistant' | 'system'
+  text: string
+  preview: string
+  turnIndex: number | null
+  favoritedAtIso: string
 }
 
 export type GithubTrendingProject = {
@@ -318,6 +350,86 @@ function normalizeSpeedMode(value: unknown): SpeedMode {
     : 'standard'
 }
 
+function normalizeNonNegativeNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0
+}
+
+function normalizeTokenUsageBreakdown(value: unknown): UiTokenUsageBreakdown | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const readByAliases = (...keys: string[]) => {
+    for (const key of keys) {
+      const candidate = record[key]
+      if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+        return candidate
+      }
+    }
+    return undefined
+  }
+  return {
+    totalTokens: normalizeNonNegativeNumber(readByAliases('totalTokens', 'total_tokens')),
+    inputTokens: normalizeNonNegativeNumber(readByAliases('inputTokens', 'input_tokens')),
+    cachedInputTokens: normalizeNonNegativeNumber(readByAliases('cachedInputTokens', 'cached_input_tokens')),
+    outputTokens: normalizeNonNegativeNumber(readByAliases('outputTokens', 'output_tokens')),
+    reasoningOutputTokens: normalizeNonNegativeNumber(readByAliases('reasoningOutputTokens', 'reasoning_output_tokens')),
+  }
+}
+
+function normalizeThreadTokenUsage(value: unknown): UiThreadTokenUsage | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const total = normalizeTokenUsageBreakdown(record.total ?? record.total_token_usage)
+  const last = normalizeTokenUsageBreakdown(record.last ?? record.last_token_usage)
+  if (!total || !last) return null
+
+  const rawModelContextWindow =
+    typeof record.modelContextWindow === 'number' && Number.isFinite(record.modelContextWindow)
+      ? record.modelContextWindow
+      : typeof record.model_context_window === 'number' && Number.isFinite(record.model_context_window)
+        ? record.model_context_window
+        : null
+  const modelContextWindow =
+    typeof rawModelContextWindow === 'number' && rawModelContextWindow > 0
+      ? Math.max(0, rawModelContextWindow)
+      : null
+  const rawUsedPercent =
+    typeof record.usedPercent === 'number' && Number.isFinite(record.usedPercent)
+      ? record.usedPercent
+      : typeof record.used_percent === 'number' && Number.isFinite(record.used_percent)
+        ? record.used_percent
+        : null
+  const derivedUsedTokens =
+    typeof modelContextWindow === 'number' && modelContextWindow > 0
+      ? Math.min(Math.max(last.totalTokens, 0), modelContextWindow)
+      : null
+  const usedPercent =
+    typeof rawUsedPercent === 'number'
+      ? Math.min(Math.max(rawUsedPercent, 0), 100)
+      : typeof derivedUsedTokens === 'number' && typeof modelContextWindow === 'number' && modelContextWindow > 0
+        ? Math.min(Math.max((derivedUsedTokens / modelContextWindow) * 100, 0), 100)
+        : null
+  const rawRemainingTokens =
+    typeof record.remainingTokens === 'number' && Number.isFinite(record.remainingTokens)
+      ? record.remainingTokens
+      : typeof record.remaining_tokens === 'number' && Number.isFinite(record.remaining_tokens)
+        ? record.remaining_tokens
+        : null
+  const remainingTokens =
+    typeof rawRemainingTokens === 'number'
+      ? Math.max(0, rawRemainingTokens)
+      : typeof derivedUsedTokens === 'number' && typeof modelContextWindow === 'number'
+        ? Math.max(modelContextWindow - derivedUsedTokens, 0)
+        : null
+
+  return {
+    total,
+    last,
+    modelContextWindow,
+    usedPercent,
+    remainingTokens,
+  }
+}
+
 async function getThreadGroupsV2(options: RpcCallOptions = {}): Promise<UiProjectGroup[]> {
   const payload = await callRpc<ThreadListResponse>('thread/list', {
     archived: false,
@@ -377,6 +489,7 @@ export async function getThreadRuntimeSnapshot(
   const threadRead = data.threadRead as ThreadReadResponse | undefined
   const updatedAtIso = typeof data.updatedAtIso === 'string' ? data.updatedAtIso.trim() : ''
   const pendingServerRequests = Array.isArray(data.pendingServerRequests) ? data.pendingServerRequests : []
+  const tokenUsage = normalizeThreadTokenUsage(data.tokenUsage)
 
   return {
     messages: threadRead ? normalizeThreadMessagesV2(threadRead) : [],
@@ -389,6 +502,7 @@ export async function getThreadRuntimeSnapshot(
         : (threadRead ? readActiveTurnIdFromResponse(threadRead) : ''),
     updatedAtIso,
     pendingServerRequests,
+    tokenUsage,
   }
 }
 
@@ -937,6 +1051,67 @@ function normalizeWebBridgeSettingsPayload(value: unknown): WebBridgeSettings {
   }
 }
 
+function normalizeFavoriteRecordPayload(value: unknown): FavoriteRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  const threadId = typeof record.threadId === 'string' ? record.threadId.trim() : ''
+  const messageId = typeof record.messageId === 'string' ? record.messageId.trim() : ''
+  const text = typeof record.text === 'string' ? record.text : ''
+  if (!threadId || !messageId || !text.trim()) return null
+
+  return {
+    id: typeof record.id === 'string' && record.id.trim() ? record.id.trim() : `${threadId}:${messageId}`,
+    threadId,
+    messageId,
+    threadTitle: typeof record.threadTitle === 'string' ? record.threadTitle : '',
+    threadCwd: typeof record.threadCwd === 'string' ? record.threadCwd : '',
+    role: record.role === 'user' || record.role === 'assistant' || record.role === 'system'
+      ? record.role
+      : 'assistant',
+    text,
+    preview: typeof record.preview === 'string' ? record.preview : '',
+    turnIndex: typeof record.turnIndex === 'number' ? record.turnIndex : null,
+    favoritedAtIso: typeof record.favoritedAtIso === 'string' ? record.favoritedAtIso : '',
+  }
+}
+
+function normalizeFavoriteRecordsPayload(value: unknown): FavoriteRecord[] {
+  const record =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {}
+  const data = Array.isArray(record.data) ? record.data : value
+  if (!Array.isArray(data)) return []
+
+  const normalized: FavoriteRecord[] = []
+  const seenIds = new Set<string>()
+  for (const item of data) {
+    const favorite = normalizeFavoriteRecordPayload(item)
+    if (!favorite || seenIds.has(favorite.id)) continue
+    seenIds.add(favorite.id)
+    normalized.push(favorite)
+  }
+  return normalized
+}
+
+function normalizePinnedThreadIdsPayload(value: unknown): string[] {
+  const record =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {}
+  const data = Array.isArray(record.data) ? record.data : value
+  if (!Array.isArray(data)) return []
+
+  const normalized: string[] = []
+  for (const item of data) {
+    if (typeof item !== 'string') continue
+    const threadId = item.trim()
+    if (!threadId || normalized.includes(threadId)) continue
+    normalized.push(threadId)
+  }
+  return normalized
+}
+
 export async function getWebBridgeSettings(): Promise<WebBridgeSettings> {
   const response = await fetchWithTimeout('/codex-api/web-settings', {}, {
     timeoutMs: GATEWAY_BACKGROUND_FETCH_TIMEOUT_MS,
@@ -948,6 +1123,64 @@ export async function getWebBridgeSettings(): Promise<WebBridgeSettings> {
     throw new Error(message)
   }
   return normalizeWebBridgeSettingsPayload(payload)
+}
+
+export async function getFavoriteRecords(): Promise<FavoriteRecord[]> {
+  const response = await fetchWithTimeout('/codex-api/favorites', {}, {
+    timeoutMs: GATEWAY_BACKGROUND_FETCH_TIMEOUT_MS,
+    label: 'Favorite records request',
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    const message = getErrorMessageFromPayload(payload, 'Failed to load favorites')
+    throw new Error(message)
+  }
+  return normalizeFavoriteRecordsPayload(payload)
+}
+
+export async function updateFavoriteRecords(favorites: FavoriteRecord[]): Promise<FavoriteRecord[]> {
+  const response = await fetchWithTimeout('/codex-api/favorites', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ favorites }),
+  }, {
+    label: 'Favorite records update request',
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    const message = getErrorMessageFromPayload(payload, 'Failed to save favorites')
+    throw new Error(message)
+  }
+  return normalizeFavoriteRecordsPayload(payload)
+}
+
+export async function getPinnedThreadIds(): Promise<string[]> {
+  const response = await fetchWithTimeout('/codex-api/pinned-threads', {}, {
+    timeoutMs: GATEWAY_BACKGROUND_FETCH_TIMEOUT_MS,
+    label: 'Pinned thread ids request',
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    const message = getErrorMessageFromPayload(payload, 'Failed to load pinned threads')
+    throw new Error(message)
+  }
+  return normalizePinnedThreadIdsPayload(payload)
+}
+
+export async function updatePinnedThreadIds(pinnedThreadIds: string[]): Promise<string[]> {
+  const response = await fetchWithTimeout('/codex-api/pinned-threads', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pinnedThreadIds }),
+  }, {
+    label: 'Pinned thread ids update request',
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    const message = getErrorMessageFromPayload(payload, 'Failed to save pinned threads')
+    throw new Error(message)
+  }
+  return normalizePinnedThreadIdsPayload(payload)
 }
 
 export async function updateWebBridgeSettings(settings: WebBridgeSettings): Promise<WebBridgeSettings> {
@@ -1019,6 +1252,77 @@ export async function refreshDesktopApp(): Promise<DesktopAppRefreshResult> {
       typeof data.message === 'string' && data.message.trim().length > 0
         ? data.message
         : 'Official Codex desktop app refresh requested.',
+  }
+}
+
+export async function getTunnelStatus(): Promise<TunnelStatus> {
+  const response = await fetchWithTimeout('/codex-api/tunnel-status', {}, {
+    timeoutMs: GATEWAY_BACKGROUND_FETCH_TIMEOUT_MS,
+    label: 'Tunnel status request',
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    const message = getErrorMessageFromPayload(payload, 'Failed to load tunnel status')
+    throw new Error(message)
+  }
+
+  const record =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {}
+  const data =
+    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {}
+
+  return {
+    enabled: typeof data.enabled === 'boolean' ? data.enabled : null,
+    active: data.active === true,
+    publicUrl: typeof data.publicUrl === 'string' ? data.publicUrl : '',
+    configPath: typeof data.configPath === 'string' ? data.configPath : '',
+    configuredCommand: typeof data.configuredCommand === 'string' ? data.configuredCommand : '',
+    resolvedCommand: typeof data.resolvedCommand === 'string' ? data.resolvedCommand : '',
+    cloudflaredAvailable: data.cloudflaredAvailable === true,
+    logPath: typeof data.logPath === 'string' ? data.logPath : '',
+    lastDetectedAtIso: typeof data.lastDetectedAtIso === 'string' ? data.lastDetectedAtIso : '',
+    reason: typeof data.reason === 'string' ? data.reason : '',
+  }
+}
+
+export async function updateTunnelStatus(config: TunnelConfigUpdate): Promise<TunnelStatus> {
+  const response = await fetchWithTimeout('/codex-api/tunnel-status', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  }, {
+    label: 'Tunnel status update request',
+  })
+  const payload = await response.json()
+  if (!response.ok) {
+    const message = getErrorMessageFromPayload(payload, 'Failed to update tunnel settings')
+    throw new Error(message)
+  }
+
+  const record =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {}
+  const data =
+    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {}
+
+  return {
+    enabled: typeof data.enabled === 'boolean' ? data.enabled : null,
+    active: data.active === true,
+    publicUrl: typeof data.publicUrl === 'string' ? data.publicUrl : '',
+    configPath: typeof data.configPath === 'string' ? data.configPath : '',
+    configuredCommand: typeof data.configuredCommand === 'string' ? data.configuredCommand : '',
+    resolvedCommand: typeof data.resolvedCommand === 'string' ? data.resolvedCommand : '',
+    cloudflaredAvailable: data.cloudflaredAvailable === true,
+    logPath: typeof data.logPath === 'string' ? data.logPath : '',
+    lastDetectedAtIso: typeof data.lastDetectedAtIso === 'string' ? data.lastDetectedAtIso : '',
+    reason: typeof data.reason === 'string' ? data.reason : '',
   }
 }
 

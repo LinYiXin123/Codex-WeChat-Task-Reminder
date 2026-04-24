@@ -1,8 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --app-ui-scale: 0.9;
-  --app-ui-scale-inverse: 1.1111111111;
+  --font-sans-ui: "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei UI", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-sans-reading: "PingFang SC", "HarmonyOS Sans SC", "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono-ui: "JetBrains Mono", "SFMono-Regular", "Cascadia Code", "Fira Code", "Consolas", "Liberation Mono", monospace;
+  --font-size-body: 16px;
+  --font-size-reading: 15px;
+  --font-size-meta: 12px;
+  --font-size-title: 17px;
+  --line-height-reading: 1.74;
+  --tracking-tight-soft: -0.012em;
+  --tracking-body-soft: -0.006em;
 }
 
 html,
@@ -14,28 +22,35 @@ body,
   overflow: hidden;
 }
 
-@supports (zoom: 1) {
-  .mobile-drawer-backdrop,
-  .search-dropdown-mobile-overlay,
-  .sdm-overlay,
-  .rename-thread-overlay {
-    width: calc(100vw * var(--app-ui-scale-inverse, 1));
-    height: calc(100dvh * var(--app-ui-scale-inverse, 1));
-    zoom: var(--app-ui-scale, 1);
-    transform-origin: top left;
-  }
+html {
+  font-size: var(--font-size-body);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
-@supports not (zoom: 1) {
-  .mobile-drawer-backdrop,
-  .search-dropdown-mobile-overlay,
-  .sdm-overlay,
-  .rename-thread-overlay {
-    width: calc(100vw * var(--app-ui-scale-inverse, 1));
-    height: calc(100dvh * var(--app-ui-scale-inverse, 1));
-    transform: scale(var(--app-ui-scale, 1));
-    transform-origin: top left;
-  }
+body {
+  font-family: var(--font-sans-ui);
+  font-size: 1rem;
+  line-height: 1.55;
+  letter-spacing: var(--tracking-body-soft);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #fcfbf8;
+  color: #2d261f;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+code,
+pre {
+  font-family: var(--font-mono-ui);
 }
 
 :root.dark {
@@ -141,8 +156,20 @@ body,
   @apply border-emerald-800 bg-emerald-950/60 text-emerald-200 hover:border-emerald-700 hover:bg-emerald-900/70 hover:text-emerald-100;
 }
 
+:root.dark .sidebar-settings-github-button:disabled {
+  @apply border-emerald-900/60 bg-emerald-950/30 text-emerald-300/50 hover:border-emerald-900/60 hover:bg-emerald-950/30 hover:text-emerald-300/50;
+}
+
+:root.dark .sidebar-settings-github-button--secondary {
+  @apply border-zinc-700 bg-zinc-800 text-zinc-200 hover:border-zinc-600 hover:bg-zinc-700 hover:text-zinc-100;
+}
+
 :root.dark .sidebar-settings-value {
   @apply text-zinc-400 bg-zinc-700;
+}
+
+:root.dark .sidebar-settings-code {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-300;
 }
 
 :root.dark .sidebar-settings-toggle {

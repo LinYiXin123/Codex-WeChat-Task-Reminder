@@ -31,6 +31,24 @@ Cloudflare Tunnel 适合想从手机或外网访问家里电脑 / Windows Server
 - 开启 `tunnel: true`
 - 启动服务并在日志里输出 `https://*.trycloudflare.com`
 
+现在直接用 CLI 启动也支持这条链路：
+
+```powershell
+npx codexapp --host 0.0.0.0 --port 7420 --tunnel
+```
+
+如果本机还没有 `cloudflared`，交互终端会提示是否自动安装到：
+
+```text
+%USERPROFILE%\.local\bin
+```
+
+如果你已经有单独安装的 `cloudflared.exe`，也可以显式指定：
+
+```powershell
+npx codexapp --host 0.0.0.0 --port 7420 --tunnel --cloudflared-command "C:\Users\your-user\.local\bin\cloudflared.exe"
+```
+
 如果你只想配置本地服务，不想自动下载 `cloudflared`：
 
 ```powershell
@@ -52,6 +70,19 @@ https://example.trycloudflare.com
 ```
 
 > 快速隧道地址通常是临时地址，重启后可能变化。需要固定域名时，请使用下面的高级模式。
+
+## 显式指定 cloudflared 路径
+
+如果 `cloudflared` 不在 PATH 里，可以在配置文件里直接写：
+
+```json
+{
+  "host": "0.0.0.0",
+  "port": 7420,
+  "tunnel": true,
+  "cloudflaredCommand": "C:\\Users\\your-user\\.local\\bin\\cloudflared.exe"
+}
+```
 
 ## 推荐架构
 

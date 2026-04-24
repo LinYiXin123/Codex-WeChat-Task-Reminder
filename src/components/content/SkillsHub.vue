@@ -39,7 +39,6 @@
         <code>{{ deviceLogin.user_code }}</code>
       </div>
       <div class="skills-sync-actions">
-        <button v-if="!syncStatus.loggedIn" class="skills-hub-sort" type="button" @click="startGithubFirebaseLogin">GitHub 登录</button>
         <button v-if="!syncStatus.loggedIn" class="skills-hub-sort" type="button" @click="startGithubLogin">设备登录</button>
         <button v-if="syncStatus.loggedIn" class="skills-hub-sort" type="button" @click="logoutGithub" :disabled="isSyncActionInFlight">退出 GitHub</button>
         <button class="skills-hub-sort" type="button" @click="startupSkillsSync" :disabled="isSyncActionInFlight">{{ isStartupSyncInFlight ? '同步中...' : '启动同步' }}</button>
@@ -85,7 +84,7 @@
     </div>
 
     <div class="skills-hub-section">
-      <div v-if="isLoading" class="skills-hub-loading">正在加载技能...</div>
+      <LoadingInline v-if="isLoading" class="skills-hub-loading" label="正在加载技能..." tone="muted" />
       <div v-else-if="error" class="skills-hub-error">{{ error }}</div>
       <template v-else>
         <div v-if="browseSkills.length > 0" class="skills-hub-grid">
@@ -117,6 +116,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import IconTablerSearch from '../icons/IconTablerSearch.vue'
 import IconTablerChevronRight from '../icons/IconTablerChevronRight.vue'
+import LoadingInline from './LoadingInline.vue'
 import SkillCard from './SkillCard.vue'
 import SkillDetailModal, { type HubSkill } from './SkillDetailModal.vue'
 import { useGithubSkillsSync } from '../../composables/useGithubSkillsSync'
@@ -355,7 +355,6 @@ const {
   pullSkillsSync,
   pushSkillsSync,
   startupSkillsSync,
-  startGithubFirebaseLogin,
   startGithubLogin,
   syncActionError,
   syncActionStatus,
@@ -522,7 +521,7 @@ function onVisibilityChange(): void {
 }
 
 .skills-hub-loading {
-  @apply text-sm text-zinc-400 py-8 text-center;
+  @apply flex items-center justify-center py-8 text-sm text-zinc-500;
 }
 
 .skills-hub-error {

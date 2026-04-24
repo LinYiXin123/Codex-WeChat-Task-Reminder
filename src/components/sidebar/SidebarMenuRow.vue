@@ -57,7 +57,11 @@ const hasRight = computed(() => hasRightDefault.value || hasRightHover.value)
 @reference "tailwindcss";
 
 .sidebar-menu-row {
-  @apply w-full min-w-0 rounded-[20px] px-3.5 py-2.5 text-left flex items-center gap-2.5 border border-transparent;
+  @apply w-full min-w-0 rounded-[20px] px-3 py-2.5 text-left border border-transparent;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 0.625rem;
   transition:
     background-color 160ms ease,
     border-color 160ms ease,
@@ -67,19 +71,23 @@ const hasRight = computed(() => hasRightDefault.value || hasRightHover.value)
 
 .sidebar-menu-row-left {
   @apply min-w-4 h-4 shrink-0 flex items-center justify-center text-zinc-500;
+  margin-top: 0.125rem;
 }
 
 .sidebar-menu-row-main {
-  @apply min-w-0 flex-1;
+  @apply min-w-0;
 }
 
 .sidebar-menu-row-right {
-  @apply ml-2 shrink-0 flex items-center;
+  @apply shrink-0 flex items-start justify-end;
+  min-width: 2.4rem;
 }
 
 .sidebar-menu-row-right-default,
 .sidebar-menu-row-right-hover {
-  @apply transition duration-150;
+  @apply transition duration-150 items-start justify-end;
+  display: inline-flex;
+  width: 100%;
 }
 
 .sidebar-menu-row:hover,
@@ -89,29 +97,32 @@ const hasRight = computed(() => hasRightDefault.value || hasRightHover.value)
 
 @media (max-width: 767px) {
   .sidebar-menu-row {
-    @apply px-3 py-2.5 gap-2;
+    @apply px-3 py-2.5;
+    column-gap: 0.5rem;
   }
 }
 
 .sidebar-menu-row[data-has-right='true'] .sidebar-menu-row-right-hover {
-  @apply opacity-0 pointer-events-none w-0 overflow-hidden;
+  display: none;
 }
 
 .sidebar-menu-row[data-has-right='true'][data-has-right-hover='true']:hover .sidebar-menu-row-right-default,
 .sidebar-menu-row[data-has-right='true'][data-has-right-hover='true']:focus-within .sidebar-menu-row-right-default {
-  @apply opacity-0 pointer-events-none w-0 overflow-hidden;
+  display: none;
 }
 
 .sidebar-menu-row[data-has-right='true'][data-has-right-hover='true']:hover .sidebar-menu-row-right-hover,
 .sidebar-menu-row[data-has-right='true'][data-has-right-hover='true']:focus-within .sidebar-menu-row-right-hover {
-  @apply opacity-100 pointer-events-auto w-auto overflow-visible;
+  display: inline-flex;
+  pointer-events: auto;
 }
 
 .sidebar-menu-row[data-has-right='true'][data-force-right-hover='true'] .sidebar-menu-row-right-default {
-  @apply opacity-0 pointer-events-none w-0 overflow-hidden;
+  display: none;
 }
 
 .sidebar-menu-row[data-has-right='true'][data-force-right-hover='true'] .sidebar-menu-row-right-hover {
-  @apply opacity-100 pointer-events-auto w-auto overflow-visible;
+  display: inline-flex;
+  pointer-events: auto;
 }
 </style>

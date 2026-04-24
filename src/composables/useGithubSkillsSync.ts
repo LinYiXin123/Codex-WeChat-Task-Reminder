@@ -26,37 +26,6 @@ type UseGithubSkillsSyncOptions = {
   onPulled: () => Promise<void>
 }
 
-const firebaseConfig = {
-  apiKey: 'AIzaSyAf0CIHBZ-wEQJ8CCUUWo1Wl9P7typ_ZPI',
-  authDomain: 'gptcall-416910.firebaseapp.com',
-  projectId: 'gptcall-416910',
-  storageBucket: 'gptcall-416910.appspot.com',
-  messagingSenderId: '99275526699',
-  appId: '1:99275526699:web:3b623e1e2996108b52106e',
-}
-
-type FirebaseModules = {
-  app: typeof import('firebase/app')
-  auth: typeof import('firebase/auth')
-}
-
-let firebaseModulesPromise: Promise<FirebaseModules> | null = null
-
-async function loadFirebaseModules(): Promise<FirebaseModules> {
-  if (!firebaseModulesPromise) {
-    firebaseModulesPromise = Promise.all([
-      import('firebase/app'),
-      import('firebase/auth'),
-    ])
-      .then(([app, auth]) => ({ app, auth }))
-      .catch((error) => {
-        firebaseModulesPromise = null
-        throw error
-      })
-  }
-  return firebaseModulesPromise
-}
-
 export function useGithubSkillsSync(options: UseGithubSkillsSyncOptions) {
   const deviceLogin = ref<{ device_code: string; user_code: string; verification_uri: string } | null>(null)
   const syncActionStatus = ref('')
@@ -125,38 +94,6 @@ export function useGithubSkillsSync(options: UseGithubSkillsSyncOptions) {
       options.showToast('GitHub login successful')
     } catch (e) {
       options.showToast(e instanceof Error ? e.message : 'Failed GitHub login', 'error')
-    }
-  }
-
-  async function startGithubFirebaseLogin(): Promise<void> {
-    try {
-      const firebase = await loadFirebaseModules()
-      const app = firebase.app.getApps().length > 0
-        ? firebase.app.getApp()
-        : firebase.app.initializeApp(firebaseConfig)
-      const auth = firebase.auth.getAuth(app)
-      const provider = new firebase.auth.GithubAuthProvider()
-      provider.addScope('repo')
-      const result = await firebase.auth.signInWithPopup(auth, provider)
-      const credential = firebase.auth.GithubAuthProvider.credentialFromResult(result)
-      const token = credential?.accessToken ?? ''
-      if (!token) {
-        throw new Error('GitHub access token missing from Firebase login')
-      }
-      const resp = await fetch('/codex-api/skills-sync/github/token-login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      })
-      const data = (await resp.json()) as { ok?: boolean; error?: string }
-      if (!resp.ok || !data.ok) {
-        throw new Error(data.error || 'Failed to login with GitHub token')
-      }
-      await loadSyncStatus()
-      options.showToast('GitHub login successful')
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed Firebase GitHub login'
-      options.showToast(message, 'error')
     }
   }
 
@@ -246,7 +183,6 @@ export function useGithubSkillsSync(options: UseGithubSkillsSyncOptions) {
     pullSkillsSync,
     pushSkillsSync,
     startupSkillsSync,
-    startGithubFirebaseLogin,
     startGithubLogin,
     syncActionError,
     syncActionStatus,

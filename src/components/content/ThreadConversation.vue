@@ -1,8 +1,17 @@
 <template>
   <section class="conversation-root" :class="{ 'conversation-root--switching': isThreadSwitchingState }">
-    <div v-if="showLoadingIndicator" class="conversation-status-loading" aria-live="polite">
-      <span class="conversation-status-loading-dot" />
-      <span class="conversation-status-loading-text">{{ loadingIndicatorText }}</span>
+    <div
+      v-if="showLoadingIndicator"
+      class="conversation-status-loading"
+      :class="{ 'conversation-status-loading--switching': props.isThreadSwitching === true }"
+      aria-live="polite"
+    >
+      <LoadingInline
+        class="conversation-status-loading-inline"
+        :label="loadingIndicatorText"
+        :tone="props.isThreadSwitching === true ? 'warm' : 'muted'"
+        compact
+      />
     </div>
 
     <div
@@ -31,7 +40,11 @@
         <article
           v-if="liveOverlay"
           class="live-overlay-inline"
-          :class="{ 'live-overlay-inline-compact': !shouldRenderDetailedLiveOverlay }"
+          :class="{
+            'live-overlay-inline-compact': !shouldRenderDetailedLiveOverlay,
+            'live-overlay-inline-thinking': !liveOverlayCommandMessage,
+            'live-overlay-inline-command': Boolean(liveOverlayCommandMessage),
+          }"
           aria-live="polite"
         >
           <template v-if="shouldRenderDetailedLiveOverlay">
@@ -392,14 +405,35 @@
       />
       <li
         v-for="entry in virtualizedMessages"
-        :key="entry.message.id"
-        :ref="(el) => setMessageMeasureRef(entry.message.id, el)"
+        :key="entry.key"
+        :ref="(el) => setMessageMeasureRef(entry.measureId, el)"
         class="conversation-item"
-        :class="{ 'conversation-item-actionable': canShowMessageActions(entry.message) }"
-        :data-role="entry.message.role"
-        :data-message-type="entry.message.messageType || ''"
+        :class="{
+          'conversation-item-actionable': entry.kind === 'message' && (canShowMessageActions(entry.message) || canFavoriteMessage(entry.message)),
+          'conversation-item-highlighted': entry.kind === 'message' && highlightedMessageId === entry.message.id,
+        }"
+        :data-role="entry.kind === 'message' ? entry.message.role : 'assistant'"
+        :data-message-type="entry.kind === 'message' ? (entry.message.messageType || '') : 'guidedSummary'"
       >
-        <div v-if="isCommandMessage(entry.message)" class="message-row" data-role="system">
+        <div v-if="entry.kind === 'guidedSummary'" class="message-row" data-role="assistant" data-message-type="guidedSummary">
+          <div class="message-stack" data-role="assistant">
+            <button
+              type="button"
+              class="guided-turn-toggle"
+              :aria-expanded="isGuidedTurnExpanded(entry.turnIndex)"
+              @click="onToggleGuidedTurn(entry.turnIndex)"
+            >
+              <span class="guided-turn-toggle-title">
+                {{ isGuidedTurnExpanded(entry.turnIndex) ? '收起引导式内容' : '查看引导式内容' }}
+              </span>
+              <span class="guided-turn-toggle-meta">
+                {{ entry.hiddenCount }} 条阶段性回复<span v-if="guidedTurnDurationLabel(entry.turnIndex)"> · {{ guidedTurnDurationLabel(entry.turnIndex) }}</span>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div v-else-if="isCommandMessage(entry.message)" class="message-row" data-role="system">
           <div class="message-stack" data-role="system">
             <button
               type="button"
@@ -424,6 +458,7 @@
         </div>
 
         <div
+          v-else
           class="message-row"
           :data-role="entry.message.role"
           :data-message-type="entry.message.messageType || ''"
@@ -470,7 +505,23 @@
                 </span>
               </div>
 
-              <article v-if="entry.message.text.length > 0" class="message-card" :data-role="entry.message.role">
+              <article
+                v-if="entry.message.text.length > 0"
+                class="message-card"
+                :class="{ 'is-favorited': isFavoriteMessage(entry.message) }"
+                :data-role="entry.message.role"
+              >
+                <button
+                  v-if="canFavoriteMessage(entry.message)"
+                  class="message-favorite-button"
+                  :class="{ 'is-favorited': isFavoriteMessage(entry.message) }"
+                  type="button"
+                  :title="isFavoriteMessage(entry.message) ? '取消收藏这条消息' : '收藏这条消息'"
+                  @click="onToggleFavorite(entry.message)"
+                >
+                  <IconTablerBookmark class="message-favorite-icon" :filled="isFavoriteMessage(entry.message)" />
+                  <span class="sr-only">{{ isFavoriteMessage(entry.message) ? '取消收藏' : '收藏' }}</span>
+                </button>
                 <div class="message-text-flow">
                   <template
                     v-for="(block, blockIndex) in getPreparedMessageBlocks(entry.message)"
@@ -577,11 +628,43 @@
     </template>
 
     <div v-if="modalImageUrl.length > 0" class="image-modal-backdrop" @click="closeImageModal">
-      <div class="image-modal-content" @click.stop>
-        <button class="image-modal-close" type="button" aria-label="关闭图片预览" @click="closeImageModal">
-          <IconTablerX class="icon-svg" />
-        </button>
-        <img class="image-modal-image" :src="modalImageUrl" alt="放大的消息图片" />
+      <div class="image-modal-content" role="dialog" aria-modal="true" aria-label="图片预览" @click.stop>
+        <div class="image-modal-toolbar">
+          <div class="image-modal-toolbar-group">
+            <button class="image-modal-tool" type="button" aria-label="缩小图片" @click="zoomOutImageModal">
+              -
+            </button>
+            <button class="image-modal-tool image-modal-scale" type="button" aria-label="重置图片缩放" @click="resetImageModalView">
+              {{ modalImageScaleLabel }}
+            </button>
+            <button class="image-modal-tool" type="button" aria-label="放大图片" @click="zoomInImageModal">
+              +
+            </button>
+          </div>
+          <button class="image-modal-close" type="button" aria-label="关闭图片预览" @click="closeImageModal">
+            <IconTablerX class="icon-svg" />
+          </button>
+        </div>
+        <div
+          ref="imageModalStageRef"
+          class="image-modal-stage"
+          :class="{ 'image-modal-stage--zoomed': isImageModalZoomed, 'image-modal-stage--dragging': isImageModalDragging }"
+          @wheel.prevent="onImageModalWheel"
+          @dblclick="onImageModalDoubleClick"
+        >
+          <img
+            ref="imageModalImageRef"
+            class="image-modal-image"
+            :src="modalImageUrl"
+            alt="放大的消息图片"
+            :style="imageModalStyle"
+            @dragstart.prevent
+            @pointerdown="onImageModalPointerDown"
+            @pointermove="onImageModalPointerMove"
+            @pointerup="onImageModalPointerUp"
+            @pointercancel="onImageModalPointerUp"
+          />
+        </div>
       </div>
     </div>
 
@@ -617,7 +700,13 @@ import type { ThreadScrollState, UiLiveOverlay, UiMessage, UiServerRequest } fro
 import IconTablerX from '../icons/IconTablerX.vue'
 import IconTablerArrowBackUp from '../icons/IconTablerArrowBackUp.vue'
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
+import IconTablerBookmark from '../icons/IconTablerBookmark.vue'
 import IconTablerCopy from '../icons/IconTablerCopy.vue'
+import LoadingInline from './LoadingInline.vue'
+
+export type ThreadConversationExposed = {
+  focusMessage: (messageId: string) => Promise<boolean>
+}
 
 const expandedCommandIds = ref<Set<string>>(new Set())
 const collapsingCommandIds = ref<Set<string>>(new Set())
@@ -680,6 +769,34 @@ function formatCommandDuration(durationMs: number): string {
     return `${String(minutes)} 分`
   }
   return `${String(seconds)} 秒`
+}
+
+function formatHandledDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs < 0) return ''
+  if (durationMs < 1000) return '<1 秒'
+  return formatCommandDuration(durationMs)
+}
+
+function parseWorkedMessageDurationMs(text: string): number | null {
+  const match = text.trim().match(/^Worked for\s+(.+)$/i)
+  if (!match) return null
+  const rawDuration = match[1]?.trim() ?? ''
+  if (!rawDuration) return null
+  if (rawDuration === '<1s') return 0
+
+  let durationMs = 0
+  let matched = false
+  for (const part of rawDuration.matchAll(/(\d+)\s*([hms])/gi)) {
+    const value = Number.parseInt(part[1] ?? '', 10)
+    const unit = (part[2] ?? '').toLowerCase()
+    if (!Number.isFinite(value) || value < 0) continue
+    matched = true
+    if (unit === 'h') durationMs += value * 60 * 60 * 1000
+    else if (unit === 'm') durationMs += value * 60 * 1000
+    else if (unit === 's') durationMs += value * 1000
+  }
+
+  return matched ? durationMs : null
 }
 
 function resolveCommandDurationMs(message: UiMessage): number | null {
@@ -787,6 +904,7 @@ const props = defineProps<{
   isRollingBack?: boolean
   showEmptyThreadActions?: boolean
   isThreadSwitching?: boolean
+  favoriteMessageIds?: string[]
 }>()
 
 const MESSAGE_WINDOW_SIZE = 20
@@ -797,13 +915,204 @@ const isRevealingOlderMessages = ref(false)
 const canAutoRevealOlderMessages = ref(true)
 const visibleMessageStartIndex = ref(0)
 const isRequestPanelExpanded = ref(false)
+const expandedGuidedTurnIndexes = ref<Set<number>>(new Set())
 
 function latestVisibleStartIndex(messageCount: number): number {
   return Math.max(messageCount - MESSAGE_WINDOW_SIZE, 0)
 }
 
-const visibleRenderableMessages = computed<UiMessage[]>(() => (
-  renderableMessages.value.slice(visibleMessageStartIndex.value)
+function readTurnIndex(message: UiMessage): number | null {
+  return typeof message.turnIndex === 'number' ? message.turnIndex : null
+}
+
+function isGuidedAssistantMessage(message: UiMessage): boolean {
+  return (
+    message.role === 'assistant' &&
+    !isCommandMessage(message) &&
+    message.messageType !== 'worked' &&
+    message.text.trim().length > 0
+  )
+}
+
+type GuidedTurnDescriptor = {
+  turnIndex: number
+  hiddenMessages: UiMessage[]
+  finalMessageId: string
+}
+
+type ConversationMessageEntry = {
+  kind: 'message'
+  key: string
+  measureId: string
+  message: UiMessage
+  messageIndex: number
+}
+
+type GuidedSummaryEntry = {
+  kind: 'guidedSummary'
+  key: string
+  measureId: string
+  turnIndex: number
+  hiddenCount: number
+}
+
+type ConversationRenderEntry = ConversationMessageEntry | GuidedSummaryEntry
+
+const latestRenderableTurnIndex = computed<number | null>(() => {
+  for (let index = renderableMessages.value.length - 1; index >= 0; index -= 1) {
+    const turnIndex = readTurnIndex(renderableMessages.value[index])
+    if (typeof turnIndex === 'number') return turnIndex
+  }
+  return null
+})
+
+function isTurnCompleted(turnIndex: number): boolean {
+  return !props.isTurnInProgress || turnIndex !== latestRenderableTurnIndex.value
+}
+
+const collapsibleGuidedTurnDescriptors = computed<Map<number, GuidedTurnDescriptor>>(() => {
+  const groupedMessages = new Map<number, UiMessage[]>()
+
+  for (const message of renderableMessages.value) {
+    const turnIndex = readTurnIndex(message)
+    if (typeof turnIndex !== 'number') continue
+    const messages = groupedMessages.get(turnIndex) ?? []
+    messages.push(message)
+    groupedMessages.set(turnIndex, messages)
+  }
+
+  const descriptors = new Map<number, GuidedTurnDescriptor>()
+  for (const [turnIndex, messages] of groupedMessages.entries()) {
+    if (!isTurnCompleted(turnIndex)) continue
+    const guidedMessages = messages.filter(isGuidedAssistantMessage)
+    if (guidedMessages.length < 2) continue
+    const finalMessage = guidedMessages[guidedMessages.length - 1]
+    const hiddenMessages = guidedMessages.slice(0, -1)
+    if (!finalMessage || hiddenMessages.length === 0) continue
+    descriptors.set(turnIndex, {
+      turnIndex,
+      hiddenMessages,
+      finalMessageId: finalMessage.id,
+    })
+  }
+
+  return descriptors
+})
+
+const workedSummaryDurationByTurnIndex = computed<Record<number, number>>(() => {
+  const next: Record<number, number> = {}
+
+  for (let index = 0; index < props.messages.length; index += 1) {
+    const message = props.messages[index]
+    if (message.messageType !== 'worked') continue
+    const durationMs = parseWorkedMessageDurationMs(message.text)
+    if (durationMs === null) continue
+
+    for (let nextIndex = index + 1; nextIndex < props.messages.length; nextIndex += 1) {
+      const candidate = props.messages[nextIndex]
+      if (candidate.role !== 'assistant' || candidate.messageType === 'worked') continue
+      const turnIndex = readTurnIndex(candidate)
+      if (typeof turnIndex !== 'number') break
+      next[turnIndex] = durationMs
+      break
+    }
+  }
+
+  return next
+})
+
+const guidedTurnDurationLabelByTurnIndex = computed<Record<number, string>>(() => {
+  const commandDurationByTurnIndex: Record<number, number> = {}
+
+  for (const message of props.messages) {
+    if (!isCommandMessage(message)) continue
+    const turnIndex = readTurnIndex(message)
+    if (typeof turnIndex !== 'number') continue
+    const durationMs = resolveCommandDurationMs(message)
+    if (durationMs === null) continue
+    commandDurationByTurnIndex[turnIndex] = (commandDurationByTurnIndex[turnIndex] ?? 0) + durationMs
+  }
+
+  const next: Record<number, string> = {}
+  for (const descriptor of collapsibleGuidedTurnDescriptors.value.values()) {
+    const durationMs = workedSummaryDurationByTurnIndex.value[descriptor.turnIndex] ?? commandDurationByTurnIndex[descriptor.turnIndex]
+    if (typeof durationMs !== 'number' || durationMs < 0) continue
+    const durationLabel = formatHandledDuration(durationMs)
+    if (!durationLabel) continue
+    next[descriptor.turnIndex] = `已处理 ${durationLabel}`
+  }
+
+  return next
+})
+
+const hiddenGuidedMessageTurnIndexById = computed<Record<string, number>>(() => {
+  const next: Record<string, number> = {}
+  for (const descriptor of collapsibleGuidedTurnDescriptors.value.values()) {
+    for (const message of descriptor.hiddenMessages) {
+      next[message.id] = descriptor.turnIndex
+    }
+  }
+  return next
+})
+
+function isGuidedTurnExpanded(turnIndex: number): boolean {
+  return expandedGuidedTurnIndexes.value.has(turnIndex)
+}
+
+function guidedTurnDurationLabel(turnIndex: number): string {
+  return guidedTurnDurationLabelByTurnIndex.value[turnIndex] ?? ''
+}
+
+function buildGuidedSummaryEntry(turnIndex: number, hiddenCount: number): GuidedSummaryEntry {
+  return {
+    kind: 'guidedSummary',
+    key: `guided-summary:${String(turnIndex)}`,
+    measureId: `guided-summary:${String(turnIndex)}`,
+    turnIndex,
+    hiddenCount,
+  }
+}
+
+const renderableConversationEntries = computed<ConversationRenderEntry[]>(() => {
+  const entries: ConversationRenderEntry[] = []
+  let visibleMessageIndex = 0
+
+  for (const message of renderableMessages.value) {
+    const turnIndex = readTurnIndex(message)
+    const descriptor =
+      typeof turnIndex === 'number' ? (collapsibleGuidedTurnDescriptors.value.get(turnIndex) ?? null) : null
+    const hiddenTurnIndex = hiddenGuidedMessageTurnIndexById.value[message.id]
+
+    if (
+      typeof hiddenTurnIndex === 'number' &&
+      descriptor &&
+      !isGuidedTurnExpanded(hiddenTurnIndex)
+    ) {
+      continue
+    }
+
+    if (descriptor && descriptor.finalMessageId === message.id) {
+      entries.push(buildGuidedSummaryEntry(descriptor.turnIndex, descriptor.hiddenMessages.length))
+    }
+
+    entries.push({
+      kind: 'message',
+      key: message.id,
+      measureId: message.id,
+      message,
+      messageIndex: visibleMessageIndex,
+    })
+    visibleMessageIndex += 1
+  }
+
+  return entries
+})
+
+const visibleRenderableEntries = computed<ConversationRenderEntry[]>(() => (
+  renderableConversationEntries.value.slice(visibleMessageStartIndex.value)
+))
+const visibleMessageEntries = computed<ConversationMessageEntry[]>(() => (
+  visibleRenderableEntries.value.filter((entry): entry is ConversationMessageEntry => entry.kind === 'message')
 ))
 const hiddenEarlierMessageCount = computed(() => visibleMessageStartIndex.value)
 const hasHiddenEarlierMessages = computed(() => hiddenEarlierMessageCount.value > 0)
@@ -829,6 +1138,7 @@ const emit = defineEmits<{
   updateScrollState: [payload: { threadId: string; state: ThreadScrollState }]
   respondServerRequest: [payload: { id: number; result?: unknown; error?: { code?: number; message: string } }]
   rollback: [payload: { turnIndex: number; prependText?: string }]
+  toggleFavorite: [message: UiMessage]
   returnToNewThread: []
   dismissEmptyThread: []
 }>()
@@ -838,6 +1148,12 @@ const bottomAnchorRef = ref<HTMLElement | null>(null)
 const processPanelRef = ref<HTMLElement | null>(null)
 const liveOverlayReasoningRef = ref<HTMLElement | null>(null)
 const modalImageUrl = ref('')
+const imageModalStageRef = ref<HTMLElement | null>(null)
+const imageModalImageRef = ref<HTMLImageElement | null>(null)
+const modalImageScale = ref(1)
+const modalImageOffsetX = ref(0)
+const modalImageOffsetY = ref(0)
+const isImageModalDragging = ref(false)
 const fileLinkContextMenuRef = ref<HTMLElement | null>(null)
 const toolQuestionAnswers = ref<Record<string, string>>({})
 const toolQuestionOtherAnswers = ref<Record<string, string>>({})
@@ -845,6 +1161,16 @@ const mcpElicitationAnswers = ref<Record<string, string | boolean>>({})
 const hasPendingBelowFoldUpdates = ref(false)
 const autoFollowBottom = ref(props.scrollState?.isAtBottom !== false)
 const BOTTOM_THRESHOLD_PX = 16
+const IMAGE_MODAL_MIN_SCALE = 1
+const IMAGE_MODAL_MAX_SCALE = 4
+const IMAGE_MODAL_SCALE_STEP = 0.25
+let modalImagePointerId: number | null = null
+let modalImageDragStartX = 0
+let modalImageDragStartY = 0
+let modalImageDragOriginX = 0
+let modalImageDragOriginY = 0
+let highlightedMessageTimer: number | null = null
+let previousBodyOverflow = ''
 type InlineSegment =
   | { kind: 'text'; value: string }
   | { kind: 'bold'; value: string }
@@ -857,10 +1183,6 @@ type MessageBlock =
 type PreparedMessageBlock =
   | { kind: 'text'; value: string; segments: InlineSegment[] }
   | { kind: 'image'; url: string; alt: string; markdown: string }
-type VirtualizedMessageEntry = {
-  message: UiMessage
-  messageIndex: number
-}
 type MeasureRefTarget = Element | ComponentPublicInstance | null
 type ScrollAnchorSnapshot = {
   measureId: string
@@ -893,6 +1215,7 @@ const fileLinkContextMenuX = ref(0)
 const fileLinkContextMenuY = ref(0)
 const fileLinkContextBrowseUrl = ref('')
 const fileLinkContextEditUrl = ref('')
+const highlightedMessageId = ref('')
 const EMPTY_MESSAGES: UiMessage[] = []
 const conversationViewportHeight = ref(0)
 const conversationScrollTop = ref(0)
@@ -951,21 +1274,22 @@ const conversationListResizeObserver =
     })
     : null
 const hasRenderableConversation = computed(() => (
-  visibleRenderableMessages.value.length > 0 ||
+  visibleRenderableEntries.value.length > 0 ||
   props.pendingRequests.length > 0 ||
   props.liveOverlay !== null
 ))
 const isThreadSwitchingState = computed(() => props.isThreadSwitching === true && hasRenderableConversation.value)
 const showLoadingIndicator = computed(() => props.isLoading)
 const loadingIndicatorText = computed(() => {
-  if (props.isThreadSwitching === true) return '切换会话中...'
-  return hasRenderableConversation.value ? '同步中...' : '载入中...'
+  if (props.isThreadSwitching === true) return '正在切换到这个会话...'
+  return hasRenderableConversation.value ? '正在同步最新内容...' : '正在载入会话...'
 })
 const showJumpToLatestButton = computed(() => (
   hasRenderableConversation.value &&
   !shouldLockToBottom()
 ))
 const overlayPrimaryPendingRequest = computed<UiServerRequest | null>(() => props.pendingRequests[0] ?? null)
+const favoriteMessageIdSet = computed(() => new Set(props.favoriteMessageIds ?? []))
 const shouldRenderDetailedLiveOverlay = computed<boolean>(() => {
   const overlay = props.liveOverlay
   if (!overlay) return false
@@ -990,15 +1314,30 @@ const liveOverlayBehaviorSignature = computed<string>(() => {
 const jumpToLatestTitle = computed(() => (
   hasPendingBelowFoldUpdates.value ? '跳到最新输出' : '回到底部'
 ))
-const shouldVirtualizeMessages = computed(() => visibleRenderableMessages.value.length >= VIRTUALIZE_MIN_MESSAGES)
-const messageHeightMetrics = computed(() => {
+const isImageModalZoomed = computed(() => modalImageScale.value > IMAGE_MODAL_MIN_SCALE + 0.001)
+const modalImageScaleLabel = computed(() => `${Math.round(modalImageScale.value * 100)}%`)
+const imageModalStyle = computed(() => ({
+  transform: `translate3d(${String(modalImageOffsetX.value)}px, ${String(modalImageOffsetY.value)}px, 0) scale(${String(modalImageScale.value)})`,
+  cursor: isImageModalZoomed.value ? (isImageModalDragging.value ? 'grabbing' : 'grab') : 'zoom-in',
+  transition: isImageModalDragging.value ? 'none' : 'transform 180ms cubic-bezier(0.16, 1, 0.3, 1)',
+}))
+const shouldVirtualizeMessages = computed(() => visibleRenderableEntries.value.length >= VIRTUALIZE_MIN_MESSAGES)
+
+function estimateConversationEntryHeight(entry: ConversationRenderEntry): number {
+  if (entry.kind === 'guidedSummary') {
+    return 52
+  }
+  return estimateMessageHeight(entry.message)
+}
+
+const entryHeightMetrics = computed(() => {
   const cumulativeHeights: number[] = [0]
-  for (const message of visibleRenderableMessages.value) {
-    const height = measuredMessageHeightById.value[message.id] ?? estimateMessageHeight(message)
+  for (const entry of visibleRenderableEntries.value) {
+    const height = measuredMessageHeightById.value[entry.measureId] ?? estimateConversationEntryHeight(entry)
     cumulativeHeights.push(cumulativeHeights[cumulativeHeights.length - 1] + height + conversationItemGap.value)
   }
 
-  const totalHeight = visibleRenderableMessages.value.length > 0
+  const totalHeight = visibleRenderableEntries.value.length > 0
     ? Math.max((cumulativeHeights[cumulativeHeights.length - 1] ?? 0) - conversationItemGap.value, 0)
     : 0
 
@@ -1009,14 +1348,14 @@ const messageHeightMetrics = computed(() => {
 })
 
 const virtualizedMessageRange = computed(() => {
-  if (!shouldVirtualizeMessages.value || visibleRenderableMessages.value.length === 0) {
+  if (!shouldVirtualizeMessages.value || visibleRenderableEntries.value.length === 0) {
     return {
       startIndex: 0,
-      endIndex: visibleRenderableMessages.value.length,
+      endIndex: visibleRenderableEntries.value.length,
     }
   }
 
-  const { cumulativeHeights } = messageHeightMetrics.value
+  const { cumulativeHeights } = entryHeightMetrics.value
 
   const relativeScrollTop = Math.max(conversationScrollTop.value, 0)
   const viewportHeight = Math.max(conversationViewportHeight.value, 1)
@@ -1025,7 +1364,7 @@ const virtualizedMessageRange = computed(() => {
 
   let startIndex = 0
   while (
-    startIndex < visibleRenderableMessages.value.length &&
+    startIndex < visibleRenderableEntries.value.length &&
     cumulativeHeights[startIndex + 1] < visibleStart
   ) {
     startIndex += 1
@@ -1033,13 +1372,13 @@ const virtualizedMessageRange = computed(() => {
 
   let endIndex = startIndex
   while (
-    endIndex < visibleRenderableMessages.value.length &&
+    endIndex < visibleRenderableEntries.value.length &&
     cumulativeHeights[endIndex] < visibleEnd
   ) {
     endIndex += 1
   }
 
-  endIndex = Math.min(visibleRenderableMessages.value.length, Math.max(endIndex + 1, startIndex + 1))
+  endIndex = Math.min(visibleRenderableEntries.value.length, Math.max(endIndex + 1, startIndex + 1))
 
   return {
     startIndex,
@@ -1047,17 +1386,12 @@ const virtualizedMessageRange = computed(() => {
   }
 })
 const virtualizedMessageMetrics = computed(() => ({
-  ...messageHeightMetrics.value,
+  ...entryHeightMetrics.value,
   ...virtualizedMessageRange.value,
 }))
-const virtualizedMessages = computed<VirtualizedMessageEntry[]>(() => {
+const virtualizedMessages = computed<ConversationRenderEntry[]>(() => {
   const { startIndex, endIndex } = virtualizedMessageMetrics.value
-  return visibleRenderableMessages.value
-    .slice(startIndex, endIndex)
-    .map((message, index) => ({
-      message,
-      messageIndex: visibleMessageStartIndex.value + startIndex + index,
-    }))
+  return visibleRenderableEntries.value.slice(startIndex, endIndex)
 })
 const virtualTopSpacerHeight = computed(() => {
   if (!shouldVirtualizeMessages.value) return 0
@@ -1087,7 +1421,7 @@ function captureVisibleConversationAnchor(): ScrollAnchorSnapshot | null {
   }> = []
 
   for (const entry of virtualizedMessages.value) {
-    const measureId = entry.message.id
+    const measureId = entry.measureId
     const element = observedMessageElementsById.get(measureId)
     if (!element) continue
     measuredElements.push({
@@ -1192,8 +1526,8 @@ function disconnectAllObservedElements(observedElementsById: Map<string, HTMLEle
   observedElementsById.clear()
 }
 
-function pruneMeasuredMessageHeights(messages: UiMessage[]): void {
-  const keepIds = new Set(messages.map((message) => message.id))
+function pruneMeasuredMessageHeights(entries: ConversationRenderEntry[]): void {
+  const keepIds = new Set(entries.map((entry) => entry.measureId))
   measuredMessageHeightById.value = pruneMeasuredHeightCache(keepIds, measuredMessageHeightById.value)
   pruneObservedElements(keepIds, observedMessageElementsById)
 }
@@ -2555,6 +2889,15 @@ function canRollbackMessage(message: UiMessage): boolean {
   return true
 }
 
+function canFavoriteMessage(message: UiMessage): boolean {
+  if (message.role !== 'user' && message.role !== 'assistant') return false
+  return message.text.trim().length > 0
+}
+
+function isFavoriteMessage(message: UiMessage): boolean {
+  return favoriteMessageIdSet.value.has(message.id)
+}
+
 function canCopyMessage(message: UiMessage): boolean {
   if (message.role !== 'user' && message.role !== 'assistant') return false
   return message.text.trim().length > 0
@@ -2564,13 +2907,35 @@ function canShowMessageActions(message: UiMessage): boolean {
   return canCopyMessage(message) || canRollbackMessage(message)
 }
 
+function onToggleFavorite(message: UiMessage): void {
+  if (!canFavoriteMessage(message)) return
+  emit('toggleFavorite', message)
+}
+
 function findPreviousVisibleMessage(index: number): UiMessage | null {
   for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
-    const candidate = renderableMessages.value[cursor]
-    if (!candidate || isCommandMessage(candidate)) continue
-    return candidate
+    const candidate = visibleMessageEntries.value[cursor]
+    if (!candidate) continue
+    return candidate.message
   }
   return null
+}
+
+async function onToggleGuidedTurn(turnIndex: number): Promise<void> {
+  const anchorSnapshot = !shouldLockToBottom() ? captureVisibleConversationAnchor() : null
+  const next = new Set(expandedGuidedTurnIndexes.value)
+  if (next.has(turnIndex)) next.delete(turnIndex)
+  else next.add(turnIndex)
+  expandedGuidedTurnIndexes.value = next
+
+  await nextTick()
+  if (shouldLockToBottom()) {
+    scheduleBottomLock(2)
+    return
+  }
+  if (anchorSnapshot) {
+    await scheduleScrollAnchorRestore(anchorSnapshot)
+  }
 }
 
 function messageRoleLabel(message: UiMessage, index: number): string {
@@ -2624,7 +2989,15 @@ function pendingRequestActionLabel(request: UiServerRequest): string {
 }
 
 function liveOverlayPrimaryLabel(overlay: UiLiveOverlay): string {
-  return overlay.activityLabel.trim() || '思考中'
+  const label = overlay.activityLabel.trim()
+  if (!label) return '思考中'
+  if (/等待授权|waiting for approval|approval required/iu.test(label)) return '等待确认'
+  if (/等待确认|requires confirmation|needs confirmation/iu.test(label)) return '等待确认'
+  if (/等待输入|request user input|needs input/iu.test(label)) return '等待补充'
+  if (/等待处理|pending request/iu.test(label)) return '等待处理'
+  if (/执行命令|running command|executing command/iu.test(label)) return '执行命令'
+  if (/writing response|thinking|reasoning|整理回复|思考/iu.test(label)) return '思考中'
+  return label
 }
 
 function liveOverlayDetails(overlay: UiLiveOverlay): string[] {
@@ -2639,32 +3012,32 @@ function liveOverlayDetails(overlay: UiLiveOverlay): string[] {
 }
 
 function liveOverlayHint(overlay: UiLiveOverlay): string {
-  if (overlay.activityLabel.includes('等待授权')) {
+  if (/等待授权|waiting for approval|approval required/iu.test(overlay.activityLabel)) {
     return '下方有权限确认，允许或拒绝后会继续执行。'
   }
-  if (overlay.activityLabel.includes('等待确认')) {
+  if (/等待确认|requires confirmation|needs confirmation/iu.test(overlay.activityLabel)) {
     return '下方有待确认请求，允许或拒绝后会继续执行。'
   }
-  if (overlay.activityLabel.includes('等待输入')) {
+  if (/等待输入|request user input|needs input/iu.test(overlay.activityLabel)) {
     return '下方有待补充内容，提交后会继续执行。'
   }
-  if (overlay.activityLabel.includes('等待处理')) {
+  if (/等待处理|pending request/iu.test(overlay.activityLabel)) {
     return '下方有待处理请求，完成后会继续执行。'
   }
-  if (overlay.activityLabel.includes('执行命令')) {
+  if (/执行命令|running command|executing command/iu.test(overlay.activityLabel)) {
     return '命令仍在运行，输出会持续追加。'
   }
-  return '处理中，底部会显示最新进展。'
+  return '正在处理，新的结果会继续补到下方。'
 }
 
 function liveOverlayCompactHint(overlay: UiLiveOverlay): string {
-  if (overlay.activityLabel.includes('执行命令')) {
+  if (/执行命令|running command|executing command/iu.test(overlay.activityLabel)) {
     return '命令仍在执行，可先查看上方历史，新输出会继续追加。'
   }
-  if (overlay.activityLabel.includes('思考')) {
-    return '正在整理回复，完成后会自动停在最新内容。'
+  if (/writing response|thinking|reasoning|整理回复|思考/iu.test(overlay.activityLabel)) {
+    return '正在整理回复，你可以先查看上方历史。'
   }
-  return '正在处理，界面会自动继续更新。'
+  return '正在继续处理，界面会自动更新。'
 }
 
 function scrollToPendingRequests(): void {
@@ -2704,6 +3077,75 @@ function onRollback(message: UiMessage): void {
     turnIndex: message.turnIndex!,
     prependText: prependText.length > 0 ? prependText : undefined,
   })
+}
+
+function clearHighlightedMessage(): void {
+  highlightedMessageId.value = ''
+  if (highlightedMessageTimer !== null && typeof window !== 'undefined') {
+    window.clearTimeout(highlightedMessageTimer)
+    highlightedMessageTimer = null
+  }
+}
+
+function highlightMessage(messageId: string): void {
+  highlightedMessageId.value = messageId
+  if (typeof window === 'undefined') return
+  if (highlightedMessageTimer !== null) {
+    window.clearTimeout(highlightedMessageTimer)
+  }
+  highlightedMessageTimer = window.setTimeout(() => {
+    highlightedMessageTimer = null
+    if (highlightedMessageId.value === messageId) {
+      highlightedMessageId.value = ''
+    }
+  }, 2600)
+}
+
+async function focusMessage(messageId: string): Promise<boolean> {
+  const normalizedMessageId = messageId.trim()
+  if (!normalizedMessageId) return false
+  const hiddenTurnIndex = hiddenGuidedMessageTurnIndexById.value[normalizedMessageId]
+  if (typeof hiddenTurnIndex === 'number' && !isGuidedTurnExpanded(hiddenTurnIndex)) {
+    expandedGuidedTurnIndexes.value = new Set([...expandedGuidedTurnIndexes.value, hiddenTurnIndex])
+    await nextTick()
+  }
+
+  const targetIndex = renderableConversationEntries.value.findIndex((entry) => (
+    entry.kind === 'message' && entry.message.id === normalizedMessageId
+  ))
+  if (targetIndex < 0) return false
+
+  if (visibleMessageStartIndex.value > targetIndex) {
+    visibleMessageStartIndex.value = Math.max(targetIndex - 2, 0)
+  }
+
+  const container = conversationListRef.value
+  await nextTick()
+  if (!container) {
+    highlightMessage(normalizedMessageId)
+    return true
+  }
+
+  syncConversationViewport(container)
+  const targetVisibleIndex = Math.max(targetIndex - visibleMessageStartIndex.value, 0)
+  const topOffset = entryHeightMetrics.value.cumulativeHeights[targetVisibleIndex] ?? 0
+  const maxScrollTop = Math.max(container.scrollHeight - container.clientHeight, 0)
+  autoFollowBottom.value = false
+  clearBelowFoldUpdates()
+  container.scrollTop = Math.min(Math.max(topOffset - 24, 0), maxScrollTop)
+  syncConversationViewport(container)
+  scheduleEmitScrollState(container, true)
+
+  await nextTick()
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+  const targetElement = observedMessageElementsById.get(normalizedMessageId)
+  if (targetElement) {
+    targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  highlightMessage(normalizedMessageId)
+  return true
 }
 
 function scrollToBottom(): void {
@@ -2824,7 +3266,7 @@ function clearBelowFoldUpdates(): void {
 }
 
 watch(
-  () => renderableMessages.value.length,
+  () => renderableConversationEntries.value.length,
   (nextLength, previousLength) => {
     const nextLatestStartIndex = latestVisibleStartIndex(nextLength)
     if (previousLength == null) {
@@ -2970,7 +3412,7 @@ watch(
     }
 
     prunePreparedMessageBlockCache(next)
-    pruneMeasuredMessageHeights(next)
+    pruneMeasuredMessageHeights(renderableConversationEntries.value)
 
     if (previousMessages.length > 0 && !shouldFollowBottom) {
       markBelowFoldUpdate()
@@ -2994,7 +3436,6 @@ watch(
     enforceBottomState()
     scheduleBottomLock(8)
   },
-  { deep: true },
 )
 
 watch(
@@ -3006,6 +3447,23 @@ watch(
 )
 
 watch(
+  collapsibleGuidedTurnDescriptors,
+  (nextDescriptors) => {
+    const keepTurnIndexes = new Set(nextDescriptors.keys())
+    const nextExpanded = new Set<number>()
+    for (const turnIndex of expandedGuidedTurnIndexes.value) {
+      if (keepTurnIndexes.has(turnIndex)) {
+        nextExpanded.add(turnIndex)
+      }
+    }
+    if (nextExpanded.size !== expandedGuidedTurnIndexes.value.size) {
+      expandedGuidedTurnIndexes.value = nextExpanded
+    }
+  },
+  { deep: false },
+)
+
+watch(
   () => props.activeThreadId,
   () => {
     modalImageUrl.value = ''
@@ -3014,6 +3472,7 @@ watch(
     preparedMessageBlocksById.clear()
     disconnectAllObservedElements(observedMessageElementsById)
     measuredMessageHeightById.value = {}
+    expandedGuidedTurnIndexes.value = new Set()
     conversationScrollTop.value = 0
     lastGapMeasuredContainer = null
     lastGapMeasuredViewportHeight = -1
@@ -3021,11 +3480,33 @@ watch(
     lastEmittedScrollStateSignature.value = ''
     isRevealingOlderMessages.value = false
     canAutoRevealOlderMessages.value = true
-    visibleMessageStartIndex.value = latestVisibleStartIndex(renderableMessages.value.length)
+    visibleMessageStartIndex.value = latestVisibleStartIndex(renderableConversationEntries.value.length)
     clearBelowFoldUpdates()
     autoFollowBottom.value = props.scrollState?.isAtBottom !== false
   },
   { flush: 'post' },
+)
+
+watch(
+  modalImageUrl,
+  async (nextUrl) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return
+    if (nextUrl) {
+      previousBodyOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      window.addEventListener('keydown', onWindowKeydownForImageModal)
+      window.addEventListener('resize', onWindowResizeForImageModal)
+      await nextTick()
+      resetImageModalView()
+      return
+    }
+
+    window.removeEventListener('keydown', onWindowKeydownForImageModal)
+    window.removeEventListener('resize', onWindowResizeForImageModal)
+    document.body.style.overflow = previousBodyOverflow
+    previousBodyOverflow = ''
+    resetImageModalView()
+  },
 )
 
 watch(
@@ -3084,6 +3565,127 @@ function jumpToLatest(): void {
   scheduleBottomLock(4)
 }
 
+function clampImageModalScale(scale: number): number {
+  if (!Number.isFinite(scale)) return IMAGE_MODAL_MIN_SCALE
+  return Math.min(IMAGE_MODAL_MAX_SCALE, Math.max(IMAGE_MODAL_MIN_SCALE, scale))
+}
+
+function readImageModalOffsetBounds(scale = modalImageScale.value): { maxX: number; maxY: number } {
+  const stage = imageModalStageRef.value
+  const image = imageModalImageRef.value
+  if (!stage || !image) {
+    return { maxX: 0, maxY: 0 }
+  }
+
+  const stageRect = stage.getBoundingClientRect()
+  const width = image.offsetWidth * scale
+  const height = image.offsetHeight * scale
+
+  return {
+    maxX: Math.max((width - stageRect.width) / 2, 0),
+    maxY: Math.max((height - stageRect.height) / 2, 0),
+  }
+}
+
+function clampImageModalOffsets(
+  offsetX: number,
+  offsetY: number,
+  scale = modalImageScale.value,
+): { x: number; y: number } {
+  const { maxX, maxY } = readImageModalOffsetBounds(scale)
+  return {
+    x: Math.min(maxX, Math.max(-maxX, offsetX)),
+    y: Math.min(maxY, Math.max(-maxY, offsetY)),
+  }
+}
+
+function syncImageModalOffsets(scale = modalImageScale.value): void {
+  const { x, y } = clampImageModalOffsets(modalImageOffsetX.value, modalImageOffsetY.value, scale)
+  modalImageOffsetX.value = x
+  modalImageOffsetY.value = y
+}
+
+function applyImageModalScale(nextScale: number): void {
+  const clampedScale = clampImageModalScale(nextScale)
+  modalImageScale.value = clampedScale
+  if (clampedScale <= IMAGE_MODAL_MIN_SCALE) {
+    modalImageOffsetX.value = 0
+    modalImageOffsetY.value = 0
+    return
+  }
+  syncImageModalOffsets(clampedScale)
+}
+
+function resetImageModalView(): void {
+  modalImageScale.value = IMAGE_MODAL_MIN_SCALE
+  modalImageOffsetX.value = 0
+  modalImageOffsetY.value = 0
+  isImageModalDragging.value = false
+  modalImagePointerId = null
+}
+
+function zoomInImageModal(): void {
+  applyImageModalScale(modalImageScale.value + IMAGE_MODAL_SCALE_STEP)
+}
+
+function zoomOutImageModal(): void {
+  applyImageModalScale(modalImageScale.value - IMAGE_MODAL_SCALE_STEP)
+}
+
+function onImageModalWheel(event: WheelEvent): void {
+  if (!modalImageUrl.value) return
+  if (event.deltaY < 0) {
+    zoomInImageModal()
+    return
+  }
+  zoomOutImageModal()
+}
+
+function onImageModalDoubleClick(): void {
+  if (isImageModalZoomed.value) {
+    resetImageModalView()
+    return
+  }
+  applyImageModalScale(2)
+}
+
+function onImageModalPointerDown(event: PointerEvent): void {
+  if (!isImageModalZoomed.value) return
+  const target = event.currentTarget
+  if (!(target instanceof HTMLElement)) return
+
+  modalImagePointerId = event.pointerId
+  modalImageDragStartX = event.clientX
+  modalImageDragStartY = event.clientY
+  modalImageDragOriginX = modalImageOffsetX.value
+  modalImageDragOriginY = modalImageOffsetY.value
+  isImageModalDragging.value = true
+  target.setPointerCapture(event.pointerId)
+  event.preventDefault()
+}
+
+function onImageModalPointerMove(event: PointerEvent): void {
+  if (!isImageModalDragging.value || modalImagePointerId !== event.pointerId) return
+  const deltaX = event.clientX - modalImageDragStartX
+  const deltaY = event.clientY - modalImageDragStartY
+  const { x, y } = clampImageModalOffsets(
+    modalImageDragOriginX + deltaX,
+    modalImageDragOriginY + deltaY,
+  )
+  modalImageOffsetX.value = x
+  modalImageOffsetY.value = y
+}
+
+function onImageModalPointerUp(event: PointerEvent): void {
+  if (modalImagePointerId !== event.pointerId) return
+  const target = event.currentTarget
+  if (target instanceof HTMLElement && target.hasPointerCapture(event.pointerId)) {
+    target.releasePointerCapture(event.pointerId)
+  }
+  isImageModalDragging.value = false
+  modalImagePointerId = null
+}
+
 function openImageModal(imageUrl: string): void {
   modalImageUrl.value = toRenderableImageUrl(imageUrl)
 }
@@ -3106,6 +3708,33 @@ function closeImageModal(): void {
   modalImageUrl.value = ''
 }
 
+function onWindowKeydownForImageModal(event: KeyboardEvent): void {
+  if (!modalImageUrl.value) return
+  if (event.key === 'Escape') {
+    closeImageModal()
+    return
+  }
+  if (event.key === '+' || event.key === '=') {
+    event.preventDefault()
+    zoomInImageModal()
+    return
+  }
+  if (event.key === '-' || event.key === '_') {
+    event.preventDefault()
+    zoomOutImageModal()
+    return
+  }
+  if (event.key === '0') {
+    event.preventDefault()
+    resetImageModalView()
+  }
+}
+
+function onWindowResizeForImageModal(): void {
+  if (!modalImageUrl.value) return
+  syncImageModalOffsets()
+}
+
 function alignLiveOverlayReasoningToBottom(): void {
   const reasoning = liveOverlayReasoningRef.value
   if (!reasoning) return
@@ -3121,8 +3750,19 @@ watch(
   },
 )
 
+watch(() => props.activeThreadId, () => {
+  clearHighlightedMessage()
+})
+
+defineExpose<{
+  focusMessage: (messageId: string) => Promise<boolean>
+}>({
+  focusMessage,
+})
+
 onBeforeUnmount(() => {
   stopCommandElapsedTimer()
+  clearHighlightedMessage()
   if (scrollRestoreFrame) {
     cancelAnimationFrame(scrollRestoreFrame)
   }
@@ -3152,6 +3792,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', onWindowPointerDownForFileLinkContextMenu, { capture: true })
   window.removeEventListener('blur', onWindowBlurForFileLinkContextMenu)
   window.removeEventListener('keydown', onWindowKeydownForFileLinkContextMenu)
+  window.removeEventListener('keydown', onWindowKeydownForImageModal)
+  window.removeEventListener('resize', onWindowResizeForImageModal)
+  if (typeof document !== 'undefined') {
+    document.body.style.overflow = previousBodyOverflow
+  }
 })
 </script>
 
@@ -3167,16 +3812,21 @@ onBeforeUnmount(() => {
 }
 
 .conversation-status-loading {
-  @apply sticky top-0 z-10 mx-2 sm:mx-5 mb-1.5 mt-1.5 flex items-center gap-2 rounded-full border border-[#e5dbca] bg-[#fffdf8] px-3 py-1.5 text-xs text-[#7b7062];
+  @apply sticky top-0 z-10 mb-1.5 mt-1.5 flex items-center gap-2 rounded-full border border-[#e5dbca] bg-[#fffdf8]/96 px-3 py-1.5 text-xs text-[#7b7062];
+  width: fit-content;
+  max-width: min(32rem, calc(100% - 1rem));
+  margin-inline: auto;
+  backdrop-filter: blur(6px);
   animation: conversationFadeIn 160ms ease-out;
+  box-shadow: 0 10px 24px -22px rgba(31, 41, 55, 0.16);
 }
 
-.conversation-status-loading-dot {
-  @apply h-1.5 w-1.5 rounded-full bg-[#0f766e];
+.conversation-status-loading--switching {
+  @apply border-[#ead9b5] bg-[#fff9ee]/96 text-[#8a6a11];
 }
 
-.conversation-status-loading-text {
-  @apply font-medium tracking-[0.01em];
+.conversation-status-loading-inline {
+  @apply min-w-0;
 }
 
 .conversation-item-process {
@@ -3185,7 +3835,8 @@ onBeforeUnmount(() => {
 }
 
 .conversation-process-panel {
-  @apply w-full max-w-180 mx-auto mb-1 flex flex-col gap-1.5;
+  @apply w-full mx-auto mb-1 flex flex-col gap-1.5;
+  max-width: min(var(--content-shell-max-width, 88rem), 100%);
 }
 
 .conversation-process-toggle {
@@ -3229,7 +3880,7 @@ onBeforeUnmount(() => {
 }
 
 .conversation-list {
-  @apply h-full min-h-0 list-none m-0 px-2.5 sm:px-5 py-0 overflow-y-auto overflow-x-visible flex flex-col gap-1;
+  @apply h-full min-h-0 list-none m-0 px-2.5 sm:px-5 py-0 overflow-y-auto overflow-x-visible flex flex-col gap-2;
   padding-bottom: max(0.875rem, env(safe-area-inset-bottom));
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
@@ -3237,8 +3888,8 @@ onBeforeUnmount(() => {
 }
 
 .conversation-list--switching {
-  opacity: 0.82;
-  transform: translateY(2px);
+  opacity: 0.9;
+  transform: translateY(1px);
 }
 
 .conversation-jump-to-latest {
@@ -3282,7 +3933,8 @@ onBeforeUnmount(() => {
 }
 
 .conversation-load-more-button {
-  @apply mx-auto flex w-full max-w-180 flex-col items-center gap-0.5 rounded-2xl border border-dashed border-[#ddd3c2] bg-[#fffdf8] px-3 py-2 text-center transition-colors hover:border-[#cbb89b] hover:bg-[#fffaf0] disabled:cursor-default disabled:opacity-70;
+  @apply mx-auto flex w-full flex-col items-center gap-0.5 rounded-2xl border border-dashed border-[#ddd3c2] bg-[#fffdf8] px-3 py-2 text-center transition-colors hover:border-[#cbb89b] hover:bg-[#fffaf0] disabled:cursor-default disabled:opacity-70;
+  max-width: min(var(--content-shell-max-width, 88rem), 100%);
 }
 
 .conversation-load-more-title {
@@ -3294,7 +3946,8 @@ onBeforeUnmount(() => {
 }
 
 .message-row {
-  @apply relative w-full max-w-180 mx-auto flex;
+  @apply relative w-full mx-auto flex;
+  max-width: min(var(--content-shell-max-width, 88rem), 100%);
 }
 
 .message-row[data-role='user'] {
@@ -3317,7 +3970,8 @@ onBeforeUnmount(() => {
 }
 
 .request-card {
-  @apply w-full max-w-180 rounded-[20px] border border-[#ead9b5] bg-[#fff9ee] px-3 sm:px-3.5 py-2.5 sm:py-3 flex flex-col gap-1.5;
+  @apply w-full rounded-[20px] border border-[#ead9b5] bg-[#fff9ee] px-3 sm:px-3.5 py-2.5 sm:py-3 flex flex-col gap-1.5;
+  max-width: min(60rem, 100%);
 }
 
 .request-title {
@@ -3429,11 +4083,35 @@ onBeforeUnmount(() => {
 }
 
 .live-overlay-inline {
-  @apply w-full max-w-180 rounded-2xl border border-[#d7ebe7] bg-[#f7fbfa] px-3 py-2 flex flex-col gap-1.5;
+  @apply w-full rounded-2xl border border-[#d7ebe7] bg-[#f7fbfa] px-3 py-2 flex flex-col gap-1.5;
+  max-width: min(60rem, 100%);
+  position: relative;
+  overflow: hidden;
 }
 
 .live-overlay-inline-compact {
-  @apply max-w-132 rounded-2xl px-3 py-1.5;
+  @apply rounded-2xl px-3 py-1.5;
+  max-width: min(36rem, 100%);
+}
+
+.live-overlay-inline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.34) 46%, transparent 100%);
+  transform: translateX(-130%);
+  opacity: 0;
+}
+
+.live-overlay-inline-thinking::after {
+  opacity: 1;
+  animation: liveOverlaySweep 2.8s ease-in-out infinite;
+}
+
+.live-overlay-inline-command::after {
+  opacity: 1;
+  animation: liveOverlaySweep 1.9s ease-in-out infinite;
 }
 
 .live-overlay-head {
@@ -3442,14 +4120,20 @@ onBeforeUnmount(() => {
 
 .live-overlay-indicator {
   @apply relative flex h-6 w-6 items-center justify-center rounded-full border border-[#d7ebe7] bg-white shrink-0;
+  overflow: visible;
 }
 
 .live-overlay-indicator-ring {
-  display: none;
+  @apply absolute inset-[3px] rounded-full border;
+  display: block;
+  border-color: rgba(15, 118, 110, 0.18);
+  border-top-color: rgba(15, 118, 110, 0.88);
+  animation: liveOverlaySpin 1.2s linear infinite;
 }
 
 .live-overlay-indicator-core {
   @apply block h-2 w-2 rounded-full bg-[#0f766e];
+  animation: liveOverlayCorePulse 1.35s ease-in-out infinite;
 }
 
 .live-overlay-heading {
@@ -3487,14 +4171,17 @@ onBeforeUnmount(() => {
 .live-overlay-dot {
   @apply h-1.5 w-1.5 rounded-full bg-[#0f766e];
   opacity: 0.28;
+  animation: liveOverlayDotPulse 1.05s ease-in-out infinite;
 }
 
 .live-overlay-dot:nth-child(2) {
   opacity: 0.52;
+  animation-delay: 0.14s;
 }
 
 .live-overlay-dot:nth-child(3) {
   opacity: 0.78;
+  animation-delay: 0.28s;
 }
 
 .live-overlay-detail-list {
@@ -3621,15 +4308,21 @@ onBeforeUnmount(() => {
 }
 
 .message-card {
-  @apply max-w-[min(76ch,100%)] px-0 py-0 bg-transparent border-none rounded-none;
+  @apply max-w-full px-0 py-0 bg-transparent border-none rounded-none;
+  position: relative;
 }
 
 .message-text-flow {
   @apply flex flex-col gap-1.5;
+  padding-right: 2.25rem;
 }
 
 .message-text {
   @apply m-0 text-sm leading-[1.65] whitespace-pre-wrap text-[#2b241d];
+  font-family: var(--font-sans-reading);
+  font-size: var(--font-size-reading, 15px);
+  line-height: var(--line-height-reading);
+  letter-spacing: var(--tracking-body-soft);
 }
 
 .message-bold-text {
@@ -3642,6 +4335,7 @@ onBeforeUnmount(() => {
 
 .message-inline-code {
   @apply rounded-xl border border-[#dfd7ca] bg-[#f5f1e8] px-1.5 py-0.5 text-[0.875em] leading-[1.4] text-[#2d261f] font-mono;
+  font-family: var(--font-mono-ui);
 }
 
 .message-file-link {
@@ -3671,6 +4365,7 @@ onBeforeUnmount(() => {
 
 .message-eyebrow {
   @apply mb-0.5 px-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8f8577];
+  font-family: var(--font-sans-ui);
 }
 
 .message-eyebrow[data-role='user'] {
@@ -3686,34 +4381,99 @@ onBeforeUnmount(() => {
 }
 
 .message-card[data-role='user'] {
-  @apply rounded-[20px] border border-[#ddd3c2] bg-[#efe8dc] px-3 sm:px-3.5 py-2 sm:py-2.5 max-w-[min(560px,100%)];
+  @apply rounded-[20px] border border-[#ddd3c2] bg-[#efe8dc] px-3 sm:px-3.5 py-2 sm:py-2.5;
+  max-width: min(40rem, 100%);
   width: fit-content;
   margin-left: auto;
   align-self: flex-end;
 }
 
 .message-card[data-role='assistant'] {
-  @apply rounded-[22px] border border-[#ece5d8] bg-white px-3.5 py-2.5;
+  @apply rounded-[22px] border border-[#e8dfcf] bg-white px-3.5 py-2.5;
+  max-width: min(66rem, 100%);
+  box-shadow: 0 16px 26px -32px rgba(31, 41, 55, 0.16);
 }
 
 .message-card[data-role='system'] {
   @apply rounded-[18px] border border-[#e8dfcf] bg-[#f7f2e8] px-3.5 py-2.5;
+  max-width: min(62rem, 100%);
+}
+
+.message-favorite-button {
+  @apply absolute top-2.5 right-2.5 inline-flex h-7 w-7 items-center justify-center rounded-full border border-transparent bg-transparent text-[#b19c7f] transition-[background-color,border-color,color] duration-150 hover:border-[#ddd3c2] hover:bg-[#fff8ee] hover:text-[#7b6b57];
+}
+
+.message-favorite-button.is-favorited {
+  @apply border-[#d8c5a6] bg-[#f5ecdd] text-[#8a5b17];
+}
+
+.message-favorite-icon {
+  @apply h-4 w-4;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .image-modal-backdrop {
-  @apply fixed inset-0 z-50 bg-black/40 p-2 sm:p-6 flex items-center justify-center;
+  @apply fixed inset-0 z-50 bg-black/55 p-2 sm:p-6 flex items-center justify-center;
+  backdrop-filter: blur(2px);
 }
 
 .image-modal-content {
-  @apply relative max-w-[min(92vw,1100px)] max-h-[92vh];
+  @apply relative flex w-full max-w-[min(96vw,1200px)] max-h-[94vh] flex-col gap-3 rounded-[28px] border border-white/10 bg-[#17120c]/92 p-3 shadow-2xl;
+}
+
+.image-modal-toolbar {
+  @apply flex items-center justify-between gap-3;
+}
+
+.image-modal-toolbar-group {
+  @apply flex items-center gap-2;
+}
+
+.image-modal-tool,
+.image-modal-close {
+  @apply inline-flex h-10 items-center justify-center rounded-full border border-[#3d3327] bg-[#f8f2e6] px-3 text-sm font-medium text-[#2b241d] shadow-sm transition-colors;
+}
+
+.image-modal-tool:hover,
+.image-modal-close:hover {
+  @apply bg-white;
+}
+
+.image-modal-scale {
+  @apply min-w-18 px-4 tabular-nums;
 }
 
 .image-modal-close {
-  @apply absolute top-2 right-2 z-10 w-10 h-10 rounded-full bg-white/90 text-slate-900 border border-[#ddd5c7] flex items-center justify-center;
+  @apply w-10 px-0;
+}
+
+.image-modal-stage {
+  @apply relative flex min-h-[min(58vh,420px)] flex-1 items-center justify-center overflow-hidden rounded-[24px] bg-[#0d0b08]/55;
+}
+
+.image-modal-stage--zoomed {
+  touch-action: none;
+}
+
+.image-modal-stage--dragging {
+  cursor: grabbing;
 }
 
 .image-modal-image {
-  @apply block max-w-full max-h-[90vh] rounded-2xl shadow-2xl bg-white;
+  @apply block max-w-full max-h-[calc(94vh-7rem)] rounded-2xl bg-white shadow-2xl select-none;
+  transform-origin: center center;
+  will-change: transform;
 }
 
 .icon-svg {
@@ -3723,6 +4483,10 @@ onBeforeUnmount(() => {
 .conversation-item-actionable:hover,
 .conversation-item-actionable:focus-within {
   z-index: 8;
+}
+
+.conversation-item-highlighted .message-card {
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.16), 0 14px 32px rgba(15, 118, 110, 0.12);
 }
 
 .conversation-item-actionable:hover .message-action-button,
@@ -3757,6 +4521,37 @@ onBeforeUnmount(() => {
   @apply leading-none;
 }
 
+.guided-turn-toggle {
+  @apply inline-flex max-w-full items-center gap-2 self-start rounded-full border border-[#e4dac9] bg-[#fffdf8] px-3 py-1.5 text-left text-[#74695a] shadow-[0_8px_18px_rgba(114,92,63,0.06)] transition-[background-color,border-color,color,box-shadow] duration-150 hover:border-[#d3c4ad] hover:bg-[#fbf5ea] hover:text-[#564c40];
+}
+
+@media (min-width: 1024px) {
+  .conversation-list {
+    @apply px-5;
+  }
+
+  .message-card[data-role='assistant'],
+  .message-card[data-role='system'] {
+    @apply px-4.5 py-3.5;
+  }
+
+  .message-card[data-role='user'] {
+    @apply px-4 py-3;
+  }
+}
+
+.guided-turn-toggle[aria-expanded='true'] {
+  @apply border-[#cfc4af] bg-[#f7f1e5] text-[#544a3d];
+}
+
+.guided-turn-toggle-title {
+  @apply text-[12px] font-medium leading-none;
+}
+
+.guided-turn-toggle-meta {
+  @apply rounded-full bg-[#f4eee2] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[#8b7f70];
+}
+
 .cmd-row {
   @apply w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-[14px] border border-[#ddd5c7] bg-[#f8f4ec] cursor-pointer transition-colors duration-150 text-left hover:bg-[#f1ebde];
   overflow-x: auto;
@@ -3786,6 +4581,18 @@ onBeforeUnmount(() => {
 
 .cmd-status {
   @apply text-[11px] font-medium flex-shrink-0;
+}
+
+.cmd-row.cmd-status-running .cmd-status::before {
+  content: '';
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-right: 0.35rem;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: liveOverlayCorePulse 1.15s ease-in-out infinite;
+  vertical-align: middle;
 }
 
 .cmd-duration {
@@ -3838,6 +4645,11 @@ onBeforeUnmount(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .conversation-list--switching,
+  .live-overlay-inline::after,
+  .live-overlay-indicator-ring,
+  .live-overlay-indicator-core,
+  .live-overlay-dot,
   .conversation-loading-card::after,
   .message-action-button,
   .cmd-row,
@@ -3857,6 +4669,56 @@ onBeforeUnmount(() => {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes conversationSwitchFloat {
+  from {
+    opacity: 0.78;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 0.92;
+    transform: translateY(0);
+  }
+}
+
+@keyframes liveOverlaySweep {
+  0% {
+    transform: translateX(-130%);
+  }
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+@keyframes liveOverlaySpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes liveOverlayCorePulse {
+  0%,
+  100% {
+    transform: scale(0.82);
+    opacity: 0.72;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes liveOverlayDotPulse {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.24;
+  }
+  45% {
+    transform: translateY(-2px);
+    opacity: 0.96;
   }
 }
 </style>

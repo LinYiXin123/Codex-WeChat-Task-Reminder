@@ -27,7 +27,7 @@
         <div class="sdm-body">
           <p v-if="effectiveDescription" class="sdm-desc">{{ effectiveDescription }}</p>
 
-          <div v-if="isLoadingReadme" class="sdm-readme-loading">正在加载技能内容...</div>
+          <LoadingInline v-if="isLoadingReadme" class="sdm-readme-loading" label="正在加载技能内容..." tone="muted" />
           <div v-else-if="readmeContent" class="sdm-readme" v-html="renderedReadme"></div>
 
           <a class="sdm-link" :href="skill.url" target="_blank" rel="noopener noreferrer">查看 GitHub 仓库</a>
@@ -82,6 +82,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import IconTablerX from '../icons/IconTablerX.vue'
+import LoadingInline from './LoadingInline.vue'
 
 export type HubSkill = {
   name: string
@@ -259,7 +260,7 @@ function onBrowseFiles(): void {
 }
 
 .sdm-readme-loading {
-  @apply text-xs text-zinc-400;
+  @apply flex items-center text-xs text-zinc-500;
 }
 
 .sdm-readme {

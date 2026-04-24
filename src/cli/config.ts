@@ -12,6 +12,7 @@ export type LaunchConfigFile = {
   projectPath?: string
   codexCommand?: string
   ripgrepCommand?: string
+  cloudflaredCommand?: string
 }
 
 export type LaunchCliOptions = {
@@ -22,6 +23,7 @@ export type LaunchCliOptions = {
   tunnel: boolean
   open: boolean
   openProject?: string
+  cloudflaredCommand?: string
 }
 
 export type ResolvedLaunchOptions = {
@@ -34,6 +36,7 @@ export type ResolvedLaunchOptions = {
   projectPath?: string
   codexCommand?: string
   ripgrepCommand?: string
+  cloudflaredCommand?: string
 }
 
 type LoadedLaunchConfig = {
@@ -83,6 +86,7 @@ function normalizeConfigShape(raw: unknown): LaunchConfigFile {
     projectPath: normalizeString(record.projectPath),
     codexCommand: normalizeString(record.codexCommand),
     ripgrepCommand: normalizeString(record.ripgrepCommand),
+    cloudflaredCommand: normalizeString(record.cloudflaredCommand),
   }
 }
 
@@ -181,6 +185,9 @@ export async function resolveLaunchOptions(args: {
   const projectPath = launchProject && launchProject.length > 0
     ? launchProject
     : config.projectPath
+  const cloudflaredCommand = flagProvided(rawArgv, 'cloudflared-command')
+    ? normalizeString(cliOptions.cloudflaredCommand)
+    : config.cloudflaredCommand
 
   return {
     configPath: loaded.path,
@@ -192,5 +199,6 @@ export async function resolveLaunchOptions(args: {
     projectPath,
     codexCommand: config.codexCommand,
     ripgrepCommand: config.ripgrepCommand,
+    cloudflaredCommand,
   }
 }
