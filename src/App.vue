@@ -265,6 +265,108 @@
                   {{ tunnelStatusMessage }}
                 </p>
               </section>
+              <section v-if="isMobileShellAvailable" class="sidebar-settings-section" aria-label="移动端连接">
+                <p class="sidebar-settings-section-title">移动端连接</p>
+                <div class="sidebar-settings-row sidebar-settings-row--static sidebar-settings-row--stacked">
+                  <span class="sidebar-settings-label">当前地址</span>
+                  <span class="sidebar-settings-code">{{ mobileShellServerUrlLabel }}</span>
+                </div>
+                <div class="sidebar-settings-row sidebar-settings-row--input">
+                  <label class="sidebar-settings-field">
+                    <span class="sidebar-settings-label">服务地址</span>
+                    <input
+                      v-model="mobileShellServerInput"
+                      class="sidebar-settings-input"
+                      type="url"
+                      inputmode="url"
+                      placeholder="https://your-codex-host.example.com:7420"
+                      :disabled="isMobileShellSaving"
+                    />
+                  </label>
+                </div>
+                <div class="sidebar-settings-actions">
+                  <button
+                    class="sidebar-settings-github-button"
+                    type="button"
+                    :disabled="!canSaveMobileShellServerUrl"
+                    @click="saveMobileShellServerAddress"
+                  >
+                    {{ isMobileShellSaving ? '保存中...' : '保存并重连' }}
+                  </button>
+                  <button
+                    class="sidebar-settings-github-button sidebar-settings-github-button--secondary"
+                    type="button"
+                    :disabled="!canResetMobileShellServerUrl"
+                    @click="restoreDefaultMobileShellServerAddress"
+                  >
+                    恢复默认
+                  </button>
+                  <button
+                    class="sidebar-settings-github-button sidebar-settings-github-button--secondary"
+                    type="button"
+                    :disabled="!canOpenMobileShellServerUrl"
+                    @click="openMobileShellServerUrl"
+                  >
+                    打开地址
+                  </button>
+                </div>
+                <p class="sidebar-settings-hint">
+                  {{ isMobileShellLoading ? '正在读取 App 当前连接地址...' : '保存后安卓 App 会自动重连到新地址。' }}
+                </p>
+                <p class="sidebar-settings-hint">
+                  默认地址：{{ mobileShellDefaultUrlLabel }}
+                </p>
+                <p v-if="mobileShellStatus" class="sidebar-settings-hint sidebar-settings-hint-status">
+                  {{ mobileShellStatus }}
+                </p>
+              </section>
+              <section v-if="isMobileShellAvailable" class="sidebar-settings-section" aria-label="App 更新">
+                <p class="sidebar-settings-section-title">App 更新</p>
+                <div class="sidebar-settings-row sidebar-settings-row--static">
+                  <span class="sidebar-settings-label">当前安装</span>
+                  <span class="sidebar-settings-value">{{ mobileShellInstalledVersionLabel }}</span>
+                </div>
+                <div class="sidebar-settings-row sidebar-settings-row--static">
+                  <span class="sidebar-settings-label">最新发布</span>
+                  <span class="sidebar-settings-value">{{ mobileShellLatestVersionLabel }}</span>
+                </div>
+                <div class="sidebar-settings-row sidebar-settings-row--static sidebar-settings-row--stacked">
+                  <span class="sidebar-settings-label">更新包</span>
+                  <span class="sidebar-settings-code">{{ mobileShellLatestAssetLabel }}</span>
+                </div>
+                <div class="sidebar-settings-actions">
+                  <button
+                    class="sidebar-settings-github-button"
+                    type="button"
+                    :disabled="isMobileShellUpdateLoading || isMobileShellInstalling"
+                    @click="refreshMobileShellUpdateState(true)"
+                  >
+                    {{ isMobileShellUpdateLoading ? '检查中...' : '检查更新' }}
+                  </button>
+                  <button
+                    class="sidebar-settings-github-button"
+                    type="button"
+                    :disabled="!canInstallLatestMobileShellRelease"
+                    @click="installLatestMobileShellRelease"
+                  >
+                    {{ mobileShellInstallButtonLabel }}
+                  </button>
+                  <button
+                    class="sidebar-settings-github-button sidebar-settings-github-button--secondary"
+                    type="button"
+                    :disabled="!canOpenLatestMobileShellReleasePage"
+                    @click="openLatestMobileShellReleasePage"
+                  >
+                    打开发布页
+                  </button>
+                </div>
+                <p class="sidebar-settings-hint">
+                  {{ mobileShellUpdateHint }}
+                </p>
+                <p v-if="mobileShellUpdateStatus" class="sidebar-settings-hint sidebar-settings-hint-status">
+                  {{ mobileShellUpdateStatus }}
+                </p>
+              </section>
               <section class="sidebar-settings-section" aria-label="语音输入">
                 <p class="sidebar-settings-section-title">语音输入</p>
               <div class="sidebar-settings-row sidebar-settings-row--select" :title="SETTINGS_HELP.dictationLanguage">
@@ -296,6 +398,14 @@
                 <RateLimitStatus :snapshots="accountRateLimitSnapshots" />
               </div>
               <section class="sidebar-settings-about" aria-label="项目版本和 GitHub 仓库">
+                <div class="sidebar-settings-brand-card">
+                  <img class="sidebar-settings-brand-logo" :src="MOBILE_SHELL_BRANDING_LOGO_URL" alt="CX Codex 标识" />
+                  <div class="sidebar-settings-brand-copy">
+                    <span class="sidebar-settings-brand-kicker">Android Shell</span>
+                    <strong class="sidebar-settings-brand-title">{{ MOBILE_SHELL_BRAND_NAME }}</strong>
+                    <span class="sidebar-settings-brand-subtitle">面向手机远程访问 Codex 的原生入口</span>
+                  </div>
+                </div>
                 <div class="sidebar-settings-about-main">
                   <div class="sidebar-settings-about-copy">
                     <span class="sidebar-settings-about-label">当前版本</span>
@@ -599,6 +709,22 @@ import type {
   WebBridgeSettings,
 } from './api/codexGateway'
 import { getPathLeafName, getPathParent } from './pathUtils.js'
+import {
+  getMobileShellAppInfo,
+  getMobileShellServerConfig,
+  installMobileShellApk,
+  isNativeAndroidShell,
+  resetMobileShellServerUrl,
+  setMobileShellServerUrl,
+  type MobileShellAppInfo,
+  type MobileShellServerConfig,
+} from './mobile/mobileShell'
+import {
+  fetchLatestMobileRelease,
+  getMobileReleasesPageUrl,
+  isMobileReleaseUpdateAvailable,
+  type MobileLatestRelease,
+} from './mobile/mobileRelease'
 
 const SkillsHub = defineAsyncComponent(() => import('./components/content/SkillsHub.vue'))
 const GithubTrendingHub = defineAsyncComponent(() => import('./components/content/GithubTrendingHub.vue'))
@@ -609,6 +735,8 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
 const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
 const PROJECT_GITHUB_URL = 'https://github.com/Qjzn/codexui-server-bridge'
+const MOBILE_SHELL_BRAND_NAME = 'CX Codex'
+const MOBILE_SHELL_BRANDING_LOGO_URL = '/branding/cx-codex-logo.png'
 const CONTEXT_RING_RADIUS = 16
 const CONTEXT_RING_CIRCUMFERENCE = 2 * Math.PI * CONTEXT_RING_RADIUS
 const DEFAULT_WEB_BRIDGE_SETTINGS: WebBridgeSettings = {
@@ -894,6 +1022,19 @@ let favoritesStatusTimer: ReturnType<typeof setTimeout> | null = null
 const isTunnelStatusLoading = ref(false)
 const isTunnelConfigSaving = ref(false)
 let tunnelStatusMessageTimer: ReturnType<typeof setTimeout> | null = null
+const isMobileShellAvailable = ref(isNativeAndroidShell())
+const mobileShellServerConfig = ref<MobileShellServerConfig | null>(null)
+const mobileShellAppInfo = ref<MobileShellAppInfo | null>(null)
+const mobileShellLatestRelease = ref<MobileLatestRelease | null>(null)
+const mobileShellServerInput = ref('')
+const mobileShellStatus = ref('')
+const mobileShellUpdateStatus = ref('')
+const isMobileShellLoading = ref(false)
+const isMobileShellSaving = ref(false)
+const isMobileShellUpdateLoading = ref(false)
+const isMobileShellInstalling = ref(false)
+let mobileShellStatusTimer: ReturnType<typeof setTimeout> | null = null
+let mobileShellUpdateStatusTimer: ReturnType<typeof setTimeout> | null = null
 const desktopAppStatus = ref<DesktopAppStatus>({
   available: false,
   platform: '',
@@ -963,6 +1104,69 @@ const canSaveResolvedCloudflaredCommand = computed(() => {
   const resolved = tunnelStatus.value.resolvedCommand.trim()
   if (!resolved) return false
   return resolved !== tunnelStatus.value.configuredCommand.trim()
+})
+const mobileShellServerUrlLabel = computed(() => (
+  mobileShellServerConfig.value?.serverUrl.trim() || '未配置'
+))
+const mobileShellDefaultUrlLabel = computed(() => (
+  mobileShellServerConfig.value?.defaultServerUrl.trim() || '未配置'
+))
+const normalizedMobileShellServerInput = computed(() => normalizeUrlInput(mobileShellServerInput.value))
+const canSaveMobileShellServerUrl = computed(() => {
+  if (!isMobileShellAvailable.value || isMobileShellSaving.value) return false
+  const nextUrl = normalizedMobileShellServerInput.value
+  if (!nextUrl) return false
+  return nextUrl !== mobileShellServerConfig.value?.serverUrl.trim()
+})
+const canResetMobileShellServerUrl = computed(() => (
+  isMobileShellAvailable.value
+  && !isMobileShellSaving.value
+  && mobileShellServerConfig.value?.usingDefault === false
+))
+const canOpenMobileShellServerUrl = computed(() => (
+  mobileShellServerConfig.value?.serverUrl.trim().length
+    ? true
+    : false
+))
+const mobileShellInstalledVersionLabel = computed(() => {
+  const version = mobileShellAppInfo.value?.versionName.trim() || ''
+  if (!version) return '未读取'
+  return version.startsWith('v') ? version : `v${version}`
+})
+const mobileShellLatestVersionLabel = computed(() => {
+  const tagName = mobileShellLatestRelease.value?.tagName.trim() || ''
+  if (!tagName) return isMobileShellUpdateLoading.value ? '检查中' : '未检测到'
+  return tagName
+})
+const mobileShellLatestAssetLabel = computed(() => (
+  mobileShellLatestRelease.value?.asset?.name.trim()
+  || '当前发布页还没有 Android APK'
+))
+const hasMobileShellUpdate = computed(() => (
+  isMobileReleaseUpdateAvailable(
+    mobileShellAppInfo.value?.versionName ?? '',
+    mobileShellLatestRelease.value?.tagName ?? '',
+  )
+))
+const canInstallLatestMobileShellRelease = computed(() => (
+  isMobileShellAvailable.value
+  && !isMobileShellInstalling.value
+  && !isMobileShellUpdateLoading.value
+  && !!mobileShellLatestRelease.value?.asset?.downloadUrl
+))
+const canOpenLatestMobileShellReleasePage = computed(() => (
+  (mobileShellLatestRelease.value?.htmlUrl.trim() || getMobileReleasesPageUrl()).length > 0
+))
+const mobileShellInstallButtonLabel = computed(() => {
+  if (isMobileShellInstalling.value) return '下载安装中...'
+  if (!mobileShellLatestRelease.value?.asset?.downloadUrl) return '暂无安装包'
+  return hasMobileShellUpdate.value ? '下载并安装' : '重新安装'
+})
+const mobileShellUpdateHint = computed(() => {
+  if (isMobileShellUpdateLoading.value) return '正在读取 GitHub 最新发布信息...'
+  if (!mobileShellLatestRelease.value?.asset) return '发布页还没有可直接安装的 Android APK。'
+  if (hasMobileShellUpdate.value) return '检测到新版本后，可直接下载并拉起系统安装界面。'
+  return '当前安装版已与最新发布一致，如需覆盖安装也可以直接重新安装。'
 })
 const tunnelPathsHint = computed(() => {
   const hints: string[] = []
@@ -1207,6 +1411,11 @@ const displayFavorites = computed<FavoriteRecord[]>(() => (
   })
 ))
 const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selectedThread.value?.inProgress === true)
+const shouldShowSelectedThreadProcessing = computed(() => (
+  selectedThreadServerRequests.value.length > 0 ||
+  selectedLiveOverlay.value !== null ||
+  isSelectedThreadInProgress.value
+))
 const threadStatusLabel = computed(() => {
   if (isNonThreadRoute.value) return ''
   if (isRouteOnlyEmptyThread.value) return '空会话'
@@ -1214,7 +1423,7 @@ const threadStatusLabel = computed(() => {
   if (selectedThreadServerRequests.value.length > 0) {
     return humanizeActivityLabel(selectedLiveOverlay.value?.activityLabel ?? '') || '等待处理'
   }
-  if (selectedThreadExecutionActive.value) {
+  if (shouldShowSelectedThreadProcessing.value) {
     return humanizeActivityLabel(selectedLiveOverlay.value?.activityLabel ?? '') || '处理中'
   }
   if (selectedThread.value.unread) return '有新进展'
@@ -1241,7 +1450,7 @@ const showServiceStatusDetail = computed(() => (
 ))
 const contentStatusTone = computed<'live' | 'syncing' | 'warning' | 'danger'>(() => {
   if (selectedThreadServerRequests.value.length > 0) return 'warning'
-  if (selectedThreadExecutionActive.value) return 'syncing'
+  if (shouldShowSelectedThreadProcessing.value) return 'syncing'
   if (serviceStatusTone.value !== 'live') return serviceStatusTone.value
   if (isRouteOnlyEmptyThread.value) return 'live'
   if (selectedThread.value?.unread) return 'warning'
@@ -1249,7 +1458,7 @@ const contentStatusTone = computed<'live' | 'syncing' | 'warning' | 'danger'>(()
   return 'live'
 })
 const contentStatusCaption = computed(() => {
-  if (selectedThreadServerRequests.value.length > 0 || selectedThreadExecutionActive.value || isRouteOnlyEmptyThread.value || selectedThread.value?.unread) {
+  if (selectedThreadServerRequests.value.length > 0 || shouldShowSelectedThreadProcessing.value || isRouteOnlyEmptyThread.value || selectedThread.value?.unread) {
     return '会话'
   }
   if (showDesktopStatusPill.value && serviceStatusTone.value === 'live') {
@@ -1259,7 +1468,7 @@ const contentStatusCaption = computed(() => {
 })
 const contentStatusLabel = computed(() => {
   if (selectedThreadServerRequests.value.length > 0) return threadStatusLabel.value || '等待处理'
-  if (selectedThreadExecutionActive.value) return threadStatusLabel.value || '处理中'
+  if (shouldShowSelectedThreadProcessing.value) return threadStatusLabel.value || '处理中'
   if (isRouteOnlyEmptyThread.value) return '空会话'
   if (selectedThread.value?.unread) return '有新进展'
   if (showDesktopStatusPill.value && serviceStatusTone.value === 'live') return desktopStatusLabel.value
@@ -1269,7 +1478,7 @@ const contentStatusDetail = computed(() => {
   if (selectedThreadServerRequests.value.length > 0) {
     return '这条任务现在卡在你的确认或补充输入，处理后会继续推进。'
   }
-  if (selectedThreadExecutionActive.value) {
+  if (shouldShowSelectedThreadProcessing.value) {
     return humanizeActivityLabel(selectedLiveOverlay.value?.activityLabel ?? '') || '当前任务仍在继续处理。'
   }
   if (serviceStatusTone.value !== 'live' && showServiceStatusDetail.value) {
@@ -1516,6 +1725,8 @@ onMounted(() => {
   queueIdleTask(() => { void refreshWebBridgeSettings() }, 1400)
   queueIdleTask(() => { void refreshFavorites() }, 1500)
   queueIdleTask(() => { void refreshTunnelStatus() }, 1550)
+  queueIdleTask(() => { void refreshMobileShellServerConfig() }, 1600)
+  queueIdleTask(() => { void refreshMobileShellUpdateState() }, 1650)
   queueIdleTask(() => { void refreshDesktopAppAvailability() }, 1700)
   scheduleTrendingProjectsLoad()
 })
@@ -1538,6 +1749,14 @@ onUnmounted(() => {
   if (tunnelStatusMessageTimer) {
     clearTimeout(tunnelStatusMessageTimer)
     tunnelStatusMessageTimer = null
+  }
+  if (mobileShellStatusTimer) {
+    clearTimeout(mobileShellStatusTimer)
+    mobileShellStatusTimer = null
+  }
+  if (mobileShellUpdateStatusTimer) {
+    clearTimeout(mobileShellUpdateStatusTimer)
+    mobileShellUpdateStatusTimer = null
   }
   if (favoritesStatusTimer) {
     clearTimeout(favoritesStatusTimer)
@@ -1582,6 +1801,8 @@ watch(isSettingsOpen, (open) => {
   if (open) {
     void refreshRateLimits()
     void refreshWebBridgeSettings()
+    void refreshMobileShellServerConfig({ preserveInput: true })
+    void refreshMobileShellUpdateState()
     window.addEventListener('pointerdown', onWindowPointerDownForSettings, { capture: true })
     return
   }
@@ -1625,6 +1846,40 @@ function setTunnelStatusMessage(message: string): void {
     tunnelStatusMessage.value = ''
     tunnelStatusMessageTimer = null
   }, 2600)
+}
+
+function setMobileShellStatus(message: string): void {
+  mobileShellStatus.value = message
+  if (mobileShellStatusTimer) {
+    clearTimeout(mobileShellStatusTimer)
+    mobileShellStatusTimer = null
+  }
+  if (!message) return
+  mobileShellStatusTimer = setTimeout(() => {
+    mobileShellStatus.value = ''
+    mobileShellStatusTimer = null
+  }, 2600)
+}
+
+function setMobileShellUpdateStatus(message: string): void {
+  mobileShellUpdateStatus.value = message
+  if (mobileShellUpdateStatusTimer) {
+    clearTimeout(mobileShellUpdateStatusTimer)
+    mobileShellUpdateStatusTimer = null
+  }
+  if (!message) return
+  mobileShellUpdateStatusTimer = setTimeout(() => {
+    mobileShellUpdateStatus.value = ''
+    mobileShellUpdateStatusTimer = null
+  }, 3200)
+}
+
+function normalizeUrlInput(value: string): string {
+  let normalized = value.trim()
+  while (normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1)
+  }
+  return normalized
 }
 
 function setFavoritesStatusText(message: string): void {
@@ -1690,6 +1945,61 @@ async function refreshTunnelStatus(): Promise<void> {
     }
   } finally {
     isTunnelStatusLoading.value = false
+  }
+}
+
+async function refreshMobileShellServerConfig(options: { preserveInput?: boolean } = {}): Promise<void> {
+  if (!isMobileShellAvailable.value) return
+
+  isMobileShellLoading.value = true
+  try {
+    const config = await getMobileShellServerConfig()
+    mobileShellServerConfig.value = config
+    if (!options.preserveInput || !normalizeUrlInput(mobileShellServerInput.value)) {
+      mobileShellServerInput.value = config.serverUrl
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '读取移动端连接地址失败'
+    setMobileShellStatus(message)
+  } finally {
+    isMobileShellLoading.value = false
+  }
+}
+
+function openLatestMobileShellReleasePage(): void {
+  const targetUrl = mobileShellLatestRelease.value?.htmlUrl.trim() || getMobileReleasesPageUrl()
+  if (!targetUrl) {
+    setMobileShellUpdateStatus('当前没有可打开的发布页地址')
+    return
+  }
+  window.open(targetUrl, '_blank', 'noopener,noreferrer')
+}
+
+async function refreshMobileShellUpdateState(showSuccessMessage = false): Promise<void> {
+  if (!isMobileShellAvailable.value) return
+
+  isMobileShellUpdateLoading.value = true
+  try {
+    const [appInfo, latestRelease] = await Promise.all([
+      getMobileShellAppInfo(),
+      fetchLatestMobileRelease(),
+    ])
+    mobileShellAppInfo.value = appInfo
+    mobileShellLatestRelease.value = latestRelease
+    if (showSuccessMessage) {
+      if (!latestRelease.asset) {
+        setMobileShellUpdateStatus('已读取最新发布，但暂未发现 Android 安装包')
+      } else if (isMobileReleaseUpdateAvailable(appInfo.versionName, latestRelease.tagName)) {
+        setMobileShellUpdateStatus(`检测到新版本 ${latestRelease.tagName}`)
+      } else {
+        setMobileShellUpdateStatus('当前已是最新版本')
+      }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '读取 App 更新状态失败'
+    setMobileShellUpdateStatus(message)
+  } finally {
+    isMobileShellUpdateLoading.value = false
   }
 }
 
@@ -1776,6 +2086,83 @@ function saveDetectedCloudflaredCommand(): void {
     .then(() => {
       setTunnelStatusMessage('cloudflared 路径已保存到本机配置')
     })
+}
+
+function openMobileShellServerUrl(): void {
+  const url = mobileShellServerConfig.value?.serverUrl.trim() || ''
+  if (!url) {
+    setMobileShellStatus('当前没有可打开的连接地址')
+    return
+  }
+  window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+async function saveMobileShellServerAddress(): Promise<void> {
+  if (!isMobileShellAvailable.value || isMobileShellSaving.value) return
+
+  const nextUrl = normalizedMobileShellServerInput.value
+  if (!nextUrl) {
+    setMobileShellStatus('请先输入完整的服务地址')
+    return
+  }
+
+  isMobileShellSaving.value = true
+  setMobileShellStatus('正在保存连接地址...')
+  try {
+    const config = await setMobileShellServerUrl(nextUrl)
+    mobileShellServerConfig.value = config
+    mobileShellServerInput.value = config.serverUrl
+    setMobileShellStatus('地址已保存，App 正在重连...')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '保存连接地址失败'
+    setMobileShellStatus(message)
+  } finally {
+    isMobileShellSaving.value = false
+  }
+}
+
+async function restoreDefaultMobileShellServerAddress(): Promise<void> {
+  if (!isMobileShellAvailable.value || isMobileShellSaving.value) return
+
+  isMobileShellSaving.value = true
+  setMobileShellStatus('正在恢复默认地址...')
+  try {
+    const config = await resetMobileShellServerUrl()
+    mobileShellServerConfig.value = config
+    mobileShellServerInput.value = config.serverUrl
+    setMobileShellStatus('默认地址已恢复，App 正在重连...')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '恢复默认地址失败'
+    setMobileShellStatus(message)
+  } finally {
+    isMobileShellSaving.value = false
+  }
+}
+
+async function installLatestMobileShellRelease(): Promise<void> {
+  if (!isMobileShellAvailable.value || isMobileShellInstalling.value) return
+
+  const asset = mobileShellLatestRelease.value?.asset
+  if (!asset?.downloadUrl) {
+    setMobileShellUpdateStatus('当前没有可下载安装的 Android 更新包')
+    return
+  }
+
+  isMobileShellInstalling.value = true
+  setMobileShellUpdateStatus('正在下载更新包并准备安装...')
+  try {
+    const result = await installMobileShellApk(asset.downloadUrl, asset.name)
+    if (result.status === 'permission_required') {
+      setMobileShellUpdateStatus('请允许 CX Codex 安装未知应用，然后再点下载安装')
+    } else {
+      setMobileShellUpdateStatus('更新包已下载，系统安装界面正在打开')
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '下载安装更新失败'
+    setMobileShellUpdateStatus(message)
+  } finally {
+    isMobileShellInstalling.value = false
+  }
 }
 
 function closeDesktopRefreshConfirm(): void {
@@ -3304,6 +3691,10 @@ async function submitFirstMessageForNewThread(
   @apply cursor-default items-center gap-2;
 }
 
+.sidebar-settings-row--input {
+  @apply cursor-default items-start;
+}
+
 .sidebar-settings-row--static {
   @apply cursor-default hover:bg-transparent;
 }
@@ -3346,6 +3737,28 @@ async function submitFirstMessageForNewThread(
 
 .sidebar-settings-label {
   @apply text-left;
+}
+
+.sidebar-settings-field {
+  @apply flex w-full min-w-0 flex-col gap-2;
+}
+
+.sidebar-settings-input {
+  @apply w-full rounded-2xl border border-[#ddd5c7] bg-white px-3 py-2 text-sm text-[#2d261f] outline-none transition-[border-color,box-shadow] duration-100;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.sidebar-settings-input::placeholder {
+  color: #9f9484;
+}
+
+.sidebar-settings-input:focus {
+  border-color: #bde7df;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.sidebar-settings-input:disabled {
+  @apply cursor-not-allowed bg-[#f7f4ed] text-[#9f9484];
 }
 
 .sidebar-settings-value {
@@ -3416,6 +3829,32 @@ async function submitFirstMessageForNewThread(
 
 .sidebar-settings-about {
   @apply border-t border-[#f1eadf] px-3 py-2.5 flex flex-col gap-2;
+}
+
+.sidebar-settings-brand-card {
+  @apply flex items-center gap-3 rounded-[24px] border border-[#d6e3ff] bg-[linear-gradient(135deg,rgba(236,244,255,0.96),rgba(255,255,255,0.98))] px-3 py-3;
+  box-shadow: 0 12px 24px -24px rgba(30, 99, 255, 0.42);
+}
+
+.sidebar-settings-brand-logo {
+  @apply h-14 w-14 shrink-0 rounded-[18px] border border-white/60 bg-white/75 object-cover;
+  box-shadow: 0 12px 22px -20px rgba(30, 99, 255, 0.5);
+}
+
+.sidebar-settings-brand-copy {
+  @apply min-w-0 flex flex-col gap-0.5;
+}
+
+.sidebar-settings-brand-kicker {
+  @apply text-[10px] font-semibold uppercase tracking-[0.14em] text-[#5978c2];
+}
+
+.sidebar-settings-brand-title {
+  @apply text-[15px] leading-5 font-semibold text-[#16367e];
+}
+
+.sidebar-settings-brand-subtitle {
+  @apply text-[11px] leading-4 text-[#6a7cae];
 }
 
 .sidebar-settings-about-main {

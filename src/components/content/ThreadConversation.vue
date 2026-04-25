@@ -967,7 +967,8 @@ const latestRenderableTurnIndex = computed<number | null>(() => {
 })
 
 function isTurnCompleted(turnIndex: number): boolean {
-  return !props.isTurnInProgress || turnIndex !== latestRenderableTurnIndex.value
+  if (turnIndex !== latestRenderableTurnIndex.value) return true
+  return typeof workedSummaryDurationByTurnIndex.value[turnIndex] === 'number'
 }
 
 const collapsibleGuidedTurnDescriptors = computed<Map<number, GuidedTurnDescriptor>>(() => {

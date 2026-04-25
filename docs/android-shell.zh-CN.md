@@ -1,0 +1,136 @@
+# Android 壳应用一期
+
+本项目的一期 Android 方案不是把 Node 桥接后端搬进手机，而是用 Capacitor 把现有 Web 前端封装成安卓壳，并连接一台已经运行 `codexui-server-bridge` 的远程地址。
+
+## 目标
+
+- 复用现有 Web 前端，不重写页面
+- 在 Android 端接入更稳定的前后台恢复和网络恢复事件
+- 为后续通知、语音、文件上传和本地持久化预留原生入口
+
+## 当前范围
+
+- 已接入 Capacitor Android 基础依赖
+- 已新增 App 生命周期和网络状态桥接
+- App 回到前台、网络恢复时，会复用现有 Web 端的自动补同步逻辑
+
+当前这版仍然依赖远程 `codexui-server-bridge`，不支持离线独立运行。
+
+## 使用方式
+
+1. 先准备一台可访问的 `codexui-server-bridge`
+
+例如局域网或公网地址：
+
+- `http://192.168.1.110:7420`
+- `https://your-remote-host.example.com`
+
+2. 在 PowerShell 中设置 Android 壳要连接的地址
+
+```powershell
+$env:CAP_SERVER_URL = "http://192.168.1.110:7420"
+```
+
+3. 生成 Android 工程
+
+```powershell
+npm run mobile:android:add
+```
+
+4. 同步前端资源与 Capacitor 配置
+
+```powershell
+npm run mobile:android:sync
+```
+
+5. 用 Android Studio 打开原生工程
+
+```powershell
+npm run mobile:android:open
+```
+
+## 当前脚本
+
+- `npm run mobile:android:add`
+- `npm run mobile:android:sync`
+- `npm run mobile:android:open`
+- `npm run mobile:android:run`
+
+## 本地 release 签名
+
+当前工作区已经支持本地签名版 APK：
+
+- 本地 keystore：`%USERPROFILE%\\.codexui\\android-signing\\codexui-release.jks`
+- 本地签名配置：`android/keystore.properties`
+
+这两个文件只用于当前机器：
+
+- `android/keystore.properties` 已加入 `.gitignore`
+- keystore 不会随仓库提交
+
+构建命令：
+
+```powershell
+$env:JAVA_HOME = "C:\\Program Files\\Java\\jdk-24"
+$env:ANDROID_SDK_ROOT = "$env:LOCALAPPDATA\\Android\\Sdk"
+$env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
+cd android
+.\gradlew.bat assembleRelease
+```
+
+默认产物：
+
+- `android/app/build/outputs/apk/release/app-release.apk`
+
+## 当前 Android 产品化收口
+
+- 应用名称：`CX Codex`
+- 默认远程地址：通过 `CAP_SERVER_URL` 同步写入原生配置
+- Android 已显式放开 HTTP 明文访问，适配自托管 `http://host:port` 场景
+- 启动页已改为原生 SplashScreen + 品牌图标方案
+- App 设置里已新增“移动端连接”区块：
+  - 可直接查看当前连接地址
+  - 可手动修改服务地址并保存重连
+  - 可恢复打包时写入的默认地址
+- App 设置里已新增“App 更新”区块：
+  - 可读取 GitHub 最新 Release
+  - 可显示当前安装版本、最新版本和 APK 名称
+  - 可直接下载最新 APK 并拉起系统安装
+
+## 本地一键打包
+
+```powershell
+./scripts/package-android-release.ps1 -Version v0.2.0-bridge.5 -ServerUrl https://your-codex-host.example.com -VersionCode 5
+```
+
+默认会产出：
+
+- `artifacts/cx-codex-android-v0.2.0-bridge.5.apk`
+- `artifacts/cx-codex-android-v0.2.0-bridge.5.apk.sha256`
+
+## GitHub Release 挂 APK
+
+仓库内的 `release.yml` 已支持额外上传 Android APK，但为了保证后续站内更新可以覆盖安装，Release APK 必须始终使用同一把签名 key。建议在 GitHub 仓库配置以下 secrets：
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+- `ANDROID_DEFAULT_SERVER_URL`（可选）
+
+配置后，打标签发版时会自动：
+
+- 构建 Web Release 包
+- 构建签名版 `CX Codex` Android APK
+- 将 APK 与 `.sha256` 一并挂到 GitHub Release
+
+## 已知边界
+
+- 如果没有设置 `CAP_SERVER_URL`，安卓壳仍可生成，但不会自动绑定远程服务地址。
+- 当前实现优先解决“回到前台自动补同步”，不是“锁屏期间持续流式更新”。
+- 真机安装、调试和发布仍需要本机 Android SDK / Android Studio。
+
+## 后续建议
+
+- 增加本地通知，用于任务完成和等待确认提醒
+- 补线程快照与事件游标回补接口，降低后台恢复丢消息概率

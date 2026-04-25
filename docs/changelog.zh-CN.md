@@ -2,6 +2,27 @@
 
 ## 未发布
 
+- 新增 Android 壳一期基础脚手架：
+  - 接入 `Capacitor` Android 依赖与基础命令
+  - 新增 `capacitor.config.ts`
+  - 新增移动端 App 生命周期 / 网络状态桥接
+  - App 回到前台和网络恢复时，可复用现有自动补同步逻辑
+  - 补充 `docs/android-shell.zh-CN.md` 说明当前远程壳方案与使用方式
+- 新增 Android 本地签名打包链路：
+  - Android 工程支持读取本地 `keystore.properties` 做 release 签名
+  - 本机已补齐最小 Android SDK、命令行工具和本地 keystore
+  - 可直接产出签名版 `release APK`
+- Android 壳进一步收口：
+  - 应用名称改为 `CX Codex`
+  - 明确放开 Android 端 HTTP 明文访问，适配当前公网地址
+  - 启动页改为原生 SplashScreen 方案，减少默认脚手架感
+  - 新增 Android 原生“移动端连接”插件，可在 App 设置里直接查看、修改和恢复服务地址
+  - 保存新地址后会自动重连，不再需要为了切换地址重新同步 `CAP_SERVER_URL` 再打包
+  - 新增品牌图标生成脚本，统一产出 `CX Codex` 的 Android 图标与 Web 品牌资源
+  - 新增 Android 原生“App 更新”能力，可读取 GitHub 最新 Release 并直接下载 APK 安装
+  - 新增 `scripts/package-android-release.ps1`，可一键同步前端、构建签名版 APK 并输出 SHA256
+  - GitHub Release 工作流新增 Android APK 发布通道，支持在配置签名 secrets 后自动挂 APK 资产
+
 ## v0.2.0-bridge.4
 
 发布时间：2026-04-24

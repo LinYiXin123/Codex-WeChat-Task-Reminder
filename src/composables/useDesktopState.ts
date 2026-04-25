@@ -30,6 +30,7 @@ import {
   type RpcConnectionState,
   type RpcNotification,
   type SkillInfo,
+  type ThreadRuntimeSnapshot,
 } from '../api/codexGateway'
 import type {
   CommandExecutionData,
@@ -47,6 +48,12 @@ import type {
 } from '../types/codex'
 import { isAbortLikeError } from '../api/codexErrors'
 import { normalizePathForUi, toProjectName } from '../pathUtils.js'
+import {
+  MOBILE_APP_PAUSE_EVENT,
+  MOBILE_APP_RESUME_EVENT,
+  MOBILE_NETWORK_OFFLINE_EVENT,
+  MOBILE_NETWORK_ONLINE_EVENT,
+} from '../mobile/events'
 
 function flattenThreads(groups: UiProjectGroup[]): UiThread[] {
   return groups.flatMap((group) => group.threads)
@@ -109,6 +116,7 @@ const ACTIVE_SYNC_STALE_MS = 14000
 const STALE_THREAD_ACTIVE_TURN_TTL_MS = 5 * 60 * 1000
 const STALE_THREAD_ACTIVE_TURN_IMMEDIATE_MS = 20 * 60 * 1000
 const OPTIMISTIC_EXECUTION_RECOVERY_GRACE_MS = 6000
+const LIVE_OVERLAY_ACTIVITY_GRACE_MS = 4500
 const UNKNOWN_ACTIVE_TURN_ID = '__unknown_active_turn__'
 const LIVE_DELTA_BATCH_MS = 48
 const NOTIFICATION_STALE_MS = 18000
@@ -1007,6 +1015,7 @@ export function useDesktopState() {
   let foregroundMessageLoadId = 0
   let rateLimitRefreshTimer: number | null = null
   let rateLimitRefreshPromise: Promise<void> | null = null
+  const resumePromiseByThreadId = new Map<string, Promise<void>>()
   let hasRateLimitTrackingEnabled = false
   let lastNotificationAtMs = Date.now()
   let lastThreadListSyncAtMs = 0
@@ -1183,10 +1192,23 @@ export function useDesktopState() {
     const reasoningText = (liveReasoningTextByThreadId.value[threadId] ?? '').trim()
     const errorText = (turnErrorByThreadId.value[threadId]?.message ?? '').trim()
     const isInProgress = isThreadExecutionActive(threadId)
-    const hasFreshTransientSignal = hasFreshExecutionSignal(threadId, ACTIVE_SYNC_BOOST_WINDOW_MS)
+    const isSettled = hasSettledThreadDetail(threadId)
+    const hasFreshTransientSignal = !isSettled && hasFreshExecutionSignal(threadId, LIVE_OVERLAY_ACTIVITY_GRACE_MS)
+    const hasRunningCommand =
+      hasRunningLiveCommand(threadId) ||
+      hasPersistedRunningCommand(threadId)
+    const hasPendingSignal = hasPendingServerRequestSignal(threadId)
 
-    if (!isInProgress && !errorText && !hasFreshTransientSignal) return null
-    if (!activity && !reasoningText && !errorText && !isInProgress) return null
+    if (
+      !isInProgress &&
+      !errorText &&
+      !reasoningText &&
+      !hasRunningCommand &&
+      !hasPendingSignal &&
+      !hasFreshTransientSignal
+    ) return null
+    if (isSettled && !errorText && !reasoningText && !hasRunningCommand && !hasPendingSignal) return null
+    if (!activity && !reasoningText && !errorText && !isInProgress && !hasRunningCommand && !hasPendingSignal) return null
     return {
       activityLabel: localizeActivityText(activity?.label || 'Thinking'),
       activityDetails: (activity?.details ?? []).map((line) => localizeActivityText(line)),
@@ -1356,9 +1378,7 @@ export function useDesktopState() {
       setThreadInProgress(threadId, true)
       markThreadLiveExecutionSignal(threadId)
 
-      if (resumedThreadById.value[threadId] !== true) {
-        await resumeThread(threadId)
-      }
+      await ensureThreadResumed(threadId)
 
       await startThreadTurn(
         threadId,
@@ -1370,10 +1390,7 @@ export function useDesktopState() {
         pending.fileAttachments,
       )
 
-      resumedThreadById.value = {
-        ...resumedThreadById.value,
-        [threadId]: true,
-      }
+      markThreadResumed(threadId)
 
       scheduleRateLimitRefresh()
       pendingThreadMessageRefresh.add(threadId)
@@ -1899,6 +1916,39 @@ export function useDesktopState() {
     )
   }
 
+  function markThreadResumed(threadId: string): void {
+    if (!threadId || resumedThreadById.value[threadId] === true) return
+    resumedThreadById.value = {
+      ...resumedThreadById.value,
+      [threadId]: true,
+    }
+  }
+
+  function ensureThreadResumed(threadId: string, options: { signal?: AbortSignal } = {}): Promise<void> {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId || resumedThreadById.value[normalizedThreadId] === true) {
+      return Promise.resolve()
+    }
+
+    const existingPromise = resumePromiseByThreadId.get(normalizedThreadId)
+    if (existingPromise) {
+      return existingPromise
+    }
+
+    const nextPromise = resumeThread(normalizedThreadId, { signal: options.signal })
+      .then(() => {
+        markThreadResumed(normalizedThreadId)
+      })
+      .finally(() => {
+        if (resumePromiseByThreadId.get(normalizedThreadId) === nextPromise) {
+          resumePromiseByThreadId.delete(normalizedThreadId)
+        }
+      })
+
+    resumePromiseByThreadId.set(normalizedThreadId, nextPromise)
+    return nextPromise
+  }
+
   function setThreadReadActiveState(threadId: string, nextState: ThreadReadActiveState | null): void {
     if (!threadId) return
 
@@ -1974,6 +2024,20 @@ export function useDesktopState() {
     return Number.isFinite(updatedAtMs) ? updatedAtMs : 0
   }
 
+  function hasLoadedThreadDetail(threadId: string): boolean {
+    if (!threadId) return false
+    return loadedMessagesByThreadId.value[threadId] === true || (lastThreadDetailSyncAtById.value[threadId] ?? 0) > 0
+  }
+
+  function hasSettledThreadDetail(threadId: string): boolean {
+    if (!threadId || !hasLoadedThreadDetail(threadId)) return false
+    if (inProgressById.value[threadId] === true) return false
+    if (typeof activeTurnIdByThreadId.value[threadId] === 'string' && activeTurnIdByThreadId.value[threadId].trim().length > 0) return false
+    if (hasPendingServerRequestSignal(threadId)) return false
+    if (hasQueuedThreadWork(threadId)) return false
+    return true
+  }
+
   function hasStrongExecutionSignal(threadId: string): boolean {
     if (!threadId) return false
     if (hasQueuedThreadWork(threadId)) return true
@@ -1984,9 +2048,10 @@ export function useDesktopState() {
 
   function hasAuthoritativeExecutionSignal(threadId: string): boolean {
     if (!threadId) return false
-    if (sourceThreadById.value[threadId]?.inProgress === true) return true
+    if (hasSettledThreadDetail(threadId) && !hasStrongExecutionSignal(threadId)) return false
+    if (sourceThreadById.value[threadId]?.inProgress === true && !hasLoadedThreadDetail(threadId)) return true
     if (hasStrongExecutionSignal(threadId)) return true
-    return hasFreshExecutionSignal(threadId, ACTIVE_SYNC_BOOST_WINDOW_MS)
+    return hasFreshExecutionSignal(threadId, OPTIMISTIC_EXECUTION_RECOVERY_GRACE_MS)
   }
 
   function resolveThreadReadExecutionState(
@@ -2067,6 +2132,7 @@ export function useDesktopState() {
   }
 
   function hasPersistedRunningCommand(threadId: string): boolean {
+    if (hasSettledThreadDetail(threadId) && !hasRunningLiveCommand(threadId)) return false
     return (persistedMessagesByThreadId.value[threadId] ?? [])
       .some((message) => message.commandExecution?.status === 'inProgress')
   }
@@ -2086,6 +2152,7 @@ export function useDesktopState() {
 
   function isThreadExecutionActive(threadId: string): boolean {
     if (!threadId) return false
+    if (hasSettledThreadDetail(threadId) && !hasStrongExecutionSignal(threadId)) return false
     const hasAuthoritativeSignal = hasAuthoritativeExecutionSignal(threadId)
     if (inProgressById.value[threadId] === true && hasAuthoritativeSignal) return true
 
@@ -2096,12 +2163,20 @@ export function useDesktopState() {
     if (hasPersistedRunningCommand(threadId)) return true
     if (hasQueuedThreadWork(threadId)) return true
 
-    if (turnActivityByThreadId.value[threadId] && hasFreshExecutionSignal(threadId, ACTIVE_SYNC_BOOST_WINDOW_MS)) {
+    if (
+      !hasSettledThreadDetail(threadId) &&
+      turnActivityByThreadId.value[threadId] &&
+      hasFreshExecutionSignal(threadId, LIVE_OVERLAY_ACTIVITY_GRACE_MS)
+    ) {
       return true
     }
 
     const reasoningText = liveReasoningTextByThreadId.value[threadId] ?? ''
-    if (reasoningText.trim().length > 0 && hasFreshExecutionSignal(threadId, ACTIVE_SYNC_BOOST_WINDOW_MS)) {
+    if (
+      !hasSettledThreadDetail(threadId) &&
+      reasoningText.trim().length > 0 &&
+      hasFreshExecutionSignal(threadId, LIVE_OVERLAY_ACTIVITY_GRACE_MS)
+    ) {
       return true
     }
 
@@ -3652,16 +3727,25 @@ export function useDesktopState() {
       isLoadingMessages.value = true
     }
 
+    const resumePromise = resumedThreadById.value[threadId] !== true
+      ? ensureThreadResumed(threadId, { signal: options.signal })
+      : null
+
     try {
-      if (resumedThreadById.value[threadId] !== true) {
-        await resumeThread(threadId, { signal: options.signal })
-        resumedThreadById.value = {
-          ...resumedThreadById.value,
-          [threadId]: true,
+      let snapshot: ThreadRuntimeSnapshot
+      try {
+        snapshot = await getThreadRuntimeSnapshot(threadId, { signal: options.signal })
+      } catch (error) {
+        if (!resumePromise || !isThreadMaterializingError(error)) {
+          throw error
         }
+        await resumePromise
+        snapshot = await getThreadRuntimeSnapshot(threadId, { signal: options.signal })
       }
 
-      const snapshot = await getThreadRuntimeSnapshot(threadId, { signal: options.signal })
+      if (resumePromise) {
+        void resumePromise.catch(() => {})
+      }
       const nextMessages = snapshot.messages
       const inProgress = snapshot.inProgress
       const activeTurnId = snapshot.activeTurnId
@@ -4102,9 +4186,7 @@ export function useDesktopState() {
     })
 
     try {
-      if (resumedThreadById.value[threadId] !== true) {
-        await resumeThread(threadId)
-      }
+      await ensureThreadResumed(threadId)
 
       let startedTurnId = ''
       try {
@@ -4151,10 +4233,7 @@ export function useDesktopState() {
       }
       markThreadLiveExecutionSignal(threadId)
 
-      resumedThreadById.value = {
-        ...resumedThreadById.value,
-        [threadId]: true,
-      }
+      markThreadResumed(threadId)
 
       pendingThreadMessageRefresh.add(threadId)
       pendingThreadsRefresh = true
@@ -4528,8 +4607,8 @@ export function useDesktopState() {
       resumeSyncTimers.clear()
     }
 
-    const scheduleResumeSync = (): void => {
-      if (document.hidden) return
+    const scheduleResumeSync = (force = false): void => {
+      if (!force && document.hidden) return
       const shouldRestartNotifications =
         realtimeConnectionState.value !== 'connected' ||
         (notificationStale.value && (hasSyncDemand.value || Boolean(selectedThreadId.value)))
@@ -4541,7 +4620,7 @@ export function useDesktopState() {
       for (const delayMs of RESUME_SYNC_RETRY_DELAYS_MS) {
         const timer = window.setTimeout(() => {
           resumeSyncTimers.delete(timer)
-          if (document.hidden) return
+          if (!force && document.hidden) return
           markActiveSyncBoost()
           void syncThreadStatus({
             includeThreadList: true,
@@ -4575,17 +4654,45 @@ export function useDesktopState() {
       scheduleResumeSync()
     }
 
+    const onMobileResume = (): void => {
+      scheduleResumeSync(true)
+    }
+
+    const onMobilePause = (): void => {
+      clearVisibilitySyncTimer()
+      clearResumeSyncTimers()
+      stopActiveSyncBoost()
+    }
+
+    const onMobileOnline = (): void => {
+      scheduleResumeSync(true)
+    }
+
+    const onMobileOffline = (): void => {
+      clearVisibilitySyncTimer()
+      clearResumeSyncTimers()
+      stopActiveSyncBoost()
+    }
+
     stopVisibilitySync = () => {
       clearResumeSyncTimers()
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('focus', onWindowFocus)
       window.removeEventListener('pageshow', onPageShow)
       window.removeEventListener('online', onOnline)
+      window.removeEventListener(MOBILE_APP_RESUME_EVENT, onMobileResume)
+      window.removeEventListener(MOBILE_APP_PAUSE_EVENT, onMobilePause)
+      window.removeEventListener(MOBILE_NETWORK_ONLINE_EVENT, onMobileOnline)
+      window.removeEventListener(MOBILE_NETWORK_OFFLINE_EVENT, onMobileOffline)
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('focus', onWindowFocus)
     window.addEventListener('pageshow', onPageShow)
     window.addEventListener('online', onOnline)
+    window.addEventListener(MOBILE_APP_RESUME_EVENT, onMobileResume)
+    window.addEventListener(MOBILE_APP_PAUSE_EVENT, onMobilePause)
+    window.addEventListener(MOBILE_NETWORK_ONLINE_EVENT, onMobileOnline)
+    window.addEventListener(MOBILE_NETWORK_OFFLINE_EVENT, onMobileOffline)
   }
 
   function clearVisibilitySyncTimer(): void {

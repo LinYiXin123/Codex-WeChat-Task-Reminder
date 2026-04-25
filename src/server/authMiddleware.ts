@@ -2,6 +2,9 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import type { RequestHandler, Request, Response, NextFunction } from 'express'
 import {
+  WEB_AUTH_EXPIRED_MESSAGE,
+  WEB_AUTH_EXPIRED_STATUS,
+  WEB_AUTH_STATUS_STORAGE_KEY,
   WEB_AUTH_REQUIRED_ERROR_CODE,
   WEB_AUTH_REQUIRED_HEADER,
   WEB_AUTH_REQUIRED_VALUE,
@@ -78,12 +81,18 @@ input{width:100%;padding:.625rem .75rem;background:#0a0a0a;border:1px solid #404
 input:focus{border-color:#3b82f6}
 button{width:100%;padding:.625rem;margin-top:1rem;background:#3b82f6;color:#fff;border:none;border-radius:8px;font-size:.9375rem;font-weight:500;cursor:pointer;transition:background .15s}
 button:hover{background:#2563eb}
+.notice{display:none;margin-bottom:1rem;padding:.75rem .875rem;border-radius:10px;border:1px solid rgba(250,204,21,.24);background:rgba(250,204,21,.08);color:#fde68a;font-size:.875rem;line-height:1.55}
+.notice-title{display:block;font-size:.9375rem;font-weight:600;color:#fef3c7;margin-bottom:.25rem}
 .error{color:#ef4444;font-size:.8125rem;margin-top:.75rem;text-align:center;display:none}
 </style>
 </head>
 <body>
 <div class="card">
 <h1>Codex Web Local</h1>
+<div class="notice" id="notice" role="status" aria-live="polite">
+<span class="notice-title">登录状态已失效</span>
+<span id="notice-text"></span>
+</div>
 <form id="f">
 <label for="pw">密码</label>
 <input id="pw" name="password" type="password" autocomplete="current-password" autofocus required>
@@ -94,11 +103,30 @@ button:hover{background:#2563eb}
 <script>
 const form=document.getElementById('f');
 const errEl=document.getElementById('err');
+const noticeEl=document.getElementById('notice');
+const noticeTextEl=document.getElementById('notice-text');
+try{
+  const raw=window.sessionStorage.getItem('${WEB_AUTH_STATUS_STORAGE_KEY}');
+  if(raw){
+    const parsed=JSON.parse(raw);
+    if(parsed && parsed.status==='${WEB_AUTH_EXPIRED_STATUS}'){
+      const message=typeof parsed.message==='string' && parsed.message.trim() ? parsed.message.trim() : '${WEB_AUTH_EXPIRED_MESSAGE}';
+      noticeTextEl.textContent=message;
+      noticeEl.style.display='block';
+    }
+    window.sessionStorage.removeItem('${WEB_AUTH_STATUS_STORAGE_KEY}');
+  }
+}catch{}
 form.addEventListener('submit',async e=>{
   e.preventDefault();
   errEl.style.display='none';
   const res=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
-  if(res.ok){window.location.reload()}else{errEl.style.display='block';document.getElementById('pw').value='';document.getElementById('pw').focus()}
+  if(res.ok){
+    try{window.sessionStorage.removeItem('${WEB_AUTH_STATUS_STORAGE_KEY}')}catch{}
+    window.location.reload()
+  }else{
+    errEl.style.display='block';document.getElementById('pw').value='';document.getElementById('pw').focus()
+  }
 });
 </script>
 </body>
@@ -153,7 +181,7 @@ export function createAuthSession(password: string): AuthSession {
       clearTokenCookie(res)
       res.setHeader(WEB_AUTH_REQUIRED_HEADER, WEB_AUTH_REQUIRED_VALUE)
       res.status(401).json({
-        error: '登录已失效，请重新登录。',
+        error: WEB_AUTH_EXPIRED_MESSAGE,
         code: WEB_AUTH_REQUIRED_ERROR_CODE,
       })
       return

@@ -35,6 +35,67 @@ jobs:
             -Version "${env:GITHUB_REF_NAME}" `
             -OutputDir "${env:RUNNER_TEMP}\release"
 
+      - name: Set up Java 24 for Android
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '24'
+
+      - name: Set up Android SDK
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build packages
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Prepare Android signing files
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $keystoreDir = Join-Path $env:RUNNER_TEMP 'android-signing'
+          New-Item -ItemType Directory -Force -Path $keystoreDir | Out-Null
+          $keystorePath = Join-Path $keystoreDir 'cx-codex-release.jks'
+          [System.IO.File]::WriteAllBytes($keystorePath, [Convert]::FromBase64String("${{ secrets.ANDROID_KEYSTORE_BASE64 }}"))
+          @"
+          storeFile=$keystorePath
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          "@ | Set-Content -Path "android/keystore.properties" -Encoding UTF8
+
+      - name: Sync Android shell
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        shell: pwsh
+        env:
+          CAP_SERVER_URL: ${{ secrets.ANDROID_DEFAULT_SERVER_URL }}
+        run: npm run mobile:android:sync
+
+      - name: Build Android release APK
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        shell: pwsh
+        env:
+          APP_VERSION_NAME: ${{ github.ref_name }}
+          APP_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          Push-Location android
+          .\gradlew.bat assembleRelease
+          Pop-Location
+
+      - name: Collect Android release artifacts
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          $outputDir = Join-Path $env:RUNNER_TEMP 'release'
+          $apkSource = "android/app/build/outputs/apk/release/app-release.apk"
+          $apkTarget = Join-Path $outputDir "cx-codex-android-${env:GITHUB_REF_NAME}.apk"
+          Copy-Item $apkSource $apkTarget -Force
+          $hash = (Get-FileHash -Algorithm SHA256 $apkTarget).Hash.ToLowerInvariant()
+          Set-Content -Path ($apkTarget + '.sha256') -Value "$hash  $(Split-Path -Leaf $apkTarget)" -Encoding ASCII
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
@@ -42,3 +103,4 @@ jobs:
           files: |
             ${{ runner.temp }}/release/*.zip
             ${{ runner.temp }}/release/*.sha256
+            ${{ runner.temp }}/release/*.apk

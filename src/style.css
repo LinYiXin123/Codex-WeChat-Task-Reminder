@@ -168,6 +168,24 @@ pre {
   @apply text-zinc-400 bg-zinc-700;
 }
 
+:root.dark .sidebar-settings-input {
+  @apply border-zinc-700 bg-zinc-900 text-zinc-200;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+:root.dark .sidebar-settings-input::placeholder {
+  @apply text-zinc-500;
+}
+
+:root.dark .sidebar-settings-input:focus {
+  @apply border-emerald-700;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16);
+}
+
+:root.dark .sidebar-settings-input:disabled {
+  @apply bg-zinc-800 text-zinc-500;
+}
+
 :root.dark .sidebar-settings-code {
   @apply border-zinc-700 bg-zinc-900 text-zinc-300;
 }

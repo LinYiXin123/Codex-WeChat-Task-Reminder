@@ -1,18 +1,38 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
-import { isWebAuthRequiredResponse } from './shared/webAuth'
+import {
+  isWebAuthRequiredResponse,
+  WEB_AUTH_EXPIRED_MESSAGE,
+  WEB_AUTH_EXPIRED_STATUS,
+  WEB_AUTH_STATUS_STORAGE_KEY,
+} from './shared/webAuth'
+import { initializeCapacitorBridge } from './mobile/capacitorBridge'
 import './style.css'
 
 console.log('Welcome to codexapp. GitHub: https://github.com/Qjzn/codexui-server-bridge')
 
 if (typeof window !== 'undefined') {
+  void initializeCapacitorBridge()
   const nativeFetch = window.fetch.bind(window)
   let authReloadScheduled = false
 
-  const scheduleAuthReload = (): void => {
+  const persistAuthExpiryNotice = (message = WEB_AUTH_EXPIRED_MESSAGE): void => {
+    try {
+      window.sessionStorage.setItem(WEB_AUTH_STATUS_STORAGE_KEY, JSON.stringify({
+        status: WEB_AUTH_EXPIRED_STATUS,
+        message,
+        at: Date.now(),
+      }))
+    } catch {
+      // Keep auth recovery resilient if sessionStorage is unavailable.
+    }
+  }
+
+  const scheduleAuthReload = (message?: string): void => {
     if (authReloadScheduled) return
     authReloadScheduled = true
+    persistAuthExpiryNotice(message)
     window.setTimeout(() => {
       window.location.reload()
     }, 0)
@@ -21,7 +41,16 @@ if (typeof window !== 'undefined') {
   window.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const response = await nativeFetch(input, init)
     if (isWebAuthRequiredResponse(response)) {
-      scheduleAuthReload()
+      let authMessage = WEB_AUTH_EXPIRED_MESSAGE
+      try {
+        const payload = await response.clone().json() as { error?: unknown }
+        if (typeof payload?.error === 'string' && payload.error.trim()) {
+          authMessage = payload.error.trim()
+        }
+      } catch {
+        // Fall back to the default friendly message.
+      }
+      scheduleAuthReload(authMessage)
       return response
     }
 

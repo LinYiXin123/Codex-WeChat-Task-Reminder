@@ -18,6 +18,10 @@
   - 新增消息级收藏和全局收藏面板
   - 手机端语音输入支持更稳定的按住录音和音频上传回退链路
   - MCP 权限请求改为专用确认卡片，不再误显示为补充内容输入框
+- 更像 App：
+  - Android 壳统一收口为 `CX Codex`
+  - Release 可附带签名版 Android APK
+  - App 内可直接读取 GitHub 最新发布并下载安装更新
 - 更易远程：
   - 设置面板新增 Cloudflare Tunnel 状态区和路径保存能力
   - Windows bootstrap / install 脚本可自动识别或补装 `cloudflared`
