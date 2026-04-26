@@ -504,3 +504,31 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - 若需回退，恢复 `package.json`、`package-lock.json`、`android/app/build.gradle`、`.github/workflows/release.yml` 与 `docs/changelog.zh-CN.md`。
+
+---
+
+### Feature: 后台同步减少重型线程列表轮询
+
+#### Prerequisites
+- `7420` 服务运行中。
+- 至少有一个已加载会话。
+- 浏览器或 Android 壳能够连接通知流。
+
+#### Steps
+1. 打开任意会话并保持页面可见 2 分钟；可同时打开多个页面模拟旧客户端或多端访问。
+2. 观察 `/codex-api/health` 的 `rpcDiagnostics.recentSlowRpc`。
+3. 在会话执行中，确认前端仍能显示运行态、停止按钮和当前会话增量内容。
+4. 锁屏或切后台后回到 Android 壳，确认 resume 首次恢复不会强制拉完整线程列表。
+5. 手动点击刷新，确认仍会刷新线程列表和当前会话内容。
+6. 观察任务完成、状态变化、通知流重连时，确认它们不会单独触发完整 `thread/list`，只有新建/归档/重命名等列表结构变化才触发。
+
+#### Expected Results
+- 后台心跳不再因为通知流陈旧或会话执行中而固定触发 `thread/list`。
+- Android resume 主要走事件回放、runtime snapshot 和当前会话消息同步。
+- 手动刷新、首次加载、通知明确指示列表变化时，线程列表仍会更新。
+- RPC 队列中不应再持续出现每 30 秒左右一次的慢 `thread/list`。
+- `turn/completed`、`thread/status/changed` 等运行态通知只刷新当前会话，不刷新完整列表。
+- 多页面或旧客户端短时间重复请求相同 `thread/list` 时，后端应返回短缓存；新建/归档/重命名等结构变化会让缓存失效。
+
+#### Rollback/Cleanup
+- 若需回退，恢复 `src/composables/useDesktopState.ts` 中后台同步间隔和线程列表刷新判断。

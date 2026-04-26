@@ -84,10 +84,16 @@ function shouldRefreshMessagesFromNotification(method: string): boolean {
 
 function shouldRefreshThreadListFromNotification(method: string): boolean {
   if (method === THREAD_TOKEN_USAGE_UPDATED_METHOD) return false
+  if (method === 'thread/name/updated') return true
+  if (!method.startsWith('thread/')) return false
   return (
-    method === 'turn/completed' ||
-    method === 'thread/name/updated' ||
-    method.startsWith('thread/')
+    method.endsWith('/created') ||
+    method.endsWith('/archived') ||
+    method.endsWith('/unarchived') ||
+    method.endsWith('/deleted') ||
+    method.endsWith('/removed') ||
+    method.endsWith('/forked') ||
+    method.endsWith('/moved')
   )
 }
 
@@ -124,7 +130,7 @@ const ACTIVE_SYNC_BOOST_WINDOW_MS = 18000
 const RESUME_SYNC_RETRY_DELAYS_MS = [0, 700, 1800, 4200, 8200, 15000]
 const ANDROID_RESUME_SYNC_RETRY_DELAYS_MS = [0, 2500, 9000]
 const ANDROID_RESUME_SYNC_DEBOUNCE_MS = 1200
-const ACTIVE_SYNC_THREAD_LIST_INTERVAL_MS = 30000
+const ACTIVE_SYNC_THREAD_LIST_INTERVAL_MS = 120000
 const ACTIVE_SYNC_STALE_MS = 14000
 const STALE_THREAD_ACTIVE_TURN_TTL_MS = 5 * 60 * 1000
 const STALE_THREAD_ACTIVE_TURN_IMMEDIATE_MS = 20 * 60 * 1000
@@ -133,7 +139,7 @@ const LIVE_OVERLAY_ACTIVITY_GRACE_MS = 4500
 const UNKNOWN_ACTIVE_TURN_ID = '__unknown_active_turn__'
 const LIVE_DELTA_BATCH_MS = 48
 const NOTIFICATION_STALE_MS = 18000
-const THREAD_LIST_REFRESH_INTERVAL_MS = 30000
+const THREAD_LIST_REFRESH_INTERVAL_MS = 180000
 const RATE_LIMIT_REFRESH_DEBOUNCE_MS = 500
 const RATE_LIMIT_REFRESH_MIN_INTERVAL_MS = 120000
 const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
@@ -2610,6 +2616,25 @@ export function useDesktopState() {
     }
   }
 
+  function shouldRefreshThreadListForBackground(now = Date.now()): boolean {
+    if (!hasLoadedThreads.value) return true
+    if (pendingThreadsRefresh) return true
+    return !selectedThreadId.value && now - lastThreadListSyncAtMs >= THREAD_LIST_REFRESH_INTERVAL_MS
+  }
+
+  function shouldRefreshThreadListForActiveBoost(now = Date.now()): boolean {
+    if (!hasLoadedThreads.value) return true
+    if (pendingThreadsRefresh) return true
+    return !selectedThreadId.value && now - lastThreadListSyncAtMs >= ACTIVE_SYNC_THREAD_LIST_INTERVAL_MS
+  }
+
+  function shouldRefreshThreadListForResume(isFirstAttempt: boolean, now = Date.now()): boolean {
+    if (!hasLoadedThreads.value) return true
+    if (pendingThreadsRefresh) return true
+    if (androidShellAvailable) return false
+    return isFirstAttempt && !selectedThreadId.value && now - lastThreadListSyncAtMs >= THREAD_LIST_REFRESH_INTERVAL_MS
+  }
+
   function clearSyncAbortController(controller?: AbortController | null): void {
     if (!controller) {
       syncAbortController = null
@@ -2662,9 +2687,7 @@ export function useDesktopState() {
       const shouldRefreshMessages =
         pendingThreadMessageRefresh.has(activeThreadId) ||
         now - lastDetailSyncAt >= ACTIVE_SYNC_BOOST_INTERVAL_MS
-      const shouldRefreshThreads =
-        pendingThreadsRefresh ||
-        now - lastThreadListSyncAtMs >= ACTIVE_SYNC_THREAD_LIST_INTERVAL_MS
+      const shouldRefreshThreads = shouldRefreshThreadListForActiveBoost(now)
 
       if (shouldRefreshMessages || shouldRefreshThreads) {
         void syncThreadStatus({
@@ -4945,9 +4968,7 @@ export function useDesktopState() {
           notificationStale ||
           now - lastDetailSyncAt >= ACTIVE_THREAD_DETAIL_SYNC_INTERVAL_MS
         )
-      const shouldRefreshThreads =
-        now - lastThreadListSyncAtMs >= THREAD_LIST_REFRESH_INTERVAL_MS &&
-        (notificationStale || isInProgress || !activeThreadId)
+      const shouldRefreshThreads = shouldRefreshThreadListForBackground(now)
 
       if (!shouldRefreshThreads && !shouldRefreshMessages) {
         return
@@ -5010,20 +5031,7 @@ export function useDesktopState() {
           const shouldForceMessageRefresh = androidShellAvailable
             ? (!isFirstAttempt && (activeThreadNeedsMessages || hasSyncDemand.value))
             : (isFirstAttempt || hasSyncDemand.value)
-          const shouldIncludeThreadList =
-            androidShellAvailable
-              ? (
-                  !isFirstAttempt &&
-                  (
-                    pendingThreadsRefresh ||
-                    attemptAtMs - lastThreadListSyncAtMs >= THREAD_LIST_REFRESH_INTERVAL_MS
-                  )
-                )
-              : (
-                  isFirstAttempt ||
-                  pendingThreadsRefresh ||
-                  attemptAtMs - lastThreadListSyncAtMs >= THREAD_LIST_REFRESH_INTERVAL_MS
-                )
+          const shouldIncludeThreadList = shouldRefreshThreadListForResume(isFirstAttempt, attemptAtMs)
           markActiveSyncBoost()
           void replayMissedNotifications()
             .finally(() => syncThreadStatus({
@@ -5213,10 +5221,6 @@ export function useDesktopState() {
           if (state === 'connected') {
             clearSyncError()
           }
-          queueSelectedThreadSync({
-            includeThreadList: !androidShellAvailable,
-            forceMessageRefresh: !androidShellAvailable && hasSyncDemand.value,
-          })
           if (!isDocumentVisible()) {
             return
           }
@@ -5238,7 +5242,7 @@ export function useDesktopState() {
               markActiveSyncBoost()
               void replayMissedNotifications()
                 .finally(() => syncThreadStatus({
-                  includeThreadList: true,
+                  includeThreadList: !hasLoadedThreads.value || pendingThreadsRefresh,
                   forceMessageRefresh: true,
                   urgent: true,
                 }))
