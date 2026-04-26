@@ -181,6 +181,18 @@ def draw_brand_mark(target: Image.Image, size: int) -> None:
     )
 
 
+def make_foreground_icon(size: int) -> Image.Image:
+    canvas = Image.new("RGBA", (size, size), TRANSPARENT)
+    mark_size = int(size * 0.74)
+    mark = Image.new("RGBA", (mark_size, mark_size), TRANSPARENT)
+    draw_brand_mark(mark, mark_size)
+
+    offset_x = (size - mark_size) // 2
+    offset_y = (size - mark_size) // 2
+    canvas.alpha_composite(mark, (offset_x, offset_y))
+    return canvas
+
+
 def make_icon(size: int) -> Image.Image:
     canvas, _ = build_tile_canvas(size)
     draw_brand_mark(canvas, size)
@@ -191,17 +203,18 @@ def main() -> None:
     PUBLIC_BRANDING_DIR.mkdir(parents=True, exist_ok=True)
     source_size = 1024
     icon = make_icon(source_size)
+    foreground_icon = make_foreground_icon(source_size)
 
     save_png(icon, PUBLIC_BRANDING_DIR / "cx-codex-app-icon.png", source_size)
     save_png(icon, PUBLIC_BRANDING_DIR / "cx-codex-logo.png", 512)
-    save_png(icon, PUBLIC_BRANDING_DIR / "cx-codex-logo-foreground.png", 512)
+    save_png(foreground_icon, PUBLIC_BRANDING_DIR / "cx-codex-logo-foreground.png", 512)
 
     for density, size in LEGACY_SIZES.items():
         save_png(icon, ANDROID_RES_DIR / density / "ic_launcher.png", size)
         save_png(icon, ANDROID_RES_DIR / density / "ic_launcher_round.png", size)
 
     for density, size in FOREGROUND_SIZES.items():
-        save_png(icon, ANDROID_RES_DIR / density / "ic_launcher_foreground.png", size)
+        save_png(foreground_icon, ANDROID_RES_DIR / density / "ic_launcher_foreground.png", size)
 
 
 if __name__ == "__main__":

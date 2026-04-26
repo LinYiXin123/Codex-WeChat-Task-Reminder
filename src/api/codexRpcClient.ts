@@ -38,6 +38,10 @@ const TRANSPORT_STALE_CHECK_MS = 15000
 const TRANSPORT_STALE_MS = 45000
 const BRIDGE_HEARTBEAT_METHOD = 'bridge/heartbeat'
 const RPC_FETCH_TIMEOUT_MS = 20000
+const RPC_INTERACTIVE_FETCH_TIMEOUT_MS = 90000
+const RPC_LONG_FETCH_TIMEOUT_MS = 75000
+const RPC_LIST_FETCH_TIMEOUT_MS = 45000
+const RPC_LIGHT_READ_FETCH_TIMEOUT_MS = 30000
 const META_FETCH_TIMEOUT_MS = 12000
 const SERVER_REQUEST_FETCH_TIMEOUT_MS = 15000
 
@@ -45,6 +49,22 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
+}
+
+function getRpcFetchTimeoutMs(method: string, params: unknown): number {
+  if (method === 'turn/start') return RPC_INTERACTIVE_FETCH_TIMEOUT_MS
+  if (method === 'turn/interrupt') return RPC_LONG_FETCH_TIMEOUT_MS
+  if (method === 'thread/start' || method === 'thread/resume') return RPC_LONG_FETCH_TIMEOUT_MS
+  if (method === 'thread/fork' || method === 'thread/rollback') return RPC_LONG_FETCH_TIMEOUT_MS
+  if (method === 'thread/read') {
+    return asRecord(params)?.includeTurns === true
+      ? RPC_LONG_FETCH_TIMEOUT_MS
+      : RPC_LIGHT_READ_FETCH_TIMEOUT_MS
+  }
+  if (method === 'thread/list') return RPC_LIST_FETCH_TIMEOUT_MS
+  if (method === 'skills/list') return RPC_LIGHT_READ_FETCH_TIMEOUT_MS
+  if (method === 'account/rateLimits/read') return RPC_LIGHT_READ_FETCH_TIMEOUT_MS
+  return RPC_FETCH_TIMEOUT_MS
 }
 
 async function fetchWithTimeout(
@@ -94,6 +114,7 @@ async function fetchWithTimeout(
 
 export async function rpcCall<T>(method: string, params?: unknown, options: RpcRequestOptions = {}): Promise<T> {
   const body: RpcRequestBody = { method, params: params ?? null }
+  const timeoutMs = getRpcFetchTimeoutMs(method, params ?? null)
 
   let response: Response
   try {
@@ -104,7 +125,7 @@ export async function rpcCall<T>(method: string, params?: unknown, options: RpcR
       },
       body: JSON.stringify(body),
       signal: options.signal,
-    }, RPC_FETCH_TIMEOUT_MS, `RPC ${method}`)
+    }, timeoutMs, `RPC ${method}`)
   } catch (error) {
     if (error instanceof CodexApiError || isAbortLikeError(error)) {
       throw error

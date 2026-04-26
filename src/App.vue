@@ -675,7 +675,7 @@
                   :selected-speed-mode="selectedSpeedMode"
                   :is-updating-speed-mode="isUpdatingSpeedMode"
                   :skills="installedSkills"
-                  :is-turn-in-progress="isSelectedThreadInProgress" :is-interrupting-turn="isInterruptingTurn"
+                  :is-turn-in-progress="isSelectedThreadInterruptible" :is-interrupting-turn="isInterruptingTurn"
                   :has-queue-above="selectedThreadQueuedMessages.length > 0"
                   :send-with-enter="sendWithEnter"
                   :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
@@ -1071,6 +1071,7 @@ const {
   rollbackSelectedThread,
   isRollingBack,
   selectedThreadExecutionActive,
+  selectedThreadCanStop,
   selectedThreadQueuedMessages,
   selectedThreadQueueProcessing,
   removeQueuedMessage,
@@ -1645,7 +1646,8 @@ const displayFavorites = computed<FavoriteRecord[]>(() => (
     }
   })
 ))
-const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selectedThread.value?.inProgress === true)
+const isSelectedThreadInProgress = computed(() => !isHomeRoute.value && selectedThreadExecutionActive.value)
+const isSelectedThreadInterruptible = computed(() => !isHomeRoute.value && selectedThreadCanStop.value)
 const shouldShowSelectedThreadProcessing = computed(() => (
   selectedThreadServerRequests.value.length > 0 ||
   selectedLiveOverlay.value !== null ||

@@ -11,6 +11,7 @@ import {
   getSkillsList,
   getThreadDetail,
   getThreadRuntimeSnapshot,
+  getThreadRuntimeStatusSnapshot,
   interruptThreadTurn,
   replyToServerRequest,
   rollbackThread,
@@ -115,13 +116,15 @@ const HIDDEN_THREAD_IDS_STORAGE_KEY = 'codex-web-local.hidden-thread-ids.v1'
 const QUEUED_MESSAGES_STORAGE_KEY = 'codex-web-local.queued-messages.v1'
 const NOTIFICATION_SEQ_STORAGE_KEY = 'codex-web-local.notification-seq.v1'
 const EVENT_SYNC_DEBOUNCE_MS = 220
-const BACKGROUND_SYNC_INTERVAL_MS = 2500
-const ACTIVE_THREAD_DETAIL_SYNC_INTERVAL_MS = 2500
+const BACKGROUND_SYNC_INTERVAL_MS = 5000
+const ACTIVE_THREAD_DETAIL_SYNC_INTERVAL_MS = 6000
 const ACTIVE_THREAD_DETAIL_SYNC_IDLE_MS = 9000
-const ACTIVE_SYNC_BOOST_INTERVAL_MS = 1200
+const ACTIVE_SYNC_BOOST_INTERVAL_MS = 2500
 const ACTIVE_SYNC_BOOST_WINDOW_MS = 18000
 const RESUME_SYNC_RETRY_DELAYS_MS = [0, 700, 1800, 4200, 8200, 15000]
-const ACTIVE_SYNC_THREAD_LIST_INTERVAL_MS = 12000
+const ANDROID_RESUME_SYNC_RETRY_DELAYS_MS = [0, 2500, 9000]
+const ANDROID_RESUME_SYNC_DEBOUNCE_MS = 1200
+const ACTIVE_SYNC_THREAD_LIST_INTERVAL_MS = 30000
 const ACTIVE_SYNC_STALE_MS = 14000
 const STALE_THREAD_ACTIVE_TURN_TTL_MS = 5 * 60 * 1000
 const STALE_THREAD_ACTIVE_TURN_IMMEDIATE_MS = 20 * 60 * 1000
@@ -132,6 +135,7 @@ const LIVE_DELTA_BATCH_MS = 48
 const NOTIFICATION_STALE_MS = 18000
 const THREAD_LIST_REFRESH_INTERVAL_MS = 30000
 const RATE_LIMIT_REFRESH_DEBOUNCE_MS = 500
+const RATE_LIMIT_REFRESH_MIN_INTERVAL_MS = 120000
 const REASONING_EFFORT_OPTIONS: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
 const GLOBAL_SERVER_REQUEST_SCOPE = '__global__'
 const THREAD_TOKEN_USAGE_UPDATED_METHOD = 'thread/tokenUsage/updated'
@@ -1018,6 +1022,8 @@ export function useDesktopState() {
   const turnActivityByThreadId = ref<Record<string, TurnActivityState>>({})
   const turnErrorByThreadId = ref<Record<string, TurnErrorState>>({})
   const activeTurnIdByThreadId = ref<Record<string, string>>({})
+  const runtimeExecutionStateByThreadId = ref<Record<string, ThreadRuntimeSnapshot['executionState']>>({})
+  const runtimeCanStopByThreadId = ref<Record<string, boolean>>({})
   const lastExecutionSignalAtByThreadId = ref<Record<string, number>>({})
   const threadReadActiveStateByThreadId = ref<Record<string, ThreadReadActiveState>>({})
   const ignoredStaleActiveTurnByThreadId = ref<Record<string, string>>({})
@@ -1053,6 +1059,7 @@ export function useDesktopState() {
   let foregroundMessageLoadId = 0
   let rateLimitRefreshTimer: number | null = null
   let rateLimitRefreshPromise: Promise<void> | null = null
+  let lastRateLimitRefreshStartedAtMs = 0
   const resumePromiseByThreadId = new Map<string, Promise<void>>()
   let hasRateLimitTrackingEnabled = false
   let lastNotificationAtMs = Date.now()
@@ -1063,6 +1070,7 @@ export function useDesktopState() {
   const pendingThreadMessageRefresh = new Set<string>()
   let visibilitySyncTimer: number | null = null
   const resumeSyncTimers = new Set<number>()
+  let lastAndroidResumeSyncScheduledAtMs = 0
   let stopVisibilitySync = (): void => {}
   let hasHydratedWorkspaceRootsState = false
   let activeReasoningItemId = ''
@@ -1262,6 +1270,16 @@ export function useDesktopState() {
   const selectedThreadExecutionActive = computed(() => (
     selectedThreadId.value ? isThreadExecutionActive(selectedThreadId.value) : false
   ))
+  const selectedThreadCanStop = computed(() => {
+    const threadId = selectedThreadId.value
+    if (!threadId) return false
+    if (runtimeCanStopByThreadId.value[threadId] === true) return true
+    return (
+      isThreadExecutionActive(threadId) &&
+      typeof activeTurnIdByThreadId.value[threadId] === 'string' &&
+      activeTurnIdByThreadId.value[threadId].trim().length > 0
+    )
+  })
   const selectedThreadTokenUsage = computed<UiThreadTokenUsage | null>(() => {
     const threadId = selectedThreadId.value
     if (!threadId) return null
@@ -1570,12 +1588,18 @@ export function useDesktopState() {
     }
   }
 
-  async function refreshRateLimits(): Promise<void> {
+  async function refreshRateLimits(options: { force?: boolean } = {}): Promise<void> {
     hasRateLimitTrackingEnabled = true
     if (rateLimitRefreshPromise) {
       await rateLimitRefreshPromise
       return
     }
+
+    const now = Date.now()
+    if (!options.force && now - lastRateLimitRefreshStartedAtMs < RATE_LIMIT_REFRESH_MIN_INTERVAL_MS) {
+      return
+    }
+    lastRateLimitRefreshStartedAtMs = now
 
     rateLimitRefreshPromise = (async () => {
       try {
@@ -1604,10 +1628,14 @@ export function useDesktopState() {
       window.clearTimeout(rateLimitRefreshTimer)
     }
 
+    const elapsedMs = Date.now() - lastRateLimitRefreshStartedAtMs
+    const waitForMinIntervalMs = Math.max(0, RATE_LIMIT_REFRESH_MIN_INTERVAL_MS - elapsedMs)
+    const delayMs = Math.max(RATE_LIMIT_REFRESH_DEBOUNCE_MS, waitForMinIntervalMs)
+
     rateLimitRefreshTimer = window.setTimeout(() => {
       rateLimitRefreshTimer = null
       void refreshRateLimits()
-    }, RATE_LIMIT_REFRESH_DEBOUNCE_MS)
+    }, delayMs)
   }
 
   function applyCachedTitlesToGroups(groups: UiProjectGroup[]): UiProjectGroup[] {
@@ -1746,6 +1774,8 @@ export function useDesktopState() {
     turnActivityByThreadId.value = pruneThreadStateMap(turnActivityByThreadId.value, activeThreadIds)
     turnErrorByThreadId.value = pruneThreadStateMap(turnErrorByThreadId.value, activeThreadIds)
     activeTurnIdByThreadId.value = pruneThreadStateMap(activeTurnIdByThreadId.value, activeThreadIds)
+    runtimeExecutionStateByThreadId.value = pruneThreadStateMap(runtimeExecutionStateByThreadId.value, activeThreadIds)
+    runtimeCanStopByThreadId.value = pruneThreadStateMap(runtimeCanStopByThreadId.value, activeThreadIds)
     lastExecutionSignalAtByThreadId.value = pruneThreadStateMap(lastExecutionSignalAtByThreadId.value, activeThreadIds)
     threadReadActiveStateByThreadId.value = pruneThreadStateMap(threadReadActiveStateByThreadId.value, activeThreadIds)
     ignoredStaleActiveTurnByThreadId.value = pruneThreadStateMap(ignoredStaleActiveTurnByThreadId.value, activeThreadIds)
@@ -2120,8 +2150,170 @@ export function useDesktopState() {
     return loadedMessagesByThreadId.value[threadId] === true || (lastThreadDetailSyncAtById.value[threadId] ?? 0) > 0
   }
 
+  function isRuntimeExecutionActiveState(state: ThreadRuntimeSnapshot['executionState'] | undefined): boolean {
+    return (
+      state === 'queued' ||
+      state === 'starting' ||
+      state === 'running' ||
+      state === 'waiting_permission' ||
+      state === 'stopping' ||
+      state === 'completed_pending_sync'
+    )
+  }
+
+  function isRuntimeExecutionSettledState(state: ThreadRuntimeSnapshot['executionState'] | undefined): boolean {
+    return state === 'completed' || state === 'failed' || state === 'interrupted' || state === 'idle'
+  }
+
+  function applyRuntimeSnapshotState(threadId: string, snapshot: ThreadRuntimeSnapshot): void {
+    if (!threadId) return
+    runtimeExecutionStateByThreadId.value = {
+      ...runtimeExecutionStateByThreadId.value,
+      [threadId]: snapshot.executionState,
+    }
+    if (snapshot.canStop) {
+      runtimeCanStopByThreadId.value = {
+        ...runtimeCanStopByThreadId.value,
+        [threadId]: true,
+      }
+    } else if (threadId in runtimeCanStopByThreadId.value) {
+      runtimeCanStopByThreadId.value = omitKey(runtimeCanStopByThreadId.value, threadId)
+    }
+
+    if (isRuntimeExecutionActiveState(snapshot.executionState)) {
+      markThreadLiveExecutionSignal(threadId)
+      return
+    }
+
+    if (isRuntimeExecutionSettledState(snapshot.executionState)) {
+      setThreadReadActiveState(threadId, null)
+      clearIgnoredStaleActiveTurn(threadId)
+    }
+  }
+
+  function setRuntimeExecutionState(
+    threadId: string,
+    state: ThreadRuntimeSnapshot['executionState'],
+    options: { canStop?: boolean; activeTurnId?: string } = {},
+  ): void {
+    if (!threadId) return
+    runtimeExecutionStateByThreadId.value = {
+      ...runtimeExecutionStateByThreadId.value,
+      [threadId]: state,
+    }
+
+    if (options.canStop === true) {
+      runtimeCanStopByThreadId.value = {
+        ...runtimeCanStopByThreadId.value,
+        [threadId]: true,
+      }
+    } else if (threadId in runtimeCanStopByThreadId.value) {
+      runtimeCanStopByThreadId.value = omitKey(runtimeCanStopByThreadId.value, threadId)
+    }
+
+    const nextActiveTurnId = options.activeTurnId?.trim() ?? ''
+    if (nextActiveTurnId) {
+      activeTurnIdByThreadId.value = {
+        ...activeTurnIdByThreadId.value,
+        [threadId]: nextActiveTurnId,
+      }
+    } else if (isRuntimeExecutionSettledState(state) && activeTurnIdByThreadId.value[threadId]) {
+      activeTurnIdByThreadId.value = omitKey(activeTurnIdByThreadId.value, threadId)
+    }
+
+    if (isRuntimeExecutionActiveState(state)) {
+      setThreadInProgress(threadId, true)
+      markThreadLiveExecutionSignal(threadId)
+      setThreadReadActiveState(threadId, null)
+      clearIgnoredStaleActiveTurn(threadId)
+      return
+    }
+
+    if (isRuntimeExecutionSettledState(state)) {
+      setThreadInProgress(threadId, false)
+      setThreadReadActiveState(threadId, null)
+      clearIgnoredStaleActiveTurn(threadId)
+      if (threadId in lastExecutionSignalAtByThreadId.value) {
+        lastExecutionSignalAtByThreadId.value = omitKey(lastExecutionSignalAtByThreadId.value, threadId)
+      }
+    }
+  }
+
+  function applyRuntimeNotificationState(notification: RpcNotification): void {
+    const method = notification.method
+
+    if (method === 'server/request') {
+      const request = normalizeServerRequest(notification.params)
+      if (request) {
+        setRuntimeExecutionState(request.threadId, 'waiting_permission', {
+          canStop: true,
+          activeTurnId: request.turnId,
+        })
+      }
+      return
+    }
+
+    if (method === 'server/request/resolved') {
+      const threadId = extractThreadIdFromNotification(notification)
+      if (threadId) {
+        setRuntimeExecutionState(threadId, 'running', { canStop: true })
+      }
+      return
+    }
+
+    const threadId = extractThreadIdFromNotification(notification)
+    if (!threadId) return
+
+    if (method === 'turn/started' || method === 'thread/started') {
+      const startedTurn = readTurnStartedInfo(notification)
+      setRuntimeExecutionState(threadId, 'running', {
+        canStop: true,
+        activeTurnId: startedTurn?.turnId ?? '',
+      })
+      return
+    }
+
+    if (method === 'turn/completed' || method === 'thread/completed') {
+      const turnError = readTurnErrorMessage(notification)
+      setRuntimeExecutionState(threadId, turnError ? 'failed' : 'completed', { canStop: false })
+      return
+    }
+
+    if (method === 'turn/interrupted' || method === 'thread/interrupted') {
+      setRuntimeExecutionState(threadId, 'interrupted', { canStop: false })
+      return
+    }
+
+    if (method === 'error' || method.endsWith('/failed')) {
+      setRuntimeExecutionState(threadId, 'failed', { canStop: false })
+      return
+    }
+
+    if (method === 'item/started' || method === 'item/updated' || method === 'item/delta' || method.endsWith('/delta')) {
+      setRuntimeExecutionState(threadId, 'running', { canStop: true })
+    }
+  }
+
+  async function refreshRuntimeStatusSnapshot(threadId: string, signal?: AbortSignal): Promise<ThreadRuntimeSnapshot | null> {
+    if (!threadId) return null
+    try {
+      const snapshot = await getThreadRuntimeStatusSnapshot(threadId, { signal })
+      applyRuntimeSnapshotState(threadId, snapshot)
+      const normalizedPendingRequests = snapshot.pendingServerRequests
+        .map((row) => normalizeServerRequest(row))
+        .filter((request): request is UiServerRequest => request !== null)
+      setPendingServerRequestsForThread(threadId, normalizedPendingRequests)
+      setThreadTokenUsage(threadId, snapshot.tokenUsage)
+      return snapshot
+    } catch (error) {
+      if (isAbortLikeError(error)) throw error
+      return null
+    }
+  }
+
   function hasSettledThreadDetail(threadId: string): boolean {
     if (!threadId || !hasLoadedThreadDetail(threadId)) return false
+    if (isRuntimeExecutionActiveState(runtimeExecutionStateByThreadId.value[threadId])) return false
     if (inProgressById.value[threadId] === true) return false
     if (typeof activeTurnIdByThreadId.value[threadId] === 'string' && activeTurnIdByThreadId.value[threadId].trim().length > 0) return false
     if (hasPendingServerRequestSignal(threadId)) return false
@@ -2139,6 +2331,9 @@ export function useDesktopState() {
 
   function hasAuthoritativeExecutionSignal(threadId: string): boolean {
     if (!threadId) return false
+    const runtimeState = runtimeExecutionStateByThreadId.value[threadId]
+    if (isRuntimeExecutionActiveState(runtimeState)) return true
+    if (isRuntimeExecutionSettledState(runtimeState) && !hasStrongExecutionSignal(threadId)) return false
     if (hasSettledThreadDetail(threadId) && !hasStrongExecutionSignal(threadId)) return false
     if (sourceThreadById.value[threadId]?.inProgress === true && !hasLoadedThreadDetail(threadId)) return true
     if (hasStrongExecutionSignal(threadId)) return true
@@ -2155,6 +2350,16 @@ export function useDesktopState() {
     }
 
     const normalizedActiveTurnId = activeTurnId.trim()
+    const runtimeState = runtimeExecutionStateByThreadId.value[threadId]
+    if (isRuntimeExecutionSettledState(runtimeState) && !hasStrongExecutionSignal(threadId)) {
+      clearThreadExecutionTracking(threadId)
+      return { inProgress: false, activeTurnId: '' }
+    }
+    if (isRuntimeExecutionActiveState(runtimeState)) {
+      clearIgnoredStaleActiveTurn(threadId)
+      return { inProgress: true, activeTurnId: normalizedActiveTurnId || activeTurnIdByThreadId.value[threadId] || '' }
+    }
+
     if (!inProgress) {
       const currentActiveTurnId = activeTurnIdByThreadId.value[threadId]?.trim() ?? ''
       const hasRecoverableTransientState =
@@ -2243,6 +2448,9 @@ export function useDesktopState() {
 
   function isThreadExecutionActive(threadId: string): boolean {
     if (!threadId) return false
+    const runtimeState = runtimeExecutionStateByThreadId.value[threadId]
+    if (isRuntimeExecutionActiveState(runtimeState)) return true
+    if (isRuntimeExecutionSettledState(runtimeState) && !hasStrongExecutionSignal(threadId)) return false
     if (hasSettledThreadDetail(threadId) && !hasStrongExecutionSignal(threadId)) return false
     const hasAuthoritativeSignal = hasAuthoritativeExecutionSignal(threadId)
     if (inProgressById.value[threadId] === true && hasAuthoritativeSignal) return true
@@ -2944,6 +3152,18 @@ export function useDesktopState() {
     const turnSnakeThreadId = readString(turn?.thread_id)
     if (turnSnakeThreadId) return turnSnakeThreadId
 
+    const item = asRecord(params.item)
+    const itemThreadId = readString(item?.threadId)
+    if (itemThreadId) return itemThreadId
+    const itemSnakeThreadId = readString(item?.thread_id)
+    if (itemSnakeThreadId) return itemSnakeThreadId
+
+    const requestParams = asRecord(params.params)
+    const requestThreadId = readString(requestParams?.threadId)
+    if (requestThreadId) return requestThreadId
+    const requestSnakeThreadId = readString(requestParams?.thread_id)
+    if (requestSnakeThreadId) return requestSnakeThreadId
+
     return ''
   }
 
@@ -3424,6 +3644,8 @@ export function useDesktopState() {
       flushBufferedLiveDeltas()
     }
 
+    applyRuntimeNotificationState(notification)
+
     if (handleServerRequestNotification(notification)) {
       return
     }
@@ -3861,6 +4083,7 @@ export function useDesktopState() {
       if (resumePromise) {
         void resumePromise.catch(() => {})
       }
+      applyRuntimeSnapshotState(threadId, snapshot)
       const nextMessages = snapshot.messages
       const inProgress = snapshot.inProgress
       const activeTurnId = snapshot.activeTurnId
@@ -4654,6 +4877,9 @@ export function useDesktopState() {
 
     try {
       const initialThreadId = selectedThreadId.value
+      if (initialThreadId) {
+        await refreshRuntimeStatusSnapshot(initialThreadId, controller?.signal)
+      }
       if (forceMessageRefresh && initialThreadId) {
         await refreshSelectedMessagesNow(initialThreadId)
       }
@@ -4750,6 +4976,13 @@ export function useDesktopState() {
 
     const scheduleResumeSync = (force = false): void => {
       if (!force && document.hidden) return
+      const now = Date.now()
+      if (androidShellAvailable && now - lastAndroidResumeSyncScheduledAtMs < ANDROID_RESUME_SYNC_DEBOUNCE_MS) {
+        return
+      }
+      if (androidShellAvailable) {
+        lastAndroidResumeSyncScheduledAtMs = now
+      }
       const shouldRestartNotifications =
         realtimeConnectionState.value !== 'connected' ||
         (notificationStale.value && (hasSyncDemand.value || Boolean(selectedThreadId.value)))
@@ -4758,16 +4991,45 @@ export function useDesktopState() {
       }
       clearVisibilitySyncTimer()
       clearResumeSyncTimers()
-      for (const delayMs of RESUME_SYNC_RETRY_DELAYS_MS) {
+      const retryDelays = androidShellAvailable ? ANDROID_RESUME_SYNC_RETRY_DELAYS_MS : RESUME_SYNC_RETRY_DELAYS_MS
+      for (const delayMs of retryDelays) {
         const timer = window.setTimeout(() => {
           resumeSyncTimers.delete(timer)
           if (!force && document.hidden) return
+          const isFirstAttempt = delayMs === retryDelays[0]
+          const attemptAtMs = Date.now()
+          const activeThreadId = selectedThreadId.value
+          const activeThreadNeedsMessages =
+            Boolean(activeThreadId) &&
+            (
+              pendingThreadMessageRefresh.has(activeThreadId) ||
+              eventUnreadByThreadId.value[activeThreadId] === true ||
+              isThreadExecutionActive(activeThreadId) ||
+              !hasLoadedThreadDetail(activeThreadId)
+            )
+          const shouldForceMessageRefresh = androidShellAvailable
+            ? (!isFirstAttempt && (activeThreadNeedsMessages || hasSyncDemand.value))
+            : (isFirstAttempt || hasSyncDemand.value)
+          const shouldIncludeThreadList =
+            androidShellAvailable
+              ? (
+                  !isFirstAttempt &&
+                  (
+                    pendingThreadsRefresh ||
+                    attemptAtMs - lastThreadListSyncAtMs >= THREAD_LIST_REFRESH_INTERVAL_MS
+                  )
+                )
+              : (
+                  isFirstAttempt ||
+                  pendingThreadsRefresh ||
+                  attemptAtMs - lastThreadListSyncAtMs >= THREAD_LIST_REFRESH_INTERVAL_MS
+                )
           markActiveSyncBoost()
           void replayMissedNotifications()
             .finally(() => syncThreadStatus({
-              includeThreadList: true,
-              forceMessageRefresh: true,
-              urgent: delayMs === 0,
+              includeThreadList: shouldIncludeThreadList,
+              forceMessageRefresh: shouldForceMessageRefresh,
+              urgent: isFirstAttempt,
             }))
         }, delayMs)
         resumeSyncTimers.add(timer)
@@ -4895,6 +5157,9 @@ export function useDesktopState() {
 
     try {
       const initialActiveThreadId = selectedThreadId.value
+      if (initialActiveThreadId) {
+        await refreshRuntimeStatusSnapshot(initialActiveThreadId, controller?.signal)
+      }
       if (initialActiveThreadId && threadIdsToRefresh.has(initialActiveThreadId)) {
         await refreshActiveMessagesNow(initialActiveThreadId)
       }
@@ -4949,8 +5214,8 @@ export function useDesktopState() {
             clearSyncError()
           }
           queueSelectedThreadSync({
-            includeThreadList: true,
-            forceMessageRefresh: hasSyncDemand.value,
+            includeThreadList: !androidShellAvailable,
+            forceMessageRefresh: !androidShellAvailable && hasSyncDemand.value,
           })
           if (!isDocumentVisible()) {
             return
@@ -4959,6 +5224,16 @@ export function useDesktopState() {
             return
           }
           if (state === 'connected' && previousState !== 'connected') {
+            if (androidShellAvailable) {
+              markActiveSyncBoost()
+              void replayMissedNotifications()
+                .finally(() => syncThreadStatus({
+                  includeThreadList: false,
+                  forceMessageRefresh: false,
+                  urgent: true,
+                }))
+              return
+            }
             if (hasSyncDemand.value) {
               markActiveSyncBoost()
               void replayMissedNotifications()
@@ -5125,6 +5400,8 @@ export function useDesktopState() {
     turnSummaryByThreadId.value = {}
     turnErrorByThreadId.value = {}
     activeTurnIdByThreadId.value = {}
+    runtimeExecutionStateByThreadId.value = {}
+    runtimeCanStopByThreadId.value = {}
     lastExecutionSignalAtByThreadId.value = {}
     threadReadActiveStateByThreadId.value = {}
     ignoredStaleActiveTurnByThreadId.value = {}
@@ -5173,6 +5450,7 @@ export function useDesktopState() {
     selectedThreadServerRequests,
     selectedLiveOverlay,
     selectedThreadExecutionActive,
+    selectedThreadCanStop,
     selectedThreadTokenUsage,
     selectedThreadId,
     availableModelIds,

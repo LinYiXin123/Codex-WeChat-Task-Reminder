@@ -9,6 +9,8 @@ output/
 test-*.png
 tmp-*.png
 logs/
+.cert/
+*.pem
 
 pnpm-lock.yaml
 .codex/

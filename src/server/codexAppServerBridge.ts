@@ -70,7 +70,9 @@ type AppServerHealth = {
   stopping: boolean
   pid: number | null
   pendingRpcCount: number
+  queuedRpcCount: number
   pendingServerRequestCount: number
+  rpcDiagnostics?: RpcDiagnostics
 }
 
 type PermissionDecision = 'ask' | 'allowForSession'
@@ -86,15 +88,83 @@ type WebBridgeSettings = {
   permissions: WebBridgePermissionSettings
 }
 
+type RuntimeExecutionState =
+  | 'idle'
+  | 'queued'
+  | 'starting'
+  | 'running'
+  | 'waiting_permission'
+  | 'stopping'
+  | 'completed_pending_sync'
+  | 'completed'
+  | 'failed'
+  | 'interrupted'
+  | 'sync_degraded'
+
+type RuntimeSnapshotSource = 'events' | 'thread-read' | 'cache' | 'unknown'
+
 type ThreadRuntimeSnapshot = {
   threadId: string
+  executionState: RuntimeExecutionState
   inProgress: boolean
   activeTurnId: string
+  activeItemId: string
+  canStop: boolean
+  stopRequested: boolean
   updatedAtIso: string
+  lastEventSeq: number
+  lastEventAtIso: string | null
+  lastStartedAtIso: string | null
+  lastCompletedAtIso: string | null
+  lastError: string | null
+  stale: boolean
+  degradedReason: string | null
+  source: RuntimeSnapshotSource
   threadRead: unknown
   messageState: 'fresh' | 'cached' | 'unavailable'
   pendingServerRequests: PendingServerRequest[]
   tokenUsage: ThreadTokenUsage | null
+}
+
+type ThreadRuntimeState = {
+  threadId: string
+  executionState: RuntimeExecutionState
+  activeTurnId: string
+  activeItemId: string
+  stopRequested: boolean
+  updatedAtIso: string
+  lastEventSeq: number
+  lastEventAtIso: string | null
+  lastStartedAtIso: string | null
+  lastCompletedAtIso: string | null
+  lastError: string | null
+  degradedReason: string | null
+  source: RuntimeSnapshotSource
+}
+
+type RuntimeSnapshotOverlay = {
+  threadRead?: unknown
+  messageState?: ThreadRuntimeSnapshot['messageState']
+  pendingServerRequests?: PendingServerRequest[]
+  tokenUsage?: ThreadTokenUsage | null
+}
+
+type RpcDiagnosticRecord = {
+  method: string
+  atIso: string
+  durationMs: number
+  includeTurns?: boolean
+  outcome?: string
+}
+
+type RpcDiagnostics = {
+  activeRpcCalls: number
+  pendingRpcCount: number
+  queuedRpcCount: number
+  queuePeakCount: number
+  queuePeakAtIso: string | null
+  recentSlowRpc: RpcDiagnosticRecord[]
+  recentTimeouts: RpcDiagnosticRecord[]
 }
 
 type CachedThreadRead = {
@@ -113,6 +183,15 @@ type PendingRpc = {
   params: unknown
   startedAtMs: number
   timeoutId: ReturnType<typeof setTimeout>
+}
+
+type QueuedRpcTask = {
+  method: string
+  params: unknown
+  priority: number
+  queuedAtMs: number
+  resolve: (value: unknown) => void
+  reject: (reason?: unknown) => void
 }
 
 type TokenUsageBreakdown = {
@@ -169,10 +248,16 @@ const APP_SERVER_RPC_INIT_TIMEOUT_MS = 60_000
 const APP_SERVER_RPC_LIGHT_THREAD_TIMEOUT_MS = 20_000
 const APP_SERVER_RPC_HEAVY_THREAD_TIMEOUT_MS = 60_000
 const APP_SERVER_RPC_SLOW_WARN_MS = 1_800
+const APP_SERVER_RPC_MAX_IN_FLIGHT = 1
+const APP_SERVER_RPC_QUEUE_WARN_SIZE = 6
+const APP_SERVER_RPC_QUEUE_MAX_SIZE = 60
+const APP_SERVER_RPC_QUEUE_WARN_INTERVAL_MS = 10_000
 const APP_SERVER_RPC_TIMEOUT_RESTART_WINDOW_MS = 45_000
 const APP_SERVER_RPC_TIMEOUT_RESTART_THRESHOLD = 3
 const APP_SERVER_RESTART_COOLDOWN_MS = 10_000
 const APP_SERVER_COLD_START_GRACE_MS = 60_000
+const APP_SERVER_RPC_DIAGNOSTIC_LIMIT = 20
+const RUNTIME_SNAPSHOT_STALE_MS = 90_000
 const BRIDGE_HEARTBEAT_METHOD = 'bridge/heartbeat'
 const DEFAULT_WEB_BRIDGE_SETTINGS: WebBridgeSettings = {
   permissions: {
@@ -413,6 +498,326 @@ function isRpcTimeoutError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AppServerRpcTimeoutError'
 }
 
+function normalizeThreadId(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function readStringByAliases(record: Record<string, unknown> | null | undefined, ...keys: string[]): string {
+  if (!record) return ''
+  for (const key of keys) {
+    const value = normalizeThreadId(record[key])
+    if (value) return value
+  }
+  return ''
+}
+
+function readThreadIdFromPayload(payload: unknown): string {
+  const root = asRecord(payload)
+  if (!root) return ''
+
+  const direct = readStringByAliases(root, 'threadId', 'thread_id')
+  if (direct) return direct
+
+  const request = asRecord(root.request)
+  const requestThreadId = readStringByAliases(request, 'threadId', 'thread_id')
+  if (requestThreadId) return requestThreadId
+
+  const params = asRecord(root.params)
+  const paramsThreadId = readStringByAliases(params, 'threadId', 'thread_id')
+  if (paramsThreadId) return paramsThreadId
+
+  const thread = asRecord(root.thread)
+  const threadId = readStringByAliases(thread, 'id', 'threadId', 'thread_id')
+  if (threadId) return threadId
+
+  const turn = asRecord(root.turn)
+  const turnThreadId = readStringByAliases(turn, 'threadId', 'thread_id')
+  if (turnThreadId) return turnThreadId
+
+  const item = asRecord(root.item)
+  const itemThreadId = readStringByAliases(item, 'threadId', 'thread_id')
+  if (itemThreadId) return itemThreadId
+
+  return ''
+}
+
+function readTurnIdFromPayload(payload: unknown): string {
+  const root = asRecord(payload)
+  if (!root) return ''
+  const direct = readStringByAliases(root, 'turnId', 'turn_id', 'activeTurnId')
+  if (direct) return direct
+  const turn = asRecord(root.turn)
+  return readStringByAliases(turn, 'id', 'turnId', 'turn_id')
+}
+
+function readItemIdFromPayload(payload: unknown): string {
+  const root = asRecord(payload)
+  if (!root) return ''
+  const direct = readStringByAliases(root, 'itemId', 'item_id')
+  if (direct) return direct
+  const item = asRecord(root.item)
+  return readStringByAliases(item, 'id', 'itemId', 'item_id')
+}
+
+function isRuntimeActiveState(state: RuntimeExecutionState): boolean {
+  return (
+    state === 'queued'
+    || state === 'starting'
+    || state === 'running'
+    || state === 'waiting_permission'
+    || state === 'stopping'
+    || state === 'completed_pending_sync'
+  )
+}
+
+function isRuntimeSettledState(state: RuntimeExecutionState): boolean {
+  return state === 'completed' || state === 'failed' || state === 'interrupted' || state === 'idle'
+}
+
+function createInitialRuntimeState(threadId: string): ThreadRuntimeState {
+  const nowIso = new Date().toISOString()
+  return {
+    threadId,
+    executionState: 'idle',
+    activeTurnId: '',
+    activeItemId: '',
+    stopRequested: false,
+    updatedAtIso: nowIso,
+    lastEventSeq: 0,
+    lastEventAtIso: null,
+    lastStartedAtIso: null,
+    lastCompletedAtIso: null,
+    lastError: null,
+    degradedReason: null,
+    source: 'unknown',
+  }
+}
+
+class RuntimeStateStore {
+  private readonly stateByThreadId = new Map<string, ThreadRuntimeState>()
+
+  private getMutable(threadId: string): ThreadRuntimeState {
+    const normalizedThreadId = threadId.trim()
+    const existing = this.stateByThreadId.get(normalizedThreadId)
+    if (existing) return existing
+    const created = createInitialRuntimeState(normalizedThreadId)
+    this.stateByThreadId.set(normalizedThreadId, created)
+    return created
+  }
+
+  private touch(
+    threadId: string,
+    patch: Partial<ThreadRuntimeState>,
+    source: RuntimeSnapshotSource,
+    event?: BridgeNotificationEvent,
+  ): ThreadRuntimeState {
+    const state = this.getMutable(threadId)
+    const atIso = event?.atIso ?? new Date().toISOString()
+    Object.assign(state, patch, {
+      source,
+      updatedAtIso: patch.updatedAtIso ?? atIso,
+      lastEventSeq: event?.seq ?? state.lastEventSeq,
+      lastEventAtIso: event?.atIso ?? state.lastEventAtIso,
+    })
+    return state
+  }
+
+  markQueued(threadId: string): void {
+    if (!threadId.trim()) return
+    this.touch(threadId, {
+      executionState: 'queued',
+      stopRequested: false,
+      degradedReason: null,
+    }, 'events')
+  }
+
+  markStarting(threadId: string, turnId = ''): void {
+    if (!threadId.trim()) return
+    this.touch(threadId, {
+      executionState: 'starting',
+      activeTurnId: turnId,
+      stopRequested: false,
+      degradedReason: null,
+      lastError: null,
+    }, 'events')
+  }
+
+  markStopping(threadId: string): void {
+    if (!threadId.trim()) return
+    this.touch(threadId, {
+      executionState: 'stopping',
+      stopRequested: true,
+    }, 'events')
+  }
+
+  observeEvent(event: BridgeNotificationEvent): void {
+    const threadId = readThreadIdFromPayload(event.params)
+    if (!threadId) return
+
+    const method = event.method
+    const turnId = readTurnIdFromPayload(event.params)
+    const itemId = readItemIdFromPayload(event.params)
+
+    if (method === 'turn/started' || method === 'turn/start' || method === 'thread/started') {
+      this.touch(threadId, {
+        executionState: 'running',
+        activeTurnId: turnId,
+        activeItemId: itemId,
+        stopRequested: false,
+        degradedReason: null,
+        lastStartedAtIso: event.atIso,
+        lastError: null,
+      }, 'events', event)
+      return
+    }
+
+    if (method === 'item/started' || method === 'item/delta' || method === 'item/updated') {
+      const state = this.getMutable(threadId)
+      if (!isRuntimeSettledState(state.executionState) || state.executionState === 'idle') {
+        this.touch(threadId, {
+          executionState: 'running',
+          activeTurnId: turnId || state.activeTurnId,
+          activeItemId: itemId || state.activeItemId,
+          degradedReason: null,
+        }, 'events', event)
+      }
+      return
+    }
+
+    if (method === 'server/request') {
+      this.touch(threadId, {
+        executionState: 'waiting_permission',
+        activeTurnId: turnId,
+        activeItemId: itemId,
+        degradedReason: null,
+      }, 'events', event)
+      return
+    }
+
+    if (method === 'server/request/resolved') {
+      this.touch(threadId, {
+        executionState: 'running',
+        stopRequested: false,
+        degradedReason: null,
+      }, 'events', event)
+      return
+    }
+
+    if (method === 'turn/completed' || method === 'thread/completed') {
+      this.touch(threadId, {
+        executionState: 'completed_pending_sync',
+        activeTurnId: '',
+        activeItemId: '',
+        stopRequested: false,
+        lastCompletedAtIso: event.atIso,
+        degradedReason: null,
+      }, 'events', event)
+      return
+    }
+
+    if (method === 'turn/interrupted' || method === 'thread/interrupted') {
+      this.touch(threadId, {
+        executionState: 'interrupted',
+        activeTurnId: '',
+        activeItemId: '',
+        stopRequested: false,
+        lastCompletedAtIso: event.atIso,
+        degradedReason: null,
+      }, 'events', event)
+      return
+    }
+
+    if (method.includes('error') || method.endsWith('/failed')) {
+      this.touch(threadId, {
+        executionState: 'failed',
+        activeTurnId: '',
+        activeItemId: '',
+        stopRequested: false,
+        lastCompletedAtIso: event.atIso,
+        lastError: getErrorMessage(event.params, method),
+      }, 'events', event)
+    }
+  }
+
+  observeThreadRead(
+    threadId: string,
+    inProgress: boolean,
+    activeTurnId: string,
+    updatedAtIso: string,
+    source: RuntimeSnapshotSource,
+  ): void {
+    if (!threadId.trim()) return
+    const current = this.getMutable(threadId)
+    const nextState: RuntimeExecutionState = inProgress
+      ? (current.executionState === 'waiting_permission' ? 'waiting_permission' : 'running')
+      : isRuntimeActiveState(current.executionState)
+        ? 'completed'
+        : current.executionState === 'idle'
+          ? 'completed'
+          : current.executionState
+    this.touch(threadId, {
+      executionState: nextState,
+      activeTurnId: activeTurnId || (inProgress ? current.activeTurnId : ''),
+      activeItemId: inProgress ? current.activeItemId : '',
+      stopRequested: inProgress ? current.stopRequested : false,
+      updatedAtIso: updatedAtIso || new Date().toISOString(),
+      lastCompletedAtIso: !inProgress && isRuntimeActiveState(current.executionState)
+        ? new Date().toISOString()
+        : current.lastCompletedAtIso,
+      degradedReason: null,
+    }, source)
+  }
+
+  markDegraded(threadId: string, reason: string): void {
+    if (!threadId.trim()) return
+    const current = this.getMutable(threadId)
+    this.touch(threadId, {
+      executionState: current.executionState === 'idle' ? 'sync_degraded' : current.executionState,
+      degradedReason: reason,
+    }, current.source === 'unknown' ? 'unknown' : current.source)
+  }
+
+  snapshot(threadId: string, overlay: RuntimeSnapshotOverlay = {}): ThreadRuntimeSnapshot {
+    const state = this.getMutable(threadId)
+    const pendingServerRequests = overlay.pendingServerRequests ?? []
+    const executionState = pendingServerRequests.length > 0
+      ? 'waiting_permission'
+      : state.executionState
+    const lastAt = state.lastEventAtIso ? Date.parse(state.lastEventAtIso) : 0
+    const stale = lastAt > 0 && isRuntimeActiveState(executionState) && Date.now() - lastAt > RUNTIME_SNAPSHOT_STALE_MS
+
+    return {
+      threadId: state.threadId,
+      executionState,
+      inProgress: isRuntimeActiveState(executionState),
+      activeTurnId: state.activeTurnId,
+      activeItemId: state.activeItemId,
+      canStop: isRuntimeActiveState(executionState) && executionState !== 'completed_pending_sync',
+      stopRequested: state.stopRequested,
+      updatedAtIso: state.updatedAtIso,
+      lastEventSeq: state.lastEventSeq,
+      lastEventAtIso: state.lastEventAtIso,
+      lastStartedAtIso: state.lastStartedAtIso,
+      lastCompletedAtIso: state.lastCompletedAtIso,
+      lastError: state.lastError,
+      stale,
+      degradedReason: state.degradedReason,
+      source: state.source,
+      threadRead: overlay.threadRead ?? null,
+      messageState: overlay.messageState ?? 'unavailable',
+      pendingServerRequests,
+      tokenUsage: overlay.tokenUsage ?? null,
+    }
+  }
+
+  snapshots(threadIds: string[], overlaysByThreadId: Map<string, RuntimeSnapshotOverlay> = new Map()): ThreadRuntimeSnapshot[] {
+    return threadIds
+      .map((threadId) => threadId.trim())
+      .filter((threadId) => threadId.length > 0)
+      .map((threadId) => this.snapshot(threadId, overlaysByThreadId.get(threadId) ?? {}))
+  }
+}
+
 function getRpcTimeoutMs(method: string, params: unknown): number {
   if (method === 'initialize') {
     return APP_SERVER_RPC_INIT_TIMEOUT_MS
@@ -439,6 +844,32 @@ function getShareableRpcKey(method: string, params: unknown): string | null {
   } catch {
     return null
   }
+}
+
+function getRpcQueuePriority(method: string, params: unknown): number {
+  if (
+    method === 'turn/start' ||
+    method === 'turn/interrupt' ||
+    method === 'thread/start' ||
+    method === 'thread/resume' ||
+    method === 'server/request/respond'
+  ) {
+    return 0
+  }
+
+  if (method === 'thread/read') {
+    return asRecord(params)?.includeTurns === true ? 2 : 1
+  }
+
+  if (method === 'thread/list') {
+    return 2
+  }
+
+  if (method === 'skills/list' || method === 'account/rateLimits/read') {
+    return 3
+  }
+
+  return 1
 }
 
 function writeBridgeLog(level: 'warn' | 'error', message: string, details: Record<string, unknown> = {}): void {
@@ -1580,8 +2011,15 @@ class AppServerProcess {
   private lastRestartAtMs = 0
   private lastAppServerStderrLogAtMs = 0
   private appServerStderrSuppressedCount = 0
+  private lastRpcQueueWarnAtMs = 0
+  private queuePeakCount = 0
+  private queuePeakAtIso: string | null = null
+  private activeRpcCalls = 0
   private recentTimeoutsAtMs: number[] = []
+  private readonly recentSlowRpcRecords: RpcDiagnosticRecord[] = []
+  private readonly recentTimeoutRecords: RpcDiagnosticRecord[] = []
   private readonly pending = new Map<number, PendingRpc>()
+  private readonly queuedRpcCalls: QueuedRpcTask[] = []
   private readonly expectedExitProcesses = new WeakSet<ChildProcessWithoutNullStreams>()
   private readonly notificationListeners = new Set<(value: { method: string; params: unknown }) => void>()
   private readonly pendingServerRequests = new Map<number, PendingServerRequest>()
@@ -1647,6 +2085,7 @@ class AppServerProcess {
       if (this.process !== proc) return
       logBridgeError('Codex app-server process error', error)
       this.rejectAllPending(error)
+      this.rejectQueuedRpcCalls(error)
       this.pendingServerRequests.clear()
       this.sharedReadRpcByKey.clear()
       this.threadTokenUsageByThreadId.clear()
@@ -1668,6 +2107,7 @@ class AppServerProcess {
 
       if (this.process === proc) {
         this.rejectAllPending(failure)
+        this.rejectQueuedRpcCalls(failure)
         this.pendingServerRequests.clear()
         this.sharedReadRpcByKey.clear()
         this.threadTokenUsageByThreadId.clear()
@@ -1703,6 +2143,12 @@ class AppServerProcess {
     this.pending.clear()
   }
 
+  private rejectQueuedRpcCalls(error: Error): void {
+    for (const request of this.queuedRpcCalls.splice(0)) {
+      request.reject(error)
+    }
+  }
+
   private finalizePendingRpc(id: number): PendingRpc | null {
     const pendingRequest = this.pending.get(id) ?? null
     if (!pendingRequest) return null
@@ -1714,6 +2160,14 @@ class AppServerProcess {
   private logSlowRpc(method: string, startedAtMs: number, params: unknown, details: Record<string, unknown> = {}): void {
     const durationMs = Date.now() - startedAtMs
     if (durationMs < APP_SERVER_RPC_SLOW_WARN_MS) return
+    this.recentSlowRpcRecords.unshift({
+      method,
+      atIso: new Date().toISOString(),
+      durationMs,
+      includeTurns: method === 'thread/read' ? asRecord(params)?.includeTurns === true : undefined,
+      outcome: typeof details.outcome === 'string' ? details.outcome : undefined,
+    })
+    this.recentSlowRpcRecords.splice(APP_SERVER_RPC_DIAGNOSTIC_LIMIT)
     writeBridgeLog('warn', 'Slow app-server RPC', {
       method,
       durationMs,
@@ -1737,6 +2191,15 @@ class AppServerProcess {
 
   private noteRpcTimeout(method: string, params: unknown, timeoutMs: number): void {
     const now = Date.now()
+    this.recentTimeoutRecords.unshift({
+      method,
+      atIso: new Date(now).toISOString(),
+      durationMs: timeoutMs,
+      includeTurns: method === 'thread/read' ? asRecord(params)?.includeTurns === true : undefined,
+      outcome: 'timeout',
+    })
+    this.recentTimeoutRecords.splice(APP_SERVER_RPC_DIAGNOSTIC_LIMIT)
+
     const processAgeMs = this.startedAtMs > 0 ? now - this.startedAtMs : 0
     if (method !== 'initialize' && processAgeMs < APP_SERVER_COLD_START_GRACE_MS) {
       writeBridgeLog('warn', 'App-server RPC timed out during startup grace', {
@@ -1795,6 +2258,7 @@ class AppServerProcess {
     this.initializePromise = null
     this.readBuffer = ''
     this.rejectAllPending(new Error(`codex app-server restarted: ${reason}`))
+    this.rejectQueuedRpcCalls(new Error(`codex app-server restarted: ${reason}`))
     this.pendingServerRequests.clear()
     this.sharedReadRpcByKey.clear()
     this.threadTokenUsageByThreadId.clear()
@@ -1992,6 +2456,62 @@ class AppServerProcess {
     })
   }
 
+  private enqueueRpc(method: string, params: unknown): Promise<unknown> {
+    if (this.queuedRpcCalls.length >= APP_SERVER_RPC_QUEUE_MAX_SIZE) {
+      return Promise.reject(new Error(`codex app-server RPC queue is full (${APP_SERVER_RPC_QUEUE_MAX_SIZE})`))
+    }
+
+    return new Promise((resolve, reject) => {
+      const queuedAtMs = Date.now()
+      this.queuedRpcCalls.push({
+        method,
+        params,
+        priority: getRpcQueuePriority(method, params),
+        queuedAtMs,
+        resolve,
+        reject,
+      })
+      this.queuedRpcCalls.sort((left, right) => {
+        if (left.priority !== right.priority) return left.priority - right.priority
+        return left.queuedAtMs - right.queuedAtMs
+      })
+      if (this.queuedRpcCalls.length > this.queuePeakCount) {
+        this.queuePeakCount = this.queuedRpcCalls.length
+        this.queuePeakAtIso = new Date(queuedAtMs).toISOString()
+      }
+
+      const shouldWarn =
+        this.queuedRpcCalls.length >= APP_SERVER_RPC_QUEUE_WARN_SIZE &&
+        queuedAtMs - this.lastRpcQueueWarnAtMs >= APP_SERVER_RPC_QUEUE_WARN_INTERVAL_MS
+      if (shouldWarn) {
+        this.lastRpcQueueWarnAtMs = queuedAtMs
+        writeBridgeLog('warn', 'App-server RPC queue is backing up', {
+          queuedRpcCount: this.queuedRpcCalls.length,
+          activeRpcCalls: this.activeRpcCalls,
+          method,
+          includeTurns: method === 'thread/read' ? asRecord(params)?.includeTurns === true : undefined,
+        })
+      }
+
+      this.drainRpcQueue()
+    })
+  }
+
+  private drainRpcQueue(): void {
+    while (this.activeRpcCalls < APP_SERVER_RPC_MAX_IN_FLIGHT && this.queuedRpcCalls.length > 0) {
+      const request = this.queuedRpcCalls.shift()
+      if (!request) return
+
+      this.activeRpcCalls += 1
+      void this.call(request.method, request.params)
+        .then(request.resolve, request.reject)
+        .finally(() => {
+          this.activeRpcCalls = Math.max(0, this.activeRpcCalls - 1)
+          this.drainRpcQueue()
+        })
+    }
+  }
+
   private async call(method: string, params: unknown): Promise<unknown> {
     this.start()
     const id = this.nextId++
@@ -2052,9 +2572,13 @@ class AppServerProcess {
 
   async rpc(method: string, params: unknown): Promise<unknown> {
     await this.ensureInitialized()
+    if (getRpcQueuePriority(method, params) === 0) {
+      return this.call(method, params)
+    }
+
     const shareableKey = getShareableRpcKey(method, params)
     if (!shareableKey) {
-      return this.call(method, params)
+      return this.enqueueRpc(method, params)
     }
 
     const existingRequest = this.sharedReadRpcByKey.get(shareableKey)
@@ -2062,7 +2586,7 @@ class AppServerProcess {
       return existingRequest
     }
 
-    const request = this.call(method, params).finally(() => {
+    const request = this.enqueueRpc(method, params).finally(() => {
       this.sharedReadRpcByKey.delete(shareableKey)
     })
     this.sharedReadRpcByKey.set(shareableKey, request)
@@ -2137,11 +2661,23 @@ class AppServerProcess {
       stopping: this.stopping,
       pid: this.process?.pid ?? null,
       pendingRpcCount: this.pending.size,
+      queuedRpcCount: this.queuedRpcCalls.length,
       pendingServerRequestCount: this.pendingServerRequests.size,
+      rpcDiagnostics: {
+        activeRpcCalls: this.activeRpcCalls,
+        pendingRpcCount: this.pending.size,
+        queuedRpcCount: this.queuedRpcCalls.length,
+        queuePeakCount: this.queuePeakCount,
+        queuePeakAtIso: this.queuePeakAtIso,
+        recentSlowRpc: [...this.recentSlowRpcRecords],
+        recentTimeouts: [...this.recentTimeoutRecords],
+      },
     }
   }
 
   dispose(): void {
+    const failure = new Error('codex app-server stopped')
+    this.rejectQueuedRpcCalls(failure)
     if (!this.process) return
 
     const proc = this.process
@@ -2151,7 +2687,6 @@ class AppServerProcess {
     this.initializePromise = null
     this.readBuffer = ''
 
-    const failure = new Error('codex app-server stopped')
     this.rejectAllPending(failure)
     this.pendingServerRequests.clear()
     this.sharedReadRpcByKey.clear()
@@ -2409,6 +2944,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
   let threadSearchIndex: ThreadSearchIndex | null = null
   let threadSearchIndexPromise: Promise<ThreadSearchIndex> | null = null
   const cachedThreadReadsByThreadId = new Map<string, CachedThreadRead>()
+  const runtimeStateStore = new RuntimeStateStore()
   const notificationReplayBuffer: BridgeNotificationEvent[] = []
   const bridgeNotificationListeners = new Set<(value: BridgeNotificationEvent) => void>()
   let notificationSeq = 0
@@ -2474,6 +3010,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
   const unsubscribeAppServerNotifications = appServer.onNotification((notification: { method: string; params: unknown }) => {
     const event = rememberNotificationEvent(notification)
+    runtimeStateStore.observeEvent(event)
     for (const listener of bridgeNotificationListeners) {
       listener(event)
     }
@@ -2588,16 +3125,25 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       (lightThreadRead ? readActiveTurnIdFromThreadReadPayload(lightThreadRead) : '')
       || (threadRead && messageState === 'fresh' ? readActiveTurnIdFromThreadReadPayload(threadRead) : '')
       || (!lightThreadRead && messageState === 'cached' ? (cachedThreadRead?.activeTurnId ?? '') : '')
-    return {
-      threadId: normalizedThreadId,
-      inProgress,
-      activeTurnId,
-      updatedAtIso,
+
+    if (lightThreadRead || threadRead || cachedThreadRead) {
+      runtimeStateStore.observeThreadRead(
+        normalizedThreadId,
+        inProgress,
+        activeTurnId,
+        updatedAtIso,
+        messageState === 'cached' ? 'cache' : 'thread-read',
+      )
+    } else {
+      runtimeStateStore.markDegraded(normalizedThreadId, 'thread snapshot unavailable')
+    }
+
+    return runtimeStateStore.snapshot(normalizedThreadId, {
       threadRead,
       messageState,
       pendingServerRequests: appServer.listPendingServerRequestsForThread(normalizedThreadId),
       tokenUsage,
-    }
+    })
   }
 
   const middleware = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
@@ -2678,6 +3224,15 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           return
         }
 
+        const rpcThreadId = readThreadIdFromPayload(body.params)
+        if (body.method === 'turn/start' && rpcThreadId) {
+          runtimeStateStore.markStarting(rpcThreadId, readTurnIdFromPayload(body.params))
+        } else if (body.method === 'turn/interrupt' && rpcThreadId) {
+          runtimeStateStore.markStopping(rpcThreadId)
+        } else if ((body.method === 'thread/resume' || body.method === 'thread/read') && rpcThreadId) {
+          runtimeStateStore.markQueued(rpcThreadId)
+        }
+
         let rpcResult: unknown
         try {
           rpcResult = await appServer.rpc(body.method, body.params ?? null)
@@ -2729,6 +3284,44 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         const afterSeq = Number.parseInt((url.searchParams.get('after') ?? '0').trim(), 10)
         const limit = Number.parseInt((url.searchParams.get('limit') ?? '200').trim(), 10)
         setJson(res, 200, { data: middleware.listNotificationEventsAfter(afterSeq, limit) })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/runtime/events') {
+        const afterSeq = Number.parseInt((url.searchParams.get('afterSeq') ?? url.searchParams.get('after') ?? '0').trim(), 10)
+        const limit = Number.parseInt((url.searchParams.get('limit') ?? '200').trim(), 10)
+        setJson(res, 200, { data: middleware.listNotificationEventsAfter(afterSeq, limit) })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/runtime/snapshot') {
+        const threadId = (url.searchParams.get('threadId') ?? '').trim()
+        if (!threadId) {
+          setJson(res, 400, { error: 'Missing threadId' })
+          return
+        }
+        const snapshot = runtimeStateStore.snapshot(threadId, {
+          pendingServerRequests: appServer.listPendingServerRequestsForThread(threadId),
+          tokenUsage: appServer.getThreadTokenUsage(threadId),
+        })
+        setJson(res, 200, { data: snapshot })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/runtime/snapshots') {
+        const threadIds = (url.searchParams.get('threadIds') ?? '')
+          .split(',')
+          .map((threadId) => threadId.trim())
+          .filter((threadId) => threadId.length > 0)
+          .slice(0, 100)
+        const overlays = new Map<string, RuntimeSnapshotOverlay>()
+        for (const threadId of threadIds) {
+          overlays.set(threadId, {
+            pendingServerRequests: appServer.listPendingServerRequestsForThread(threadId),
+            tokenUsage: appServer.getThreadTokenUsage(threadId),
+          })
+        }
+        setJson(res, 200, { data: runtimeStateStore.snapshots(threadIds, overlays) })
         return
       }
 

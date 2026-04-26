@@ -449,3 +449,31 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - 若需回退，恢复本轮前的 `ThreadConversation.vue`、`DesktopLayout.vue`、`ContentHeader.vue`、`ThreadComposer.vue`、`QueuedMessages.vue` 与 `App.vue` 版本。
+
+---
+
+### Feature: Android 恢复优先 runtime 状态同步
+
+#### Prerequisites
+- `7420` 服务运行中，前端资源已更新到本轮构建版本。
+- Android CX Codex 或移动端 WebView 可以访问当前服务。
+- 准备一个可运行长任务的会话，用于观察锁屏/切后台恢复。
+
+#### Steps
+1. 在 Android 端打开一个会话并发送一条会执行较久的任务。
+2. 等待界面出现执行中状态后，锁屏 10-20 秒。
+3. 解锁回到 CX Codex。
+4. 观察页面是否先恢复“执行中/等待确认/已完成”等状态，而不是长时间卡在空白或旧状态。
+5. 如果任务已完成，等待 2-3 秒，确认最终消息会自动补齐。
+6. 再次切后台 10 秒后回到应用，重复观察一次。
+7. 在桌面浏览器打开同一会话，确认 Web 端状态仍能正常跟随，不受 Android 恢复策略影响。
+
+#### Expected Results
+- Android 恢复后第一轮同步先走 runtime snapshot 和事件回放，不应立即触发明显卡顿的全量刷新。
+- 任务执行中应显示执行态；任务完成后不应长期停留在“思考中”。
+- 若有授权请求，应显示等待确认状态，并保留停止/发送队列逻辑。
+- 第二轮补偿同步会按需刷新消息和线程列表，最终内容应自动补齐。
+- `/codex-api/health` 中近期 `recentTimeouts` 不应因为恢复动作快速增加。
+
+#### Rollback/Cleanup
+- 无需清理。若需回退，恢复本轮 `src/composables/useDesktopState.ts`、`src/api/codexGateway.ts`、`src/App.vue` 和 `src/server/codexAppServerBridge.ts` 的改动。

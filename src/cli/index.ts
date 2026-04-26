@@ -639,7 +639,7 @@ async function startServer(options: {
   }
 
   if (password) {
-    lines.push(`  Password: ${password}`)
+    lines.push('  Password: enabled (hidden)')
   }
   if (tunnelUrl) {
     lines.push(`  Tunnel:   ${tunnelUrl}`)

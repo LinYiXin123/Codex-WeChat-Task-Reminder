@@ -36,11 +36,35 @@ type CurrentModelConfig = {
 
 type RpcCallOptions = { signal?: AbortSignal }
 
+export type RuntimeExecutionState =
+  | 'idle'
+  | 'queued'
+  | 'starting'
+  | 'running'
+  | 'waiting_permission'
+  | 'stopping'
+  | 'completed_pending_sync'
+  | 'completed'
+  | 'failed'
+  | 'interrupted'
+  | 'sync_degraded'
+
 export type ThreadRuntimeSnapshot = {
   messages: UiMessage[]
+  executionState: RuntimeExecutionState
   inProgress: boolean
   activeTurnId: string
+  activeItemId: string
+  canStop: boolean
+  stopRequested: boolean
   updatedAtIso: string
+  lastEventSeq: number
+  lastEventAtIso: string | null
+  lastStartedAtIso: string | null
+  lastCompletedAtIso: string | null
+  lastError: string | null
+  stale: boolean
+  degradedReason: string | null
   messageState: 'fresh' | 'cached' | 'unavailable'
   pendingServerRequests: unknown[]
   tokenUsage: UiThreadTokenUsage | null
@@ -497,9 +521,31 @@ export async function getThreadRuntimeSnapshot(
       : 'fresh'
   const pendingServerRequests = Array.isArray(data.pendingServerRequests) ? data.pendingServerRequests : []
   const tokenUsage = normalizeThreadTokenUsage(data.tokenUsage)
+  const rawExecutionState = typeof data.executionState === 'string' ? data.executionState.trim() : ''
+  const executionState: RuntimeExecutionState =
+    rawExecutionState === 'queued' ||
+    rawExecutionState === 'starting' ||
+    rawExecutionState === 'running' ||
+    rawExecutionState === 'waiting_permission' ||
+    rawExecutionState === 'stopping' ||
+    rawExecutionState === 'completed_pending_sync' ||
+    rawExecutionState === 'completed' ||
+    rawExecutionState === 'failed' ||
+    rawExecutionState === 'interrupted' ||
+    rawExecutionState === 'sync_degraded'
+      ? rawExecutionState
+      : 'idle'
+  const activeItemId = typeof data.activeItemId === 'string' ? data.activeItemId.trim() : ''
+  const lastEventSeq = typeof data.lastEventSeq === 'number' && Number.isFinite(data.lastEventSeq)
+    ? Math.max(0, Math.trunc(data.lastEventSeq))
+    : 0
+  const readNullableString = (value: unknown): string | null => (
+    typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+  )
 
   return {
     messages: threadRead ? normalizeThreadMessagesV2(threadRead) : [],
+    executionState,
     inProgress:
       data.inProgress === true ||
       (threadRead ? readThreadInProgressFromResponse(threadRead) : false),
@@ -507,10 +553,91 @@ export async function getThreadRuntimeSnapshot(
       typeof data.activeTurnId === 'string' && data.activeTurnId.trim().length > 0
         ? data.activeTurnId.trim()
         : (threadRead ? readActiveTurnIdFromResponse(threadRead) : ''),
+    activeItemId,
+    canStop: data.canStop === true,
+    stopRequested: data.stopRequested === true,
     updatedAtIso,
+    lastEventSeq,
+    lastEventAtIso: readNullableString(data.lastEventAtIso),
+    lastStartedAtIso: readNullableString(data.lastStartedAtIso),
+    lastCompletedAtIso: readNullableString(data.lastCompletedAtIso),
+    lastError: readNullableString(data.lastError),
+    stale: data.stale === true,
+    degradedReason: readNullableString(data.degradedReason),
     messageState,
     pendingServerRequests,
     tokenUsage,
+  }
+}
+
+export async function getThreadRuntimeStatusSnapshot(
+  threadId: string,
+  options: RpcCallOptions = {},
+): Promise<ThreadRuntimeSnapshot> {
+  const response = await fetchWithTimeout(`/codex-api/runtime/snapshot?threadId=${encodeURIComponent(threadId)}`, {
+    signal: options.signal,
+  }, {
+    timeoutMs: GATEWAY_BACKGROUND_FETCH_TIMEOUT_MS,
+    label: `Thread runtime snapshot request for ${threadId}`,
+  })
+
+  const payload = (await response.json()) as unknown
+  if (!response.ok) {
+    throw new Error(getErrorMessageFromPayload(payload, `Failed to load runtime snapshot ${threadId}`))
+  }
+
+  const record =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : {}
+  const data =
+    record.data && typeof record.data === 'object' && !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {}
+  const rawExecutionState = typeof data.executionState === 'string' ? data.executionState.trim() : ''
+  const executionState: RuntimeExecutionState =
+    rawExecutionState === 'queued' ||
+    rawExecutionState === 'starting' ||
+    rawExecutionState === 'running' ||
+    rawExecutionState === 'waiting_permission' ||
+    rawExecutionState === 'stopping' ||
+    rawExecutionState === 'completed_pending_sync' ||
+    rawExecutionState === 'completed' ||
+    rawExecutionState === 'failed' ||
+    rawExecutionState === 'interrupted' ||
+    rawExecutionState === 'sync_degraded'
+      ? rawExecutionState
+      : 'idle'
+  const readNullableString = (value: unknown): string | null => (
+    typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+  )
+  const rawMessageState = typeof data.messageState === 'string' ? data.messageState.trim() : ''
+  const messageState: ThreadRuntimeSnapshot['messageState'] =
+    rawMessageState === 'fresh' || rawMessageState === 'cached' || rawMessageState === 'unavailable'
+      ? rawMessageState
+      : 'unavailable'
+
+  return {
+    messages: [],
+    executionState,
+    inProgress: data.inProgress === true,
+    activeTurnId: typeof data.activeTurnId === 'string' ? data.activeTurnId.trim() : '',
+    activeItemId: typeof data.activeItemId === 'string' ? data.activeItemId.trim() : '',
+    canStop: data.canStop === true,
+    stopRequested: data.stopRequested === true,
+    updatedAtIso: typeof data.updatedAtIso === 'string' ? data.updatedAtIso.trim() : '',
+    lastEventSeq: typeof data.lastEventSeq === 'number' && Number.isFinite(data.lastEventSeq)
+      ? Math.max(0, Math.trunc(data.lastEventSeq))
+      : 0,
+    lastEventAtIso: readNullableString(data.lastEventAtIso),
+    lastStartedAtIso: readNullableString(data.lastStartedAtIso),
+    lastCompletedAtIso: readNullableString(data.lastCompletedAtIso),
+    lastError: readNullableString(data.lastError),
+    stale: data.stale === true,
+    degradedReason: readNullableString(data.degradedReason),
+    messageState,
+    pendingServerRequests: Array.isArray(data.pendingServerRequests) ? data.pendingServerRequests : [],
+    tokenUsage: normalizeThreadTokenUsage(data.tokenUsage),
   }
 }
 
