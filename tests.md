@@ -477,3 +477,29 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - 无需清理。若需回退，恢复本轮 `src/composables/useDesktopState.ts`、`src/api/codexGateway.ts`、`src/App.vue` 和 `src/server/codexAppServerBridge.ts` 的改动。
+
+---
+
+### Feature: Android release 版本号与自动化回归
+
+#### Prerequisites
+- `7420` 服务运行中。
+- 本机已安装 Android SDK、JDK，并存在 release 签名配置。
+- 前端和 Android 资源已更新到当前版本。
+
+#### Steps
+1. 执行 `npm run test:7420 -- -ScreenshotDir output\regression-7420`。
+2. 确认本机 `/health`、`/codex-api/health`、事件回放、公网 `/health` 均通过。
+3. 确认桌面 `1440x900`、手机 `390x844`、折叠屏 `884x1104` 三个视口均无横向溢出和页面错误。
+4. 执行 `npm run mobile:android:sync`。
+5. 执行 `.\gradlew.bat assembleRelease`。
+6. 检查 release APK 的 `versionName` 为当前 `package.json` 版本，`versionCode` 按 `major * 10000 + minor * 100 + patch` 递增。
+
+#### Expected Results
+- 自动化回归全部通过。
+- Android Web 资源同步成功。
+- release APK 构建成功。
+- `2.1.2` 对应 `versionCode=20102`，可覆盖安装旧 `2.1.1` 构建。
+
+#### Rollback/Cleanup
+- 若需回退，恢复 `package.json`、`package-lock.json`、`android/app/build.gradle` 与 `docs/changelog.zh-CN.md`。

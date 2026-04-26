@@ -14,7 +14,17 @@ def resolvedVersionName = String.valueOf(System.getenv('APP_VERSION_NAME') ?: pa
 if (resolvedVersionName.startsWith('v')) {
     resolvedVersionName = resolvedVersionName.substring(1)
 }
-def resolvedVersionCode = Integer.parseInt(String.valueOf(System.getenv('APP_VERSION_CODE') ?: '1'))
+def versionParts = resolvedVersionName
+    .split('\\.')
+    .collect { part ->
+        def matcher = (part =~ /(\d+)/)
+        matcher.find() ? Integer.parseInt(matcher.group(1)) : 0
+    }
+while (versionParts.size() < 3) {
+    versionParts.add(0)
+}
+def derivedVersionCode = versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2]
+def resolvedVersionCode = Integer.parseInt(String.valueOf(System.getenv('APP_VERSION_CODE') ?: String.valueOf(derivedVersionCode)))
 
 android {
     namespace = "com.codexui.bridge"
