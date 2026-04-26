@@ -1,6 +1,6 @@
 {
   "name": "codexapp",
-  "version": "0.2.0",
+  "version": "2.1.0",
   "description": "OpenAI Codex web UI and browser bridge for Windows, Linux, Android, LAN, and remote self-hosted access",
   "type": "module",
   "license": "MIT",
@@ -61,6 +61,7 @@
     "mobile:android:run": "npm run mobile:android:sync && npx cap run android",
     "package:release": "powershell -ExecutionPolicy Bypass -File ./scripts/package-release.ps1",
     "setup:windows": "powershell -ExecutionPolicy Bypass -File ./setup.ps1",
+    "test:7420": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/regression-7420.ps1",
     "preview": "vite preview",
     "prepublishOnly": "npm run build"
   },

@@ -54,12 +54,12 @@ function Get-ManagedCodexUiProcessIds {
 
 function Test-Health {
   param(
-    [string]$Host,
+    [string]$HealthHost,
     [int]$TargetPort
   )
 
   try {
-    $response = Invoke-WebRequest -Uri "http://$Host`:$TargetPort/health" -UseBasicParsing -TimeoutSec 5
+    $response = Invoke-WebRequest -Uri "http://$HealthHost`:$TargetPort/health" -UseBasicParsing -TimeoutSec 5
     if ($response.StatusCode -eq 200) {
       return $response.Content
     }
@@ -123,7 +123,7 @@ $process = Start-Process `
 $healthPayload = $null
 for ($attempt = 0; $attempt -lt 20; $attempt += 1) {
   Start-Sleep -Milliseconds 500
-  $healthPayload = Test-Health -Host $BindHealthHost -TargetPort $Port
+  $healthPayload = Test-Health -HealthHost $BindHealthHost -TargetPort $Port
   if ($healthPayload) {
     break
   }

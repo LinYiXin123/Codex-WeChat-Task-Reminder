@@ -3885,7 +3885,30 @@ onBeforeUnmount(() => {
   padding-bottom: max(0.875rem, env(safe-area-inset-bottom));
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(143, 133, 119, 0.42) transparent;
   transition: opacity 140ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.conversation-list::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.conversation-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.conversation-list::-webkit-scrollbar-thumb {
+  min-height: 3rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(143, 133, 119, 0.32);
+}
+
+.conversation-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(91, 81, 70, 0.42);
 }
 
 .conversation-list--switching {

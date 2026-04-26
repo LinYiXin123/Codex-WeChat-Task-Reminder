@@ -11,18 +11,18 @@
       <IconTablerLayoutSidebar v-else class="sidebar-thread-controls-icon" />
     </button>
 
-    <slot />
-
     <button
       v-if="showNewThreadButton"
       class="sidebar-thread-controls-button"
       type="button"
-      aria-label="Start new thread"
-      title="Start new thread"
+      aria-label="新建会话"
+      title="新建会话"
       @click="$emit('start-new-thread')"
     >
       <IconTablerFilePencil class="sidebar-thread-controls-icon" />
     </button>
+
+    <slot />
   </div>
 </template>
 

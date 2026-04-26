@@ -26,6 +26,26 @@ const program = new Command().name('codexui').description('Web interface for Cod
 const __dirname = dirname(fileURLToPath(import.meta.url))
 let hasPromptedCloudflaredInstall = false
 
+function logRuntimeError(scope: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  const stack = error instanceof Error ? error.stack : ''
+  console.error(JSON.stringify({
+    atIso: new Date().toISOString(),
+    scope,
+    level: 'error',
+    message,
+    stack,
+  }))
+}
+
+process.on('unhandledRejection', (error) => {
+  logRuntimeError('codexui-unhandled-rejection', error)
+})
+
+process.on('uncaughtExceptionMonitor', (error) => {
+  logRuntimeError('codexui-uncaught-exception', error)
+})
+
 function getCodexHomePath(): string {
   return process.env.CODEX_HOME?.trim() || join(homedir(), '.codex')
 }
@@ -566,6 +586,10 @@ async function startServer(options: {
   const password = resolvePassword(options.password)
   const { app, dispose, attachWebSocket } = createApp({ password })
   const server = createServer(app)
+  server.keepAliveTimeout = 65_000
+  server.headersTimeout = 66_000
+  server.requestTimeout = 0
+  server.timeout = 0
   attachWebSocket(server)
   const port = await listenWithFallback(server, requestedPort, host)
   let tunnelChild: ReturnType<typeof spawn> | null = null

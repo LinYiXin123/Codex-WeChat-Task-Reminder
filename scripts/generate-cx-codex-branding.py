@@ -9,13 +9,15 @@ ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_BRANDING_DIR = ROOT / "public" / "branding"
 ANDROID_RES_DIR = ROOT / "android" / "app" / "src" / "main" / "res"
 
-BACKGROUND_TOP = (8, 70, 255, 255)
-BACKGROUND_BOTTOM = (36, 122, 255, 255)
-BACKGROUND_GLOW = (79, 180, 255, 255)
-MARK_BLUE = (34, 103, 255, 255)
-MARK_BLUE_LIGHT = (48, 130, 255, 255)
-MARK_GLOW = (66, 244, 255, 255)
 WHITE = (255, 255, 255, 255)
+TRANSPARENT = (0, 0, 0, 0)
+TILE_SHADOW = (18, 58, 140, 38)
+TILE_HIGHLIGHT = (255, 255, 255, 70)
+MARK_BLUE = (26, 102, 255, 255)
+MARK_BLUE_DEEP = (24, 88, 234, 255)
+MARK_BLUE_LIGHT = (42, 120, 255, 255)
+MARK_GLOW = (71, 245, 255, 255)
+DOT_BLUE = (20, 158, 255, 255)
 
 LEGACY_SIZES = {
     "mipmap-mdpi": 48,
@@ -34,181 +36,172 @@ FOREGROUND_SIZES = {
 }
 
 
-def rounded_rect_mask(size: int, radius: int) -> Image.Image:
-    mask = Image.new("L", (size, size), 0)
-    draw = ImageDraw.Draw(mask)
-    draw.rounded_rectangle((0, 0, size, size), radius=radius, fill=255)
-    return mask
-
-
-def make_background(size: int) -> Image.Image:
-    image = Image.new("RGBA", (size, size))
-    pixels = image.load()
-    for y in range(size):
-        t = y / max(1, size - 1)
-        r = int(BACKGROUND_TOP[0] * (1 - t) + BACKGROUND_BOTTOM[0] * t)
-        g = int(BACKGROUND_TOP[1] * (1 - t) + BACKGROUND_BOTTOM[1] * t)
-        b = int(BACKGROUND_TOP[2] * (1 - t) + BACKGROUND_BOTTOM[2] * t)
-        for x in range(size):
-            pixels[x, y] = (r, g, b, 255)
-
-    glow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(glow)
-    glow_radius = int(size * 0.42)
-    glow_bbox = (
-        int(size * 0.28),
-        int(size * 0.22),
-        int(size * 0.28) + glow_radius,
-        int(size * 0.22) + glow_radius,
-    )
-    draw.ellipse(glow_bbox, fill=(BACKGROUND_GLOW[0], BACKGROUND_GLOW[1], BACKGROUND_GLOW[2], 118))
-    glow = glow.filter(ImageFilter.GaussianBlur(radius=int(size * 0.08)))
-    return Image.alpha_composite(image, glow)
-
-
-def make_tile(size: int) -> Image.Image:
-    tile_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    shadow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    shadow_draw = ImageDraw.Draw(shadow_layer)
-
-    tile_margin = int(size * 0.14)
-    radius = int(size * 0.12)
-    tile_box = (tile_margin, tile_margin, size - tile_margin, size - tile_margin)
-    shadow_offset = int(size * 0.012)
-
-    shadow_draw.rounded_rectangle(
-        (
-            tile_box[0],
-            tile_box[1] + shadow_offset,
-            tile_box[2],
-            tile_box[3] + shadow_offset,
-        ),
-        radius=radius,
-        fill=(8, 38, 111, 48),
-    )
-    shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(radius=int(size * 0.02)))
-    tile_layer = Image.alpha_composite(tile_layer, shadow_layer)
-
-    tile_draw = ImageDraw.Draw(tile_layer)
-    tile_draw.rounded_rectangle(tile_box, radius=radius, fill=WHITE)
-
-    highlight = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    highlight_draw = ImageDraw.Draw(highlight)
-    highlight_draw.rounded_rectangle(
-        (
-            tile_box[0] + int(size * 0.01),
-            tile_box[1] + int(size * 0.01),
-            tile_box[2] - int(size * 0.01),
-            tile_box[1] + int(size * 0.16),
-        ),
-        radius=radius,
-        fill=(255, 255, 255, 42),
-    )
-    highlight = highlight.filter(ImageFilter.GaussianBlur(radius=int(size * 0.015)))
-    return Image.alpha_composite(tile_layer, highlight)
-
-
-def draw_mark(target: Image.Image, size: int) -> None:
-    draw = ImageDraw.Draw(target)
-    stroke = int(size * 0.082)
-    accent_stroke = max(2, int(stroke * 0.42))
-
-    arc_box = (
-        int(size * 0.23),
-        int(size * 0.31),
-        int(size * 0.66),
-        int(size * 0.74),
-    )
-    draw.arc(arc_box, start=30, end=335, fill=MARK_BLUE, width=stroke)
-    draw.arc(
-        (
-            arc_box[0] + int(size * 0.01),
-            arc_box[1] - int(size * 0.005),
-            arc_box[2] + int(size * 0.005),
-            arc_box[3] - int(size * 0.005),
-        ),
-        start=30,
-        end=200,
-        fill=MARK_BLUE_LIGHT,
-        width=accent_stroke,
-    )
-
-    cross_start_upper = (int(size * 0.595), int(size * 0.43))
-    cross_end_upper = (int(size * 0.81), int(size * 0.64))
-    cross_start_lower = (int(size * 0.595), int(size * 0.57))
-    cross_end_lower = (int(size * 0.81), int(size * 0.36))
-    draw.line((cross_start_upper, cross_end_upper), fill=MARK_BLUE, width=stroke)
-    draw.line((cross_start_lower, cross_end_lower), fill=MARK_BLUE, width=stroke)
-
-    glow_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    glow_draw = ImageDraw.Draw(glow_layer)
-    glow_draw.ellipse(
-        (
-            int(size * 0.41),
-            int(size * 0.47),
-            int(size * 0.55),
-            int(size * 0.61),
-        ),
-        fill=(MARK_GLOW[0], MARK_GLOW[1], MARK_GLOW[2], 188),
-    )
-    glow_draw.polygon(
-        (
-            (int(size * 0.53), int(size * 0.475)),
-            (int(size * 0.67), int(size * 0.54)),
-            (int(size * 0.53), int(size * 0.605)),
-        ),
-        fill=(MARK_GLOW[0], MARK_GLOW[1], MARK_GLOW[2], 212),
-    )
-    glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=int(size * 0.022)))
-    target.alpha_composite(glow_layer)
-
-    draw = ImageDraw.Draw(target)
-    draw.ellipse(
-        (
-            int(size * 0.435),
-            int(size * 0.49),
-            int(size * 0.535),
-            int(size * 0.59),
-        ),
-        fill=(27, 171, 255, 255),
-    )
-
-
-def make_foreground(size: int) -> Image.Image:
-    foreground = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    foreground.alpha_composite(make_tile(size))
-    draw_mark(foreground, size)
-    return foreground
-
-
-def make_full_icon(size: int) -> Image.Image:
-    background = make_background(size)
-    background.alpha_composite(make_foreground(size))
-    return background
-
-
 def save_png(image: Image.Image, path: Path, size: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     resized = image.resize((size, size), Image.LANCZOS)
     resized.save(path, format="PNG")
 
 
+def build_tile_canvas(size: int) -> tuple[Image.Image, tuple[int, int, int, int]]:
+    canvas = Image.new("RGBA", (size, size), TRANSPARENT)
+    tile_margin_x = int(size * 0.09)
+    tile_margin_top = int(size * 0.095)
+    tile_margin_bottom = int(size * 0.105)
+    tile_box = (
+        tile_margin_x,
+        tile_margin_top,
+        size - tile_margin_x,
+        size - tile_margin_bottom,
+    )
+    radius = int(size * 0.2)
+
+    shadow = Image.new("RGBA", (size, size), TRANSPARENT)
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_offset = int(size * 0.024)
+    shadow_draw.rounded_rectangle(
+        (
+            tile_box[0] + int(size * 0.004),
+            tile_box[1] + shadow_offset,
+            tile_box[2] - int(size * 0.004),
+            tile_box[3] + shadow_offset,
+        ),
+        radius=radius,
+        fill=TILE_SHADOW,
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=int(size * 0.03)))
+    canvas.alpha_composite(shadow)
+
+    tile = Image.new("RGBA", (size, size), TRANSPARENT)
+    tile_draw = ImageDraw.Draw(tile)
+    tile_draw.rounded_rectangle(tile_box, radius=radius, fill=WHITE)
+
+    highlight = Image.new("RGBA", (size, size), TRANSPARENT)
+    highlight_draw = ImageDraw.Draw(highlight)
+    highlight_draw.rounded_rectangle(
+        (
+            tile_box[0] + int(size * 0.03),
+            tile_box[1] + int(size * 0.018),
+            tile_box[2] - int(size * 0.03),
+            tile_box[1] + int(size * 0.16),
+        ),
+        radius=int(size * 0.16),
+        fill=TILE_HIGHLIGHT,
+    )
+    highlight = highlight.filter(ImageFilter.GaussianBlur(radius=int(size * 0.018)))
+    tile.alpha_composite(highlight)
+    canvas.alpha_composite(tile)
+    return canvas, tile_box
+
+
+def draw_brand_mark(target: Image.Image, size: int) -> None:
+    draw = ImageDraw.Draw(target)
+    stroke = int(size * 0.082)
+    accent_stroke = max(3, int(stroke * 0.34))
+
+    arc_box = (
+        int(size * 0.18),
+        int(size * 0.29),
+        int(size * 0.62),
+        int(size * 0.71),
+    )
+    draw.arc(arc_box, start=18, end=338, fill=MARK_BLUE, width=stroke)
+    draw.arc(
+        (
+            arc_box[0] + int(size * 0.012),
+            arc_box[1] + int(size * 0.006),
+            arc_box[2] + int(size * 0.008),
+            arc_box[3] - int(size * 0.01),
+        ),
+        start=18,
+        end=205,
+        fill=MARK_BLUE_LIGHT,
+        width=accent_stroke,
+    )
+
+    upper_start = (int(size * 0.585), int(size * 0.385))
+    upper_mid = (int(size * 0.70), int(size * 0.505))
+    upper_end = (int(size * 0.81), int(size * 0.39))
+    lower_start = (int(size * 0.585), int(size * 0.615))
+    lower_mid = (int(size * 0.70), int(size * 0.495))
+    lower_end = (int(size * 0.81), int(size * 0.61))
+    draw.line((upper_start, upper_mid, upper_end), fill=MARK_BLUE, width=stroke, joint="curve")
+    draw.line((lower_start, lower_mid, lower_end), fill=MARK_BLUE, width=stroke, joint="curve")
+
+    accent_layer = Image.new("RGBA", (size, size), TRANSPARENT)
+    accent_draw = ImageDraw.Draw(accent_layer)
+    accent_draw.line(
+        (
+            (int(size * 0.575), int(size * 0.385)),
+            (int(size * 0.68), int(size * 0.498)),
+        ),
+        fill=MARK_BLUE_DEEP,
+        width=accent_stroke,
+    )
+    accent_draw.line(
+        (
+            (int(size * 0.575), int(size * 0.615)),
+            (int(size * 0.68), int(size * 0.502)),
+        ),
+        fill=MARK_BLUE_DEEP,
+        width=accent_stroke,
+    )
+    target.alpha_composite(accent_layer)
+
+    glow = Image.new("RGBA", (size, size), TRANSPARENT)
+    glow_draw = ImageDraw.Draw(glow)
+    glow_draw.ellipse(
+        (
+            int(size * 0.445),
+            int(size * 0.46),
+            int(size * 0.555),
+            int(size * 0.58),
+        ),
+        fill=(MARK_GLOW[0], MARK_GLOW[1], MARK_GLOW[2], 168),
+    )
+    glow_draw.polygon(
+        (
+            (int(size * 0.53), int(size * 0.462)),
+            (int(size * 0.642), int(size * 0.52)),
+            (int(size * 0.53), int(size * 0.58)),
+        ),
+        fill=(MARK_GLOW[0], MARK_GLOW[1], MARK_GLOW[2], 220),
+    )
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=int(size * 0.024)))
+    target.alpha_composite(glow)
+
+    draw = ImageDraw.Draw(target)
+    draw.ellipse(
+        (
+            int(size * 0.465),
+            int(size * 0.48),
+            int(size * 0.545),
+            int(size * 0.56),
+        ),
+        fill=DOT_BLUE,
+    )
+
+
+def make_icon(size: int) -> Image.Image:
+    canvas, _ = build_tile_canvas(size)
+    draw_brand_mark(canvas, size)
+    return canvas
+
+
 def main() -> None:
     PUBLIC_BRANDING_DIR.mkdir(parents=True, exist_ok=True)
     source_size = 1024
-    full_icon = make_full_icon(source_size)
-    foreground = make_foreground(source_size)
+    icon = make_icon(source_size)
 
-    save_png(full_icon, PUBLIC_BRANDING_DIR / "cx-codex-app-icon.png", source_size)
-    save_png(full_icon, PUBLIC_BRANDING_DIR / "cx-codex-logo.png", 512)
-    save_png(foreground, PUBLIC_BRANDING_DIR / "cx-codex-logo-foreground.png", 512)
+    save_png(icon, PUBLIC_BRANDING_DIR / "cx-codex-app-icon.png", source_size)
+    save_png(icon, PUBLIC_BRANDING_DIR / "cx-codex-logo.png", 512)
+    save_png(icon, PUBLIC_BRANDING_DIR / "cx-codex-logo-foreground.png", 512)
 
     for density, size in LEGACY_SIZES.items():
-        save_png(full_icon, ANDROID_RES_DIR / density / "ic_launcher.png", size)
-        save_png(full_icon, ANDROID_RES_DIR / density / "ic_launcher_round.png", size)
+        save_png(icon, ANDROID_RES_DIR / density / "ic_launcher.png", size)
+        save_png(icon, ANDROID_RES_DIR / density / "ic_launcher_round.png", size)
 
     for density, size in FOREGROUND_SIZES.items():
-        save_png(foreground, ANDROID_RES_DIR / density / "ic_launcher_foreground.png", size)
+        save_png(icon, ANDROID_RES_DIR / density / "ic_launcher_foreground.png", size)
 
 
 if __name__ == "__main__":

@@ -15,9 +15,49 @@ export type MobileShellAppInfo = {
   canRequestPackageInstalls: boolean
 }
 
+export type MobileShellRuntimeInfo = {
+  connected: boolean
+  validated: boolean
+  metered: boolean
+  transport: string
+  powerSaveMode: boolean
+  sdkInt: number
+  manufacturer: string
+  model: string
+  webViewPackage: string
+  webViewVersion: string
+}
+
+export type MobileShellKeepAwakeResult = {
+  enabled: boolean
+}
+
+export type MobileShellHapticStyle = 'light' | 'medium' | 'heavy' | 'success' | 'warning'
+
+export type MobileShellHapticResult = {
+  performed: boolean
+  style: MobileShellHapticStyle
+}
+
+export type MobileShellNotificationPermissionStatus = {
+  granted: boolean
+  requested: boolean
+  requiresRuntimePermission: boolean
+  notificationsEnabled: boolean
+}
+
+export type MobileShellNotificationType = 'status' | 'success' | 'request' | 'error'
+
+export type MobileShellNotificationResult = {
+  shown: boolean
+  reason: string
+  notificationId: number
+}
+
 export type MobileShellInstallResult = {
   status: 'started' | 'permission_required'
   fileName?: string
+  savedPath?: string
 }
 
 type MobileShellPlugin = {
@@ -25,6 +65,17 @@ type MobileShellPlugin = {
   setServerUrl(options: { serverUrl: string }): Promise<MobileShellServerConfig>
   resetServerUrl(): Promise<MobileShellServerConfig>
   getAppInfo(): Promise<MobileShellAppInfo>
+  getRuntimeInfo(): Promise<MobileShellRuntimeInfo>
+  setKeepAwake(options: { enabled: boolean }): Promise<MobileShellKeepAwakeResult>
+  performHapticFeedback(options: { style: MobileShellHapticStyle }): Promise<MobileShellHapticResult>
+  getNotificationPermissionStatus(): Promise<MobileShellNotificationPermissionStatus>
+  requestNotificationPermission(): Promise<MobileShellNotificationPermissionStatus>
+  showNotification(options: {
+    title: string
+    body: string
+    type?: MobileShellNotificationType
+    notificationId?: number
+  }): Promise<MobileShellNotificationResult>
   installApkFromUrl(options: { url: string; fileName?: string }): Promise<MobileShellInstallResult>
 }
 
@@ -48,6 +99,37 @@ export async function resetMobileShellServerUrl(): Promise<MobileShellServerConf
 
 export async function getMobileShellAppInfo(): Promise<MobileShellAppInfo> {
   return await MobileShell.getAppInfo()
+}
+
+export async function getMobileShellRuntimeInfo(): Promise<MobileShellRuntimeInfo> {
+  return await MobileShell.getRuntimeInfo()
+}
+
+export async function setMobileShellKeepAwake(enabled: boolean): Promise<MobileShellKeepAwakeResult> {
+  return await MobileShell.setKeepAwake({ enabled })
+}
+
+export async function performMobileShellHapticFeedback(
+  style: MobileShellHapticStyle = 'light',
+): Promise<MobileShellHapticResult> {
+  return await MobileShell.performHapticFeedback({ style })
+}
+
+export async function getMobileShellNotificationPermissionStatus(): Promise<MobileShellNotificationPermissionStatus> {
+  return await MobileShell.getNotificationPermissionStatus()
+}
+
+export async function requestMobileShellNotificationPermission(): Promise<MobileShellNotificationPermissionStatus> {
+  return await MobileShell.requestNotificationPermission()
+}
+
+export async function showMobileShellNotification(
+  title: string,
+  body: string,
+  type: MobileShellNotificationType = 'status',
+  notificationId?: number,
+): Promise<MobileShellNotificationResult> {
+  return await MobileShell.showNotification({ title, body, type, notificationId })
 }
 
 export async function installMobileShellApk(url: string, fileName = ''): Promise<MobileShellInstallResult> {

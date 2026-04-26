@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   autoCommitWorktreeChanges,
   archiveThread,
@@ -20,6 +20,7 @@ import {
   setDefaultModel,
   setWorkspaceRootsState,
   getThreadTitleCache,
+  getNotificationReplay,
   persistThreadTitle,
   generateThreadTitle,
   resumeThread,
@@ -54,6 +55,14 @@ import {
   MOBILE_NETWORK_OFFLINE_EVENT,
   MOBILE_NETWORK_ONLINE_EVENT,
 } from '../mobile/events'
+import {
+  isNativeAndroidShell,
+  performMobileShellHapticFeedback,
+  setMobileShellKeepAwake,
+  showMobileShellNotification,
+  type MobileShellHapticStyle,
+  type MobileShellNotificationType,
+} from '../mobile/mobileShell'
 
 function flattenThreads(groups: UiProjectGroup[]): UiThread[] {
   return groups.flatMap((group) => group.threads)
@@ -104,6 +113,7 @@ const PROJECT_ORDER_STORAGE_KEY = 'codex-web-local.project-order.v1'
 const PROJECT_DISPLAY_NAME_STORAGE_KEY = 'codex-web-local.project-display-name.v1'
 const HIDDEN_THREAD_IDS_STORAGE_KEY = 'codex-web-local.hidden-thread-ids.v1'
 const QUEUED_MESSAGES_STORAGE_KEY = 'codex-web-local.queued-messages.v1'
+const NOTIFICATION_SEQ_STORAGE_KEY = 'codex-web-local.notification-seq.v1'
 const EVENT_SYNC_DEBOUNCE_MS = 220
 const BACKGROUND_SYNC_INTERVAL_MS = 2500
 const ACTIVE_THREAD_DETAIL_SYNC_INTERVAL_MS = 2500
@@ -428,6 +438,34 @@ function saveQueuedMessagesMap(queueByThreadId: Record<string, QueuedMessage[]>)
     window.localStorage.setItem(QUEUED_MESSAGES_STORAGE_KEY, JSON.stringify(queueByThreadId))
   } catch {
     // Keep in-memory queue state when storage is unavailable or quota-limited.
+  }
+}
+
+function loadLastNotificationSeq(): number {
+  if (typeof window === 'undefined') return 0
+
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATION_SEQ_STORAGE_KEY)
+    if (!raw) return 0
+    const value = Number.parseInt(raw, 10)
+    return Number.isFinite(value) ? Math.max(0, value) : 0
+  } catch {
+    return 0
+  }
+}
+
+function saveLastNotificationSeq(seq: number): void {
+  if (typeof window === 'undefined') return
+
+  try {
+    const normalizedSeq = Number.isFinite(seq) ? Math.max(0, Math.trunc(seq)) : 0
+    if (normalizedSeq <= 0) {
+      window.localStorage.removeItem(NOTIFICATION_SEQ_STORAGE_KEY)
+      return
+    }
+    window.localStorage.setItem(NOTIFICATION_SEQ_STORAGE_KEY, String(normalizedSeq))
+  } catch {
+    // Replay still works within the current page lifetime if storage is unavailable.
   }
 }
 
@@ -1018,6 +1056,7 @@ export function useDesktopState() {
   const resumePromiseByThreadId = new Map<string, Promise<void>>()
   let hasRateLimitTrackingEnabled = false
   let lastNotificationAtMs = Date.now()
+  let lastNotificationSeq = loadLastNotificationSeq()
   let lastThreadListSyncAtMs = 0
   let activeSyncBoostUntilMs = 0
   let pendingThreadsRefresh = false
@@ -1028,6 +1067,10 @@ export function useDesktopState() {
   let hasHydratedWorkspaceRootsState = false
   let activeReasoningItemId = ''
   let shouldAutoScrollOnNextAgentEvent = false
+  let androidAppPaused = false
+  let lastAndroidNotificationKey = ''
+  let lastAndroidNotificationAtMs = 0
+  let replayNotificationsPromise: Promise<void> | null = null
   const pendingTurnStartsById = new Map<string, TurnStartedInfo>()
   const fallbackRetryInFlightThreadIds = new Set<string>()
   const isWorktreeGitAutomationEnabled = ref(true)
@@ -1245,6 +1288,54 @@ export function useDesktopState() {
     if (lastObservedActivityAt <= 0) return true
     return Date.now() - lastObservedActivityAt >= ACTIVE_SYNC_STALE_MS
   })
+  const androidShellAvailable = isNativeAndroidShell()
+  let androidKeepAwakeEnabled = false
+  function setAndroidKeepAwake(enabled: boolean): void {
+    if (!androidShellAvailable || androidKeepAwakeEnabled === enabled) return
+    androidKeepAwakeEnabled = enabled
+    void setMobileShellKeepAwake(enabled).catch(() => {
+      if (androidKeepAwakeEnabled === enabled) {
+        androidKeepAwakeEnabled = !enabled
+      }
+    })
+  }
+  function triggerAndroidHaptic(style: MobileShellHapticStyle = 'light'): void {
+    if (!androidShellAvailable) return
+    void performMobileShellHapticFeedback(style).catch(() => {})
+  }
+  function getThreadDisplayTitle(threadId: string): string {
+    const normalizedThreadId = threadId.trim()
+    if (!normalizedThreadId || normalizedThreadId === GLOBAL_SERVER_REQUEST_SCOPE) return 'CX Codex'
+    return (
+      threadTitleById.value[normalizedThreadId]?.trim() ||
+      sourceThreadById.value[normalizedThreadId]?.title?.trim() ||
+      '当前任务'
+    )
+  }
+  function shouldShowAndroidTaskNotification(threadId: string): boolean {
+    if (!androidShellAvailable) return false
+    if (androidAppPaused) return true
+    if (!isDocumentVisible()) return true
+    const normalizedThreadId = threadId.trim()
+    return Boolean(normalizedThreadId && normalizedThreadId !== selectedThreadId.value)
+  }
+  function showAndroidTaskNotification(
+    type: MobileShellNotificationType,
+    title: string,
+    body: string,
+    threadId: string,
+  ): void {
+    if (!shouldShowAndroidTaskNotification(threadId)) return
+    const key = `${type}:${threadId}:${title}:${body}`
+    const now = Date.now()
+    if (key === lastAndroidNotificationKey && now - lastAndroidNotificationAtMs < 2500) return
+    lastAndroidNotificationKey = key
+    lastAndroidNotificationAtMs = now
+    void showMobileShellNotification(title, body, type).catch(() => {})
+  }
+  const stopAndroidKeepAwakeWatch = androidShellAvailable
+    ? watch(hasSyncDemand, (active) => setAndroidKeepAwake(active), { immediate: true })
+    : null
   const messages = computed<UiMessage[]>(() => {
     const threadId = selectedThreadId.value
     if (!threadId) return []
@@ -2949,6 +3040,12 @@ export function useDesktopState() {
       const request = normalizeServerRequest(notification.params)
       if (!request) return true
       upsertPendingServerRequest(request)
+      showAndroidTaskNotification(
+        'request',
+        '需要确认',
+        `${getThreadDisplayTitle(request.threadId)} 等待你的处理`,
+        request.threadId,
+      )
       return true
     }
 
@@ -3421,6 +3518,12 @@ export function useDesktopState() {
         void autoCommitCompletedWorktreeTurn(completedTurn.threadId, commitMessage).catch(() => {
           // Keep chat flow resilient when auto-commit fails.
         })
+        showAndroidTaskNotification(
+          'success',
+          '任务已完成',
+          getThreadDisplayTitle(completedTurn.threadId),
+          completedTurn.threadId,
+        )
       }
     }
 
@@ -3428,6 +3531,12 @@ export function useDesktopState() {
       const failedThreadId = completedTurn?.threadId || extractThreadIdFromNotification(notification)
       if (failedThreadId) {
         setTurnErrorForThread(failedThreadId, turnErrorMessage)
+        showAndroidTaskNotification(
+          'error',
+          '任务出错',
+          turnErrorMessage,
+          failedThreadId,
+        )
       }
       error.value = turnErrorMessage
       if (failedThreadId && shouldRetryWithFallback) {
@@ -3442,6 +3551,12 @@ export function useDesktopState() {
       const errorThreadId = extractThreadIdFromNotification(notification)
       if (errorThreadId) {
         setTurnErrorForThread(errorThreadId, notificationErrorMessage)
+        showAndroidTaskNotification(
+          'error',
+          '任务出错',
+          notificationErrorMessage,
+          errorThreadId,
+        )
       }
       error.value = notificationErrorMessage
       if (selectedModelId.value !== MODEL_FALLBACK_ID && isUnsupportedChatGptModelError(new Error(notificationErrorMessage))) {
@@ -3755,9 +3870,11 @@ export function useDesktopState() {
         .filter((request): request is UiServerRequest => request !== null)
       setPendingServerRequestsForThread(threadId, normalizedPendingRequests)
       const previousPersisted = persistedMessagesByThreadId.value[threadId] ?? []
+      const shouldPreserveMissingMessages =
+        (options.silent === true && inProgress) || snapshot.messageState !== 'fresh'
       const mergedMessages = mergeMessages(previousPersisted, nextMessages, {
-        // Silent recovery should only preserve local gaps while the server still reports an active turn.
-        preserveMissing: options.silent === true && inProgress,
+        // Preserve previous content whenever the server only returned cached/unavailable message state.
+        preserveMissing: shouldPreserveMissingMessages,
       })
       setPersistedMessagesForThread(threadId, mergedMessages)
       if (inProgress && hasPersistedRunningCommand(threadId)) {
@@ -3782,7 +3899,7 @@ export function useDesktopState() {
       }
 
       const version = snapshot.updatedAtIso || currentThreadVersion(threadId)
-      if (version) {
+      if (version && snapshot.messageState === 'fresh') {
         loadedVersionByThreadId.value = {
           ...loadedVersionByThreadId.value,
           [threadId]: version,
@@ -3862,6 +3979,27 @@ export function useDesktopState() {
       }
     } catch (unknownError) {
       error.value = unknownError instanceof Error ? unknownError.message : 'Unknown application error'
+    }
+  }
+
+  async function refreshSelectedThreadContent(): Promise<void> {
+    error.value = ''
+
+    const threadId = selectedThreadId.value.trim()
+    if (!threadId) {
+      await refreshAll({ loadMessages: true, loadSkills: false })
+      return
+    }
+
+    try {
+      await syncThreadStatus({
+        includeThreadList: true,
+        forceMessageRefresh: true,
+        urgent: true,
+      })
+    } catch (unknownError) {
+      error.value = unknownError instanceof Error ? unknownError.message : '手动刷新当前会话失败'
+      throw unknownError
     }
   }
 
@@ -4014,6 +4152,7 @@ export function useDesktopState() {
     const threadId = selectedThreadId.value
     const nextText = text.trim()
     if (!threadId || (!nextText && imageUrls.length === 0 && fileAttachments.length === 0)) return
+    triggerAndroidHaptic(mode === 'queue' ? 'light' : 'medium')
 
     const optimisticMessageId = mode === 'queue'
       ? ''
@@ -4093,6 +4232,7 @@ export function useDesktopState() {
     const targetCwd = cwd.trim()
     const selectedModel = selectedModelId.value.trim()
     if (!nextText && imageUrls.length === 0 && fileAttachments.length === 0) return ''
+    triggerAndroidHaptic('medium')
 
     isSendingMessage.value = true
     error.value = ''
@@ -4298,6 +4438,7 @@ export function useDesktopState() {
       throw new Error('Could not determine active turn id for interrupt')
     }
 
+    triggerAndroidHaptic('warning')
     isInterruptingTurn.value = true
     error.value = ''
     try {
@@ -4622,11 +4763,12 @@ export function useDesktopState() {
           resumeSyncTimers.delete(timer)
           if (!force && document.hidden) return
           markActiveSyncBoost()
-          void syncThreadStatus({
-            includeThreadList: true,
-            forceMessageRefresh: true,
-            urgent: delayMs === 0,
-          })
+          void replayMissedNotifications()
+            .finally(() => syncThreadStatus({
+              includeThreadList: true,
+              forceMessageRefresh: true,
+              urgent: delayMs === 0,
+            }))
         }, delayMs)
         resumeSyncTimers.add(timer)
       }
@@ -4646,19 +4788,37 @@ export function useDesktopState() {
       scheduleResumeSync()
     }
 
-    const onPageShow = (): void => {
-      scheduleResumeSync()
+    const onPageShow = (event: PageTransitionEvent): void => {
+      scheduleResumeSync(event.persisted === true)
+    }
+
+    const onPageHide = (): void => {
+      clearVisibilitySyncTimer()
+      clearResumeSyncTimers()
+      stopActiveSyncBoost()
+    }
+
+    const onPageLifecycleResume = (): void => {
+      scheduleResumeSync(true)
     }
 
     const onOnline = (): void => {
       scheduleResumeSync()
     }
 
+    const onOffline = (): void => {
+      clearVisibilitySyncTimer()
+      clearResumeSyncTimers()
+      stopActiveSyncBoost()
+    }
+
     const onMobileResume = (): void => {
+      androidAppPaused = false
       scheduleResumeSync(true)
     }
 
     const onMobilePause = (): void => {
+      androidAppPaused = true
       clearVisibilitySyncTimer()
       clearResumeSyncTimers()
       stopActiveSyncBoost()
@@ -4679,7 +4839,11 @@ export function useDesktopState() {
       document.removeEventListener('visibilitychange', onVisibilityChange)
       window.removeEventListener('focus', onWindowFocus)
       window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('pagehide', onPageHide)
       window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+      document.removeEventListener('freeze', onPageHide)
+      document.removeEventListener('resume', onPageLifecycleResume)
       window.removeEventListener(MOBILE_APP_RESUME_EVENT, onMobileResume)
       window.removeEventListener(MOBILE_APP_PAUSE_EVENT, onMobilePause)
       window.removeEventListener(MOBILE_NETWORK_ONLINE_EVENT, onMobileOnline)
@@ -4688,7 +4852,11 @@ export function useDesktopState() {
     document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('focus', onWindowFocus)
     window.addEventListener('pageshow', onPageShow)
+    window.addEventListener('pagehide', onPageHide)
     window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    document.addEventListener('freeze', onPageHide)
+    document.addEventListener('resume', onPageLifecycleResume)
     window.addEventListener(MOBILE_APP_RESUME_EVENT, onMobileResume)
     window.addEventListener(MOBILE_APP_PAUSE_EVENT, onMobilePause)
     window.addEventListener(MOBILE_NETWORK_ONLINE_EVENT, onMobileOnline)
@@ -4770,10 +4938,7 @@ export function useDesktopState() {
     realtimeConnectionState.value = 'connecting'
     stopNotificationStream = subscribeCodexNotifications(
       (notification) => {
-        lastNotificationAtMs = Date.now()
-        notificationHealthTick.value = lastNotificationAtMs
-        applyRealtimeUpdates(notification)
-        queueEventDrivenSync(notification)
+        processIncomingNotification(notification)
       },
       {
         onConnectionStateChange: (state) => {
@@ -4793,13 +4958,18 @@ export function useDesktopState() {
           if (state === 'reconnecting' || state === 'disconnected') {
             return
           }
-          if (state === 'connected' && previousState !== 'connected' && hasSyncDemand.value) {
-            markActiveSyncBoost()
-            void syncThreadStatus({
-              includeThreadList: true,
-              forceMessageRefresh: true,
-              urgent: true,
-            })
+          if (state === 'connected' && previousState !== 'connected') {
+            if (hasSyncDemand.value) {
+              markActiveSyncBoost()
+              void replayMissedNotifications()
+                .finally(() => syncThreadStatus({
+                  includeThreadList: true,
+                  forceMessageRefresh: true,
+                  urgent: true,
+                }))
+              return
+            }
+            void replayMissedNotifications()
           }
         },
       },
@@ -4844,6 +5014,58 @@ export function useDesktopState() {
     }
   }
 
+  function noteIncomingNotification(notification: RpcNotification): void {
+    lastNotificationAtMs = Date.now()
+    notificationHealthTick.value = lastNotificationAtMs
+    if (typeof notification.seq === 'number' && Number.isFinite(notification.seq)) {
+      const nextSeq = Math.max(lastNotificationSeq, Math.trunc(notification.seq))
+      if (nextSeq !== lastNotificationSeq) {
+        lastNotificationSeq = nextSeq
+        saveLastNotificationSeq(lastNotificationSeq)
+      }
+    }
+  }
+
+  function processIncomingNotification(notification: RpcNotification): void {
+    noteIncomingNotification(notification)
+    applyRealtimeUpdates(notification)
+    queueEventDrivenSync(notification)
+  }
+
+  async function replayMissedNotifications(): Promise<void> {
+    if (replayNotificationsPromise) return replayNotificationsPromise
+
+    const replayAfterSeq = Math.max(0, lastNotificationSeq)
+    replayNotificationsPromise = getNotificationReplay(replayAfterSeq, 200)
+      .then((result) => {
+        if (replayAfterSeq > 0 && result.latestSeq < replayAfterSeq) {
+          lastNotificationSeq = 0
+          saveLastNotificationSeq(0)
+          return getNotificationReplay(0, 200).then((resetResult) => {
+            for (const notification of resetResult.notifications) {
+              if (typeof notification.seq === 'number' && notification.seq <= lastNotificationSeq) continue
+              processIncomingNotification(notification)
+            }
+            lastNotificationSeq = Math.max(lastNotificationSeq, resetResult.latestSeq)
+            saveLastNotificationSeq(lastNotificationSeq)
+          })
+        }
+        for (const notification of result.notifications) {
+          if (typeof notification.seq === 'number' && notification.seq <= lastNotificationSeq) continue
+          processIncomingNotification(notification)
+        }
+        lastNotificationSeq = Math.max(lastNotificationSeq, result.latestSeq)
+        saveLastNotificationSeq(lastNotificationSeq)
+      })
+      .catch(() => {
+        // Snapshot sync below still catches up when replay is unavailable.
+      })
+      .finally(() => {
+        replayNotificationsPromise = null
+      })
+    return replayNotificationsPromise
+  }
+
   async function respondToPendingServerRequest(reply: UiServerRequestReply): Promise<void> {
     try {
       await replyToServerRequest(reply.id, {
@@ -4857,6 +5079,8 @@ export function useDesktopState() {
   }
 
   function stopPolling(): void {
+    setAndroidKeepAwake(false)
+    stopAndroidKeepAwakeWatch?.()
     if (stopNotificationStream) {
       stopNotificationStream()
       stopNotificationStream = null
@@ -4969,6 +5193,7 @@ export function useDesktopState() {
     syncError,
     error,
     refreshAll,
+    refreshSelectedThreadContent,
     refreshSkills,
     refreshRateLimits,
     selectThread,

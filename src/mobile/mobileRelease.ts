@@ -1,5 +1,6 @@
 const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/Qjzn/codexui-server-bridge/releases/latest'
 const RELEASES_PAGE_URL = 'https://github.com/Qjzn/codexui-server-bridge/releases'
+const LATEST_RELEASE_TIMEOUT_MS = 12_000
 
 export type MobileReleaseAsset = {
   name: string
@@ -14,6 +15,7 @@ export type MobileLatestRelease = {
   releaseName: string
   publishedAtIso: string
   htmlUrl: string
+  bodyMarkdown: string
   asset: MobileReleaseAsset | null
 }
 
@@ -30,6 +32,7 @@ type GithubLatestReleaseResponse = {
   name?: string
   published_at?: string
   html_url?: string
+  body?: string
   assets?: GithubReleaseAsset[]
 }
 
@@ -48,6 +51,35 @@ function normalizeText(value: string | null | undefined): string {
 function normalizeReleaseVersion(value: string): string {
   const normalized = normalizeText(value).toLowerCase()
   return normalized.startsWith('v') ? normalized.slice(1) : normalized
+}
+
+function tokenizeReleaseVersion(value: string): Array<number | string> {
+  const normalized = normalizeReleaseVersion(value)
+  const matches = normalized.match(/[a-z]+|\d+/giu) ?? []
+  return matches.map((token) => (/^\d+$/u.test(token) ? Number(token) : token))
+}
+
+export function compareMobileReleaseVersions(leftValue: string, rightValue: string): number {
+  const left = tokenizeReleaseVersion(leftValue)
+  const right = tokenizeReleaseVersion(rightValue)
+  const maxLength = Math.max(left.length, right.length)
+  for (let index = 0; index < maxLength; index += 1) {
+    const leftToken = left[index]
+    const rightToken = right[index]
+    if (leftToken === undefined && rightToken === undefined) return 0
+    if (leftToken === undefined) return -1
+    if (rightToken === undefined) return 1
+    if (typeof leftToken === 'number' && typeof rightToken === 'number') {
+      if (leftToken !== rightToken) return leftToken > rightToken ? 1 : -1
+      continue
+    }
+    const leftString = String(leftToken)
+    const rightString = String(rightToken)
+    if (leftString !== rightString) {
+      return leftString.localeCompare(rightString, 'en', { sensitivity: 'base' })
+    }
+  }
+  return 0
 }
 
 function resolveApkAsset(assets: GithubReleaseAsset[]): MobileReleaseAsset | null {
@@ -74,7 +106,7 @@ export function isMobileReleaseUpdateAvailable(currentVersionName: string, lates
   const latestVersion = normalizeReleaseVersion(latestTagName)
   if (!latestVersion) return false
   if (!currentVersion) return true
-  return currentVersion !== latestVersion
+  return compareMobileReleaseVersions(latestVersion, currentVersion) > 0
 }
 
 export function getMobileReleasesPageUrl(): string {
@@ -82,13 +114,36 @@ export function getMobileReleasesPageUrl(): string {
 }
 
 export async function fetchLatestMobileRelease(): Promise<MobileLatestRelease> {
-  const response = await fetch(LATEST_RELEASE_API_URL, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-    },
-  })
+  const controller = typeof AbortController === 'undefined' ? null : new AbortController()
+  const timeoutId =
+    controller
+      ? window.setTimeout(() => controller.abort(), LATEST_RELEASE_TIMEOUT_MS)
+      : null
+
+  let response: Response
+  try {
+    response = await fetch(LATEST_RELEASE_API_URL, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+      },
+      cache: 'no-store',
+      signal: controller?.signal,
+    }).catch((error: unknown) => {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new Error('读取 GitHub 发布信息超时，请稍后再试')
+      }
+      throw error
+    })
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId)
+    }
+  }
 
   if (!response.ok) {
+    if (response.status === 403) {
+      throw new Error('GitHub 发布接口暂时不可用，稍后再试')
+    }
     throw new Error(`读取 GitHub 发布信息失败（HTTP ${response.status}）`)
   }
 
@@ -100,6 +155,7 @@ export async function fetchLatestMobileRelease(): Promise<MobileLatestRelease> {
     releaseName: normalizeText(payload.name),
     publishedAtIso: normalizeText(payload.published_at),
     htmlUrl: normalizeText(payload.html_url) || RELEASES_PAGE_URL,
+    bodyMarkdown: normalizeText(payload.body),
     asset: resolveApkAsset(assets),
   }
 }

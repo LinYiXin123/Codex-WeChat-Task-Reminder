@@ -10,6 +10,7 @@ param(
   [string]$RepoName = "codexui-server-bridge",
   [string]$Branch = "main",
   [switch]$SkipStartupTask,
+  [switch]$SkipWatchdogTask,
   [switch]$SkipFirewall,
   [switch]$SkipLogin,
   [switch]$EnableCloudflareTunnel,
@@ -163,6 +164,9 @@ if (-not $SkipFirewall) {
 }
 if (-not $SkipStartupTask) {
   $invokeArgs += "-CreateStartupTask"
+}
+if (-not $SkipWatchdogTask) {
+  $invokeArgs += "-CreateWatchdogTask"
 }
 if (-not $SkipLogin) {
   $invokeArgs += "-EnsureCodexLogin"

@@ -92,8 +92,27 @@ type ThreadRuntimeSnapshot = {
   activeTurnId: string
   updatedAtIso: string
   threadRead: unknown
+  messageState: 'fresh' | 'cached' | 'unavailable'
   pendingServerRequests: PendingServerRequest[]
   tokenUsage: ThreadTokenUsage | null
+}
+
+type CachedThreadRead = {
+  threadRead: unknown
+  inProgress: boolean
+  activeTurnId: string
+  updatedAtIso: string
+  sessionPath: string
+  cachedAtIso: string
+}
+
+type PendingRpc = {
+  resolve: (value: unknown) => void
+  reject: (reason?: unknown) => void
+  method: string
+  params: unknown
+  startedAtMs: number
+  timeoutId: ReturnType<typeof setTimeout>
 }
 
 type TokenUsageBreakdown = {
@@ -145,6 +164,16 @@ const githubDescriptionTranslationCache = new Map<string, TranslationCacheEntry>
 
 const THREAD_RESPONSE_TURN_LIMIT = 10
 const THREAD_METHODS_WITH_TURNS = new Set(['thread/read', 'thread/resume', 'thread/fork', 'thread/rollback'])
+const APP_SERVER_RPC_TIMEOUT_MS = 60_000
+const APP_SERVER_RPC_INIT_TIMEOUT_MS = 60_000
+const APP_SERVER_RPC_LIGHT_THREAD_TIMEOUT_MS = 20_000
+const APP_SERVER_RPC_HEAVY_THREAD_TIMEOUT_MS = 60_000
+const APP_SERVER_RPC_SLOW_WARN_MS = 1_800
+const APP_SERVER_RPC_TIMEOUT_RESTART_WINDOW_MS = 45_000
+const APP_SERVER_RPC_TIMEOUT_RESTART_THRESHOLD = 3
+const APP_SERVER_RESTART_COOLDOWN_MS = 10_000
+const APP_SERVER_COLD_START_GRACE_MS = 60_000
+const BRIDGE_HEARTBEAT_METHOD = 'bridge/heartbeat'
 const DEFAULT_WEB_BRIDGE_SETTINGS: WebBridgeSettings = {
   permissions: {
     allowAllPermissionRequests: false,
@@ -211,11 +240,38 @@ function readTurnsFromThreadReadPayload(payload: unknown): Record<string, unknow
     .filter((turn): turn is Record<string, unknown> => turn !== null)
 }
 
+function readThreadStatusTypeFromPayload(payload: unknown): string {
+  const root = asRecord(payload)
+  const thread = asRecord(root?.thread)
+  const status = thread?.status
+  if (typeof status === 'string') {
+    return status.trim().toLowerCase()
+  }
+  const statusRecord = asRecord(status)
+  return typeof statusRecord?.type === 'string' ? statusRecord.type.trim().toLowerCase() : ''
+}
+
 function isTurnInProgress(turn: Record<string, unknown> | null | undefined): boolean {
   return turn?.status === 'inProgress'
 }
 
 function readActiveTurnIdFromThreadReadPayload(payload: unknown): string {
+  const root = asRecord(payload)
+  const thread = asRecord(root?.thread)
+  const directActiveTurnId = typeof thread?.activeTurnId === 'string' ? thread.activeTurnId.trim() : ''
+  if (directActiveTurnId) {
+    return directActiveTurnId
+  }
+  const status = asRecord(thread?.status)
+  const statusActiveTurnId =
+    typeof status?.activeTurnId === 'string'
+      ? status.activeTurnId.trim()
+      : typeof status?.turnId === 'string'
+        ? status.turnId.trim()
+        : ''
+  if (statusActiveTurnId) {
+    return statusActiveTurnId
+  }
   const turns = readTurnsFromThreadReadPayload(payload)
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index]
@@ -228,6 +284,25 @@ function readActiveTurnIdFromThreadReadPayload(payload: unknown): string {
 }
 
 function readThreadInProgressFromThreadReadPayload(payload: unknown): boolean {
+  const root = asRecord(payload)
+  const thread = asRecord(root?.thread)
+  if (thread?.inProgress === true) {
+    return true
+  }
+  const turnStatus = typeof thread?.turnStatus === 'string' ? thread.turnStatus.trim().toLowerCase() : ''
+  if (turnStatus === 'inprogress' || turnStatus === 'in_progress') {
+    return true
+  }
+  const statusType = readThreadStatusTypeFromPayload(payload)
+  if (
+    statusType === 'inprogress'
+    || statusType === 'in_progress'
+    || statusType === 'running'
+    || statusType === 'active'
+    || statusType === 'processing'
+  ) {
+    return true
+  }
   const turns = readTurnsFromThreadReadPayload(payload)
   return isTurnInProgress(turns.at(-1))
 }
@@ -326,6 +401,44 @@ function isThreadMaterializingError(error: unknown): boolean {
     message.includes('no rollout found for thread id') ||
     (message.includes('rollout') && message.includes('is empty'))
   )
+}
+
+function createRpcTimeoutError(method: string, timeoutMs: number): Error {
+  const error = new Error(`${method} timed out after ${Math.ceil(timeoutMs / 1000)}s`)
+  error.name = 'AppServerRpcTimeoutError'
+  return error
+}
+
+function isRpcTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AppServerRpcTimeoutError'
+}
+
+function getRpcTimeoutMs(method: string, params: unknown): number {
+  if (method === 'initialize') {
+    return APP_SERVER_RPC_INIT_TIMEOUT_MS
+  }
+  if (method === 'thread/read') {
+    const record = asRecord(params)
+    return record?.includeTurns === true
+      ? APP_SERVER_RPC_HEAVY_THREAD_TIMEOUT_MS
+      : APP_SERVER_RPC_LIGHT_THREAD_TIMEOUT_MS
+  }
+  if (method === 'thread/resume') {
+    return APP_SERVER_RPC_HEAVY_THREAD_TIMEOUT_MS
+  }
+  return APP_SERVER_RPC_TIMEOUT_MS
+}
+
+function getShareableRpcKey(method: string, params: unknown): string | null {
+  if (method !== 'thread/list' && method !== 'thread/read') {
+    return null
+  }
+
+  try {
+    return `${method}:${JSON.stringify(params ?? null)}`
+  } catch {
+    return null
+  }
 }
 
 function writeBridgeLog(level: 'warn' | 'error', message: string, details: Record<string, unknown> = {}): void {
@@ -1463,9 +1576,16 @@ class AppServerProcess {
   private readBuffer = ''
   private nextId = 1
   private stopping = false
-  private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason?: unknown) => void }>()
+  private startedAtMs = 0
+  private lastRestartAtMs = 0
+  private lastAppServerStderrLogAtMs = 0
+  private appServerStderrSuppressedCount = 0
+  private recentTimeoutsAtMs: number[] = []
+  private readonly pending = new Map<number, PendingRpc>()
+  private readonly expectedExitProcesses = new WeakSet<ChildProcessWithoutNullStreams>()
   private readonly notificationListeners = new Set<(value: { method: string; params: unknown }) => void>()
   private readonly pendingServerRequests = new Map<number, PendingServerRequest>()
+  private readonly sharedReadRpcByKey = new Map<string, Promise<unknown>>()
   private readonly threadTokenUsageByThreadId = new Map<string, ThreadTokenUsage>()
   private webBridgeSettings: WebBridgeSettings = DEFAULT_WEB_BRIDGE_SETTINGS
   private readonly appServerArgs = [
@@ -1488,6 +1608,7 @@ class AppServerProcess {
     if (this.process) return
 
     this.stopping = false
+    this.startedAtMs = Date.now()
     const invocation = getSpawnInvocation(this.getCodexCommand(), this.appServerArgs)
     const proc = spawn(invocation.command, invocation.args, { stdio: ['pipe', 'pipe', 'pipe'] })
     this.process = proc
@@ -1510,29 +1631,94 @@ class AppServerProcess {
     })
 
     proc.stderr.setEncoding('utf8')
-    proc.stderr.on('data', () => {
-      // Keep stderr silent in dev middleware; JSON-RPC errors are forwarded via responses.
+    proc.stderr.on('data', (chunk: string) => {
+      const message = chunk.trim()
+      if (!message) return
+      this.logAppServerStderr(message)
     })
 
-    proc.on('exit', () => {
-      const failure = new Error(this.stopping ? 'codex app-server stopped' : 'codex app-server exited unexpectedly')
-      if (!this.stopping) {
-        logBridgeError('Codex app-server exited unexpectedly', failure, {
-          pendingRpcCount: this.pending.size,
-          pendingServerRequestCount: this.pendingServerRequests.size,
-        })
-      }
-      for (const request of this.pending.values()) {
-        request.reject(failure)
-      }
+    proc.stdin.on('error', (error) => {
+      if (this.process !== proc) return
+      logBridgeError('Codex app-server stdin failed', error)
+      this.restartAppServer('stdin error')
+    })
 
-      this.pending.clear()
+    proc.on('error', (error) => {
+      if (this.process !== proc) return
+      logBridgeError('Codex app-server process error', error)
+      this.rejectAllPending(error)
       this.pendingServerRequests.clear()
+      this.sharedReadRpcByKey.clear()
       this.threadTokenUsageByThreadId.clear()
       this.process = null
       this.initialized = false
       this.initializePromise = null
       this.readBuffer = ''
+    })
+
+    proc.on('exit', () => {
+      const expectedExit = this.stopping || this.expectedExitProcesses.has(proc)
+      const failure = new Error(this.stopping ? 'codex app-server stopped' : 'codex app-server exited unexpectedly')
+      if (!expectedExit) {
+        logBridgeError('Codex app-server exited unexpectedly', failure, {
+          pendingRpcCount: this.pending.size,
+          pendingServerRequestCount: this.pendingServerRequests.size,
+        })
+      }
+
+      if (this.process === proc) {
+        this.rejectAllPending(failure)
+        this.pendingServerRequests.clear()
+        this.sharedReadRpcByKey.clear()
+        this.threadTokenUsageByThreadId.clear()
+        this.process = null
+        this.initialized = false
+        this.initializePromise = null
+        this.readBuffer = ''
+      }
+    })
+  }
+
+  private logAppServerStderr(message: string): void {
+    const now = Date.now()
+    if (now - this.lastAppServerStderrLogAtMs < 30_000) {
+      this.appServerStderrSuppressedCount += 1
+      return
+    }
+
+    const suppressedCount = this.appServerStderrSuppressedCount
+    this.lastAppServerStderrLogAtMs = now
+    this.appServerStderrSuppressedCount = 0
+    writeBridgeLog('warn', 'Codex app-server stderr', {
+      message: message.slice(0, 1200),
+      suppressedCount: suppressedCount > 0 ? suppressedCount : undefined,
+    })
+  }
+
+  private rejectAllPending(error: Error): void {
+    for (const request of this.pending.values()) {
+      clearTimeout(request.timeoutId)
+      request.reject(error)
+    }
+    this.pending.clear()
+  }
+
+  private finalizePendingRpc(id: number): PendingRpc | null {
+    const pendingRequest = this.pending.get(id) ?? null
+    if (!pendingRequest) return null
+    this.pending.delete(id)
+    clearTimeout(pendingRequest.timeoutId)
+    return pendingRequest
+  }
+
+  private logSlowRpc(method: string, startedAtMs: number, params: unknown, details: Record<string, unknown> = {}): void {
+    const durationMs = Date.now() - startedAtMs
+    if (durationMs < APP_SERVER_RPC_SLOW_WARN_MS) return
+    writeBridgeLog('warn', 'Slow app-server RPC', {
+      method,
+      durationMs,
+      includeTurns: method === 'thread/read' ? asRecord(params)?.includeTurns === true : undefined,
+      ...details,
     })
   }
 
@@ -1541,7 +1727,94 @@ class AppServerProcess {
       throw new Error('codex app-server is not running')
     }
 
-    this.process.stdin.write(`${JSON.stringify(payload)}\n`)
+    try {
+      this.process.stdin.write(`${JSON.stringify(payload)}\n`)
+    } catch (error) {
+      this.restartAppServer('stdin write failed')
+      throw error
+    }
+  }
+
+  private noteRpcTimeout(method: string, params: unknown, timeoutMs: number): void {
+    const now = Date.now()
+    const processAgeMs = this.startedAtMs > 0 ? now - this.startedAtMs : 0
+    if (method !== 'initialize' && processAgeMs < APP_SERVER_COLD_START_GRACE_MS) {
+      writeBridgeLog('warn', 'App-server RPC timed out during startup grace', {
+        method,
+        durationMs: timeoutMs,
+        processAgeMs,
+        includeTurns: method === 'thread/read' ? asRecord(params)?.includeTurns === true : undefined,
+      })
+      return
+    }
+
+    if (method === 'thread/list' || method === 'thread/read') {
+      return
+    }
+
+    this.recentTimeoutsAtMs = [
+      ...this.recentTimeoutsAtMs.filter((timestamp) => now - timestamp <= APP_SERVER_RPC_TIMEOUT_RESTART_WINDOW_MS),
+      now,
+    ]
+    const shouldRestart =
+      method === 'initialize' ||
+      this.recentTimeoutsAtMs.length >= APP_SERVER_RPC_TIMEOUT_RESTART_THRESHOLD
+
+    if (!shouldRestart) return
+
+    this.restartAppServer('repeated RPC timeouts', {
+      method,
+      timeoutMs,
+      timeoutCount: this.recentTimeoutsAtMs.length,
+      includeTurns: method === 'thread/read' ? asRecord(params)?.includeTurns === true : undefined,
+    })
+  }
+
+  private restartAppServer(reason: string, details: Record<string, unknown> = {}): void {
+    const proc = this.process
+    if (!proc) return
+
+    const now = Date.now()
+    if (now - this.lastRestartAtMs < APP_SERVER_RESTART_COOLDOWN_MS) {
+      return
+    }
+    this.lastRestartAtMs = now
+    this.recentTimeoutsAtMs = []
+    this.expectedExitProcesses.add(proc)
+
+    writeBridgeLog('warn', 'Restarting Codex app-server', {
+      reason,
+      pid: proc.pid,
+      pendingRpcCount: this.pending.size,
+      pendingServerRequestCount: this.pendingServerRequests.size,
+      ...details,
+    })
+
+    this.process = null
+    this.initialized = false
+    this.initializePromise = null
+    this.readBuffer = ''
+    this.rejectAllPending(new Error(`codex app-server restarted: ${reason}`))
+    this.pendingServerRequests.clear()
+    this.sharedReadRpcByKey.clear()
+    this.threadTokenUsageByThreadId.clear()
+
+    try {
+      proc.stdin.end()
+    } catch {}
+
+    try {
+      proc.kill('SIGTERM')
+    } catch {}
+
+    const forceKillTimer = setTimeout(() => {
+      if (!proc.killed) {
+        try {
+          proc.kill('SIGKILL')
+        } catch {}
+      }
+    }, 1500)
+    forceKillTimer.unref()
   }
 
   private handleLine(line: string): void {
@@ -1553,11 +1826,12 @@ class AppServerProcess {
     }
 
     if (typeof message.id === 'number' && this.pending.has(message.id)) {
-      const pendingRequest = this.pending.get(message.id)
-      this.pending.delete(message.id)
-
+      const pendingRequest = this.finalizePendingRpc(message.id)
       if (!pendingRequest) return
 
+      this.logSlowRpc(pendingRequest.method, pendingRequest.startedAtMs, pendingRequest.params, {
+        outcome: message.error ? 'error' : 'success',
+      })
       if (message.error) {
         pendingRequest.reject(new Error(message.error.message))
       } else {
@@ -1721,9 +1995,30 @@ class AppServerProcess {
   private async call(method: string, params: unknown): Promise<unknown> {
     this.start()
     const id = this.nextId++
+    const timeoutMs = getRpcTimeoutMs(method, params)
 
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject })
+      const timeoutId = setTimeout(() => {
+        const timedOutRequest = this.finalizePendingRpc(id)
+        if (!timedOutRequest) return
+        writeBridgeLog('warn', 'App-server RPC timed out', {
+          method,
+          durationMs: timeoutMs,
+          includeTurns: method === 'thread/read' ? asRecord(params)?.includeTurns === true : undefined,
+        })
+        this.noteRpcTimeout(method, params, timeoutMs)
+        timedOutRequest.reject(createRpcTimeoutError(method, timeoutMs))
+      }, timeoutMs)
+      timeoutId.unref?.()
+
+      this.pending.set(id, {
+        resolve,
+        reject,
+        method,
+        params,
+        startedAtMs: Date.now(),
+        timeoutId,
+      })
 
       this.sendLine({
         jsonrpc: '2.0',
@@ -1757,7 +2052,21 @@ class AppServerProcess {
 
   async rpc(method: string, params: unknown): Promise<unknown> {
     await this.ensureInitialized()
-    return this.call(method, params)
+    const shareableKey = getShareableRpcKey(method, params)
+    if (!shareableKey) {
+      return this.call(method, params)
+    }
+
+    const existingRequest = this.sharedReadRpcByKey.get(shareableKey)
+    if (existingRequest) {
+      return existingRequest
+    }
+
+    const request = this.call(method, params).finally(() => {
+      this.sharedReadRpcByKey.delete(shareableKey)
+    })
+    this.sharedReadRpcByKey.set(shareableKey, request)
+    return request
   }
 
   async warmup(): Promise<void> {
@@ -1843,11 +2152,9 @@ class AppServerProcess {
     this.readBuffer = ''
 
     const failure = new Error('codex app-server stopped')
-    for (const request of this.pending.values()) {
-      request.reject(failure)
-    }
-    this.pending.clear()
+    this.rejectAllPending(failure)
     this.pendingServerRequests.clear()
+    this.sharedReadRpcByKey.clear()
     this.threadTokenUsageByThreadId.clear()
 
     try {
@@ -1990,7 +2297,19 @@ class MethodCatalog {
 
 type CodexBridgeMiddleware = ((req: IncomingMessage, res: ServerResponse, next: () => void) => Promise<void>) & {
   dispose: () => void
-  subscribeNotifications: (listener: (value: { method: string; params: unknown; atIso: string }) => void) => () => void
+  subscribeNotifications: (listener: (value: BridgeNotificationEvent) => void) => () => void
+  listNotificationEventsAfter: (afterSeq: number, limit?: number) => {
+    notifications: BridgeNotificationEvent[]
+    latestSeq: number
+    oldestSeq: number
+  }
+}
+
+type BridgeNotificationEvent = {
+  method: string
+  params: unknown
+  atIso: string
+  seq: number
 }
 
 type SharedBridgeState = {
@@ -1999,6 +2318,7 @@ type SharedBridgeState = {
 }
 
 const SHARED_BRIDGE_KEY = '__codexRemoteSharedBridge__'
+const NOTIFICATION_REPLAY_BUFFER_LIMIT = 500
 
 function getSharedBridgeState(): SharedBridgeState {
   const globalScope = globalThis as typeof globalThis & {
@@ -2088,6 +2408,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
   const { appServer, methodCatalog } = getSharedBridgeState()
   let threadSearchIndex: ThreadSearchIndex | null = null
   let threadSearchIndexPromise: Promise<ThreadSearchIndex> | null = null
+  const cachedThreadReadsByThreadId = new Map<string, CachedThreadRead>()
+  const notificationReplayBuffer: BridgeNotificationEvent[] = []
+  const bridgeNotificationListeners = new Set<(value: BridgeNotificationEvent) => void>()
+  let notificationSeq = 0
 
   async function getThreadSearchIndex(): Promise<ThreadSearchIndex> {
     if (threadSearchIndex) return threadSearchIndex
@@ -2103,6 +2427,58 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     }
     return threadSearchIndexPromise
   }
+
+  function rememberCachedThreadRead(threadId: string, threadRead: unknown): CachedThreadRead {
+    const cachedThreadRead: CachedThreadRead = {
+      threadRead,
+      inProgress: readThreadInProgressFromThreadReadPayload(threadRead),
+      activeTurnId: readActiveTurnIdFromThreadReadPayload(threadRead),
+      updatedAtIso: readThreadUpdatedAtIsoFromThreadReadPayload(threadRead),
+      sessionPath: readThreadSessionPathFromThreadReadPayload(threadRead),
+      cachedAtIso: new Date().toISOString(),
+    }
+    cachedThreadReadsByThreadId.set(threadId, cachedThreadRead)
+    return cachedThreadRead
+  }
+
+  function rememberNotificationEvent(notification: { method: string; params: unknown }): BridgeNotificationEvent {
+    notificationSeq += 1
+    const event: BridgeNotificationEvent = {
+      method: notification.method,
+      params: notification.params,
+      atIso: new Date().toISOString(),
+      seq: notificationSeq,
+    }
+    notificationReplayBuffer.push(event)
+    if (notificationReplayBuffer.length > NOTIFICATION_REPLAY_BUFFER_LIMIT) {
+      notificationReplayBuffer.splice(0, notificationReplayBuffer.length - NOTIFICATION_REPLAY_BUFFER_LIMIT)
+    }
+    return event
+  }
+
+  function listNotificationEventsAfter(afterSeq: number, limit = 200): {
+    notifications: BridgeNotificationEvent[]
+    latestSeq: number
+    oldestSeq: number
+  } {
+    const normalizedAfterSeq = Number.isFinite(afterSeq) ? Math.max(0, Math.trunc(afterSeq)) : 0
+    const normalizedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), NOTIFICATION_REPLAY_BUFFER_LIMIT)) : 200
+    return {
+      notifications: notificationReplayBuffer
+        .filter((notification) => notification.seq > normalizedAfterSeq)
+        .slice(0, normalizedLimit),
+      latestSeq: notificationSeq,
+      oldestSeq: notificationReplayBuffer[0]?.seq ?? notificationSeq,
+    }
+  }
+
+  const unsubscribeAppServerNotifications = appServer.onNotification((notification: { method: string; params: unknown }) => {
+    const event = rememberNotificationEvent(notification)
+    for (const listener of bridgeNotificationListeners) {
+      listener(event)
+    }
+  })
+
   void initializeSkillsSyncOnStartup(appServer)
     .catch((error) => {
       logBridgeError('Startup skills sync failed', error)
@@ -2125,28 +2501,100 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       throw new Error('Missing thread id')
     }
 
-    let threadRead: unknown = null
+    const cachedThreadRead = cachedThreadReadsByThreadId.get(normalizedThreadId) ?? null
+    let lightThreadRead: unknown = null
     try {
-      const rawThreadRead = await appServer.rpc('thread/read', {
+      lightThreadRead = await appServer.rpc('thread/read', {
         threadId: normalizedThreadId,
-        includeTurns: true,
+        includeTurns: false,
       })
-      threadRead = trimThreadTurnsInRpcResult('thread/read', rawThreadRead)
     } catch (error) {
-      if (!isThreadMaterializingError(error)) {
+      if (!isThreadMaterializingError(error) && !isRpcTimeoutError(error)) {
         throw error
       }
+      writeBridgeLog('warn', 'Light thread snapshot unavailable', {
+        threadId: normalizedThreadId,
+        error: getErrorMessage(error, 'Light thread snapshot failed'),
+      })
     }
-    const sessionPath = threadRead ? readThreadSessionPathFromThreadReadPayload(threadRead) : ''
+
+    const lightUpdatedAtIso = lightThreadRead ? readThreadUpdatedAtIsoFromThreadReadPayload(lightThreadRead) : ''
+    let threadRead: unknown = null
+    let messageState: ThreadRuntimeSnapshot['messageState'] = 'unavailable'
+
+    if (cachedThreadRead && lightUpdatedAtIso && cachedThreadRead.updatedAtIso === lightUpdatedAtIso) {
+      threadRead = cachedThreadRead.threadRead
+      messageState = 'fresh'
+    } else {
+      try {
+        const rawThreadRead = await appServer.rpc('thread/read', {
+          threadId: normalizedThreadId,
+          includeTurns: true,
+        })
+        threadRead = trimThreadTurnsInRpcResult('thread/read', rawThreadRead)
+        rememberCachedThreadRead(normalizedThreadId, threadRead)
+        messageState = 'fresh'
+      } catch (error) {
+        if (!isThreadMaterializingError(error) && !isRpcTimeoutError(error)) {
+          throw error
+        }
+        if (cachedThreadRead) {
+          threadRead = cachedThreadRead.threadRead
+          messageState = 'cached'
+          writeBridgeLog('warn', 'Heavy thread snapshot fell back to cached messages', {
+            threadId: normalizedThreadId,
+            lightUpdatedAtIso,
+            cachedUpdatedAtIso: cachedThreadRead.updatedAtIso,
+            error: getErrorMessage(error, 'Heavy thread snapshot failed'),
+          })
+        } else {
+          writeBridgeLog('warn', 'Heavy thread snapshot unavailable with no cache', {
+            threadId: normalizedThreadId,
+            lightUpdatedAtIso,
+            error: getErrorMessage(error, 'Heavy thread snapshot failed'),
+          })
+        }
+      }
+    }
+
+    const sessionPath =
+      (lightThreadRead ? readThreadSessionPathFromThreadReadPayload(lightThreadRead) : '')
+      || (threadRead ? readThreadSessionPathFromThreadReadPayload(threadRead) : '')
+      || cachedThreadRead?.sessionPath
+      || ''
     const tokenUsage = appServer.getThreadTokenUsage(normalizedThreadId)
       ?? (threadRead ? readThreadTokenUsageFromThreadReadPayload(threadRead) : null)
+      ?? (lightThreadRead ? readThreadTokenUsageFromThreadReadPayload(lightThreadRead) : null)
       ?? await readThreadTokenUsageFromSessionLog(sessionPath)
+
+    const updatedAtIso =
+      messageState === 'cached'
+        ? (cachedThreadRead?.updatedAtIso ?? lightUpdatedAtIso)
+        : lightThreadRead
+          ? readThreadUpdatedAtIsoFromThreadReadPayload(lightThreadRead)
+          : threadRead
+            ? readThreadUpdatedAtIsoFromThreadReadPayload(threadRead)
+            : ''
+    const lightInProgress = lightThreadRead ? readThreadInProgressFromThreadReadPayload(lightThreadRead) : false
+    const freshThreadInProgress =
+      threadRead && messageState === 'fresh'
+        ? readThreadInProgressFromThreadReadPayload(threadRead)
+        : false
+    const inProgress =
+      lightInProgress
+      || freshThreadInProgress
+      || (!lightThreadRead && messageState === 'cached' ? (cachedThreadRead?.inProgress ?? false) : false)
+    const activeTurnId =
+      (lightThreadRead ? readActiveTurnIdFromThreadReadPayload(lightThreadRead) : '')
+      || (threadRead && messageState === 'fresh' ? readActiveTurnIdFromThreadReadPayload(threadRead) : '')
+      || (!lightThreadRead && messageState === 'cached' ? (cachedThreadRead?.activeTurnId ?? '') : '')
     return {
       threadId: normalizedThreadId,
-      inProgress: threadRead ? readThreadInProgressFromThreadReadPayload(threadRead) : false,
-      activeTurnId: threadRead ? readActiveTurnIdFromThreadReadPayload(threadRead) : '',
-      updatedAtIso: threadRead ? readThreadUpdatedAtIsoFromThreadReadPayload(threadRead) : '',
+      inProgress,
+      activeTurnId,
+      updatedAtIso,
       threadRead,
+      messageState,
       pendingServerRequests: appServer.listPendingServerRequestsForThread(normalizedThreadId),
       tokenUsage,
     }
@@ -2274,6 +2722,13 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
       if (req.method === 'GET' && url.pathname === '/codex-api/server-requests/pending') {
         setJson(res, 200, { data: appServer.listPendingServerRequests() })
+        return
+      }
+
+      if (req.method === 'GET' && url.pathname === '/codex-api/events/replay') {
+        const afterSeq = Number.parseInt((url.searchParams.get('after') ?? '0').trim(), 10)
+        const limit = Number.parseInt((url.searchParams.get('limit') ?? '200').trim(), 10)
+        setJson(res, 200, { data: middleware.listNotificationEventsAfter(afterSeq, limit) })
         return
       }
 
@@ -2755,23 +3210,39 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         res.setHeader('Connection', 'keep-alive')
         res.setHeader('X-Accel-Buffering', 'no')
 
-        const unsubscribe = middleware.subscribeNotifications((notification: { method: string; params: unknown; atIso: string }) => {
-          if (res.writableEnded || res.destroyed) return
-          res.write(`data: ${JSON.stringify(notification)}\n\n`)
-        })
-
-        res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`)
-        const keepAlive = setInterval(() => {
-          res.write(': ping\n\n')
-        }, 15000)
-
+        let keepAlive: ReturnType<typeof setInterval> | null = null
+        let unsubscribe: (() => void) | null = null
         const close = () => {
-          clearInterval(keepAlive)
-          unsubscribe()
+          if (keepAlive !== null) {
+            clearInterval(keepAlive)
+            keepAlive = null
+          }
+          unsubscribe?.()
+          unsubscribe = null
           if (!res.writableEnded) {
             res.end()
           }
         }
+        const writeSse = (chunk: string): void => {
+          if (res.writableEnded || res.destroyed) return
+          try {
+            res.write(chunk)
+          } catch {
+            close()
+          }
+        }
+        unsubscribe = middleware.subscribeNotifications((notification: BridgeNotificationEvent) => {
+          writeSse(`data: ${JSON.stringify(notification)}\n\n`)
+        })
+
+        writeSse(`event: ready\ndata: ${JSON.stringify({ ok: true, latestSeq: notificationSeq })}\n\n`)
+        keepAlive = setInterval(() => {
+          writeSse(`data: ${JSON.stringify({
+            method: BRIDGE_HEARTBEAT_METHOD,
+            params: { ok: true },
+            atIso: new Date().toISOString(),
+          })}\n\n`)
+        }, 15000)
 
         req.on('close', close)
         req.on('aborted', close)
@@ -2791,18 +3262,19 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
   middleware.dispose = () => {
     threadSearchIndex = null
+    bridgeNotificationListeners.clear()
+    unsubscribeAppServerNotifications()
     appServer.dispose()
   }
   middleware.subscribeNotifications = (
-    listener: (value: { method: string; params: unknown; atIso: string }) => void,
+    listener: (value: BridgeNotificationEvent) => void,
   ) => {
-    return appServer.onNotification((notification: { method: string; params: unknown }) => {
-      listener({
-        ...notification,
-        atIso: new Date().toISOString(),
-      })
-    })
+    bridgeNotificationListeners.add(listener)
+    return () => {
+      bridgeNotificationListeners.delete(listener)
+    }
   }
+  middleware.listNotificationEventsAfter = listNotificationEventsAfter
 
   return middleware
 }

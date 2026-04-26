@@ -279,7 +279,7 @@
           </span>
 
           <button
-            v-if="isDictationSupported"
+            v-if="shouldShowDictationButton"
             class="thread-composer-mic"
             :class="{
               'thread-composer-mic--active': dictationState === 'recording',
@@ -451,6 +451,7 @@ const props = defineProps<{
   hasQueueAbove?: boolean
   sendWithEnter?: boolean
   dictationClickToToggle?: boolean
+  showDictationButton?: boolean
   prependDraftRequest?: { id: number; text: string } | null
   dictationAutoSend?: boolean
   dictationLanguage?: string
@@ -636,9 +637,11 @@ const speedModeDescription = computed(() => {
     : '默认速度，按正常额度消耗'
 })
 const isDictationRecording = computed(() => dictationState.value === 'recording')
+const shouldShowDictationButton = computed(() => props.showDictationButton !== false && isDictationSupported.value)
 const usesDictationUploadFallback = computed(() =>
-  isDictationSupported.value && !supportsLiveRecording.value,
+  shouldShowDictationButton.value && !supportsLiveRecording.value,
 )
+const DICTATION_UPLOAD_FALLBACK_MESSAGE = '当前地址不支持直接长按录音，点按麦克风会打开系统录音或音频上传。切到 HTTPS 或 localhost 后可直接长按说话。'
 const dictationButtonLabel = computed(() => {
   if (dictationState.value === 'recording') return '停止听写'
   if (dictationState.value === 'transcribing') return '正在转写'
@@ -649,9 +652,10 @@ const dictationErrorText = computed(() =>
   dictationState.value === 'idle' ? dictationFeedback.value.trim() : '',
 )
 const dictationHelperText = computed(() => {
+  if (!shouldShowDictationButton.value) return ''
   if (dictationState.value !== 'idle') return ''
   if (usesDictationUploadFallback.value) {
-    return '当前地址不支持直接长按录音，点按麦克风会打开系统录音或音频上传。切到 HTTPS 或 localhost 后可直接长按说话。'
+    return ''
   }
   if (props.dictationClickToToggle) {
     return '点击一次开始录音，再点击一次结束并转写。'
@@ -951,9 +955,7 @@ function triggerCameraCapture(): void {
 
 function triggerAudioCapture(): void {
   if (isInteractionDisabled.value) return
-  if (dictationFeedback.value) {
-    dictationFeedback.value = ''
-  }
+  dictationFeedback.value = DICTATION_UPLOAD_FALLBACK_MESSAGE
   const input = audioCaptureInputRef.value
   if (!input) return
   input.value = ''

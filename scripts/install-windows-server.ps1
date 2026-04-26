@@ -19,8 +19,10 @@ param(
   [switch]$SkipBuild,
   [switch]$EnsureCodexLogin,
   [switch]$CreateStartupTask,
+  [switch]$CreateWatchdogTask,
   [switch]$InstallCloudflared,
   [string]$TaskName = "",
+  [string]$WatchdogTaskName = "",
   [switch]$StartNow
 )
 
@@ -253,6 +255,28 @@ function Register-StartupTask {
   }
 }
 
+function Register-WatchdogTask {
+  param(
+    [string]$ResolvedTaskName,
+    [string]$RepoRoot,
+    [int]$TargetPort,
+    [string]$TargetConfigPath,
+    [string]$NodePath
+  )
+
+  $watchdogScript = Join-Path $RepoRoot "scripts\watchdog-7420.ps1"
+  if (-not (Test-Path -LiteralPath $watchdogScript)) {
+    throw "Watchdog script not found: $watchdogScript"
+  }
+
+  $taskRun = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$watchdogScript`" -Port $TargetPort -ConfigPath `"$TargetConfigPath`" -NodePath `"$NodePath`" -RepoRoot `"$RepoRoot`""
+  $output = & schtasks.exe /Create /F /SC MINUTE /MO 1 /TN $ResolvedTaskName /TR $taskRun 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    $details = ($output | Out-String).Trim()
+    throw "Failed to create scheduled task $ResolvedTaskName. $details"
+  }
+}
+
 function Test-HealthEndpoint {
   param([int]$TargetPort)
   try {
@@ -427,6 +451,7 @@ $resolvedCodexCommand = Resolve-OptionalPath -Value $CodexCommand
 $resolvedRipgrepCommand = Resolve-OptionalPath -Value $RipgrepCommand
 $resolvedCloudflaredCommand = Resolve-OptionalPath -Value $CloudflaredCommand
 $resolvedTaskName = if ([string]::IsNullOrWhiteSpace($TaskName)) { "CodexUI-$Port" } else { $TaskName }
+$resolvedWatchdogTaskName = if ([string]::IsNullOrWhiteSpace($WatchdogTaskName)) { "CodexUI-$Port-Watchdog" } else { $WatchdogTaskName }
 
 if ($NoPassword) {
   $passwordValue = $false
@@ -484,6 +509,16 @@ if ($CreateStartupTask) {
   try {
     Register-StartupTask -ResolvedTaskName $resolvedTaskName -TargetLauncherPath $LauncherPath
     Write-Host "Scheduled task created: $resolvedTaskName"
+  } catch {
+    Write-Warning $_
+  }
+}
+
+if ($CreateWatchdogTask) {
+  Write-Step "Creating watchdog task"
+  try {
+    Register-WatchdogTask -ResolvedTaskName $resolvedWatchdogTaskName -RepoRoot $repoRoot -TargetPort $Port -TargetConfigPath $ConfigPath -NodePath $nodeCommand.Source
+    Write-Host "Watchdog task created: $resolvedWatchdogTaskName"
   } catch {
     Write-Warning $_
   }
@@ -551,6 +586,9 @@ if ($passwordValue -is [string]) {
 }
 if ($CreateStartupTask) {
   Write-Host "Task:     $resolvedTaskName"
+}
+if ($CreateWatchdogTask) {
+  Write-Host "Watchdog: $resolvedWatchdogTaskName"
 }
 if ($healthPayload) {
   Write-Host "Status:   health check passed"

@@ -2,7 +2,7 @@
   <a class="skip-to-content" href="#main-content">跳到主要内容</a>
   <DesktopLayout :is-sidebar-collapsed="isSidebarCollapsed" @close-sidebar="setSidebarCollapsed(true)">
     <template #sidebar>
-      <section class="sidebar-root">
+      <section class="sidebar-root" :class="{ 'sidebar-root--dual-pane-touch': isDualPaneMobile }">
         <div class="sidebar-scrollable">
           <div v-if="!isSidebarCollapsed" class="sidebar-top-shell">
             <SidebarThreadControls
@@ -23,14 +23,15 @@
                 <IconTablerSearch class="sidebar-search-toggle-icon" />
               </button>
               <button
-                class="sidebar-toolbar-pill"
+                class="sidebar-toolbar-icon-button"
                 type="button"
                 :disabled="!hasUnreadThreads"
                 :aria-disabled="!hasUnreadThreads"
+                aria-label="全部已读"
                 title="清除当前列表里的未读标记"
                 @click="onMarkAllThreadsRead"
               >
-                全部已读
+                <IconTablerBroom class="sidebar-toolbar-icon" />
               </button>
             </SidebarThreadControls>
 
@@ -93,24 +94,24 @@
         <div v-if="!isSidebarCollapsed" ref="sidebarSettingsAreaRef" class="sidebar-settings-area">
           <Transition name="settings-mobile-backdrop">
             <button
-              v-if="isSettingsOpen && isMobile"
+              v-if="isSettingsOpen && isSettingsSheetMode"
               class="sidebar-settings-mobile-backdrop"
               type="button"
               aria-label="关闭设置"
               @click="isSettingsOpen = false"
             />
           </Transition>
-          <Transition :name="isMobile ? 'settings-mobile-panel' : 'settings-panel'">
+          <Transition :name="isSettingsSheetMode ? 'settings-mobile-panel' : 'settings-panel'">
             <div
               v-if="isSettingsOpen"
               class="sidebar-settings-panel"
-              :class="{ 'sidebar-settings-panel-mobile': isMobile }"
-              :role="isMobile ? 'dialog' : undefined"
-              :aria-modal="isMobile ? 'true' : undefined"
+              :class="{ 'sidebar-settings-panel-mobile': isSettingsSheetMode }"
+              :role="isSettingsSheetMode ? 'dialog' : undefined"
+              :aria-modal="isSettingsSheetMode ? 'true' : undefined"
               aria-label="设置"
             >
-              <div v-if="isMobile" class="sidebar-settings-mobile-handle" aria-hidden="true" />
-              <div v-if="isMobile" class="sidebar-settings-mobile-header">
+              <div v-if="isSettingsSheetMode" class="sidebar-settings-mobile-handle" aria-hidden="true" />
+              <div v-if="isSettingsSheetMode" class="sidebar-settings-mobile-header">
                 <div class="sidebar-settings-mobile-copy">
                   <p class="sidebar-settings-mobile-title">设置</p>
                   <p class="sidebar-settings-mobile-subtitle">向上滑动查看全部内容</p>
@@ -133,9 +134,11 @@
                 <span class="sidebar-settings-label">外观</span>
                 <span class="sidebar-settings-value">{{ darkMode === 'system' ? '跟随系统' : darkMode === 'dark' ? '深色' : '浅色' }}</span>
               </button>
-              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationClickToToggle" @click="toggleDictationClickToToggle">
-                <span class="sidebar-settings-label">点击切换听写</span>
-                <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationClickToToggle }" />
+              <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationButtonVisible" @click="toggleDictationButtonVisible">
+                <span class="sidebar-settings-label">显示语音按钮</span>
+                <span class="sidebar-settings-toggle" :class="{ 'is-on': dictationButtonVisible }">
+                  <IconTablerMicrophone class="sidebar-settings-toggle-icon" />
+                </span>
               </button>
               <button class="sidebar-settings-row" type="button" :title="SETTINGS_HELP.dictationAutoSend" @click="toggleDictationAutoSend">
                 <span class="sidebar-settings-label">听写后自动发送</span>
@@ -209,7 +212,19 @@
                 </div>
                 <div class="sidebar-settings-row sidebar-settings-row--static sidebar-settings-row--stacked">
                   <span class="sidebar-settings-label">公网地址</span>
-                  <span class="sidebar-settings-code">{{ tunnelPublicUrlLabel }}</span>
+                  <span class="sidebar-settings-code-row">
+                    <span class="sidebar-settings-code">{{ tunnelPublicUrlLabel }}</span>
+                    <button
+                      class="sidebar-settings-copy-button"
+                      type="button"
+                      :disabled="!tunnelStatus.publicUrl"
+                      aria-label="复制公网地址"
+                      title="复制公网地址"
+                      @click="copyTunnelPublicUrl"
+                    >
+                      <IconTablerCopy class="sidebar-settings-copy-icon" />
+                    </button>
+                  </span>
                 </div>
                 <div class="sidebar-settings-row sidebar-settings-row--static sidebar-settings-row--stacked">
                   <span class="sidebar-settings-label">cloudflared</span>
@@ -223,14 +238,6 @@
                     @click="openTunnelPublicUrl"
                   >
                     打开公网地址
-                  </button>
-                  <button
-                    class="sidebar-settings-github-button"
-                    type="button"
-                    :disabled="!tunnelStatus.publicUrl"
-                    @click="copyTunnelPublicUrl"
-                  >
-                    复制公网地址
                   </button>
                   <button
                     class="sidebar-settings-github-button sidebar-settings-github-button--secondary"
@@ -316,6 +323,40 @@
                 <p class="sidebar-settings-hint">
                   默认地址：{{ mobileShellDefaultUrlLabel }}
                 </p>
+                <div class="sidebar-settings-row sidebar-settings-row--static">
+                  <span class="sidebar-settings-label">原生网络</span>
+                  <span class="sidebar-settings-value">{{ mobileShellRuntimeNetworkLabel }}</span>
+                </div>
+                <div class="sidebar-settings-row sidebar-settings-row--static">
+                  <span class="sidebar-settings-label">设备状态</span>
+                  <span class="sidebar-settings-value">{{ mobileShellRuntimeDeviceLabel }}</span>
+                </div>
+                <div class="sidebar-settings-row sidebar-settings-row--static">
+                  <span class="sidebar-settings-label">WebView</span>
+                  <span class="sidebar-settings-value">{{ mobileShellRuntimeWebViewLabel }}</span>
+                </div>
+                <div class="sidebar-settings-row sidebar-settings-row--static">
+                  <span class="sidebar-settings-label">通知权限</span>
+                  <span class="sidebar-settings-value">{{ mobileShellNotificationPermissionLabel }}</span>
+                </div>
+                <div class="sidebar-settings-actions">
+                  <button
+                    class="sidebar-settings-github-button sidebar-settings-github-button--secondary"
+                    type="button"
+                    :disabled="!canRequestMobileShellNotifications"
+                    @click="requestMobileShellNotifications"
+                  >
+                    {{ isMobileShellNotificationRequesting ? '请求中...' : '开启任务通知' }}
+                  </button>
+                  <button
+                    class="sidebar-settings-github-button sidebar-settings-github-button--secondary"
+                    type="button"
+                    :disabled="isMobileShellNotificationRequesting"
+                    @click="refreshMobileShellNotificationPermission"
+                  >
+                    重新检测
+                  </button>
+                </div>
                 <p v-if="mobileShellStatus" class="sidebar-settings-hint sidebar-settings-hint-status">
                   {{ mobileShellStatus }}
                 </p>
@@ -339,7 +380,7 @@
                     class="sidebar-settings-github-button"
                     type="button"
                     :disabled="isMobileShellUpdateLoading || isMobileShellInstalling"
-                    @click="refreshMobileShellUpdateState(true)"
+                    @click="checkMobileShellUpdate({ showSuccessMessage: true, promptOnUpdate: true })"
                   >
                     {{ isMobileShellUpdateLoading ? '检查中...' : '检查更新' }}
                   </button>
@@ -407,10 +448,25 @@
                   </div>
                 </div>
                 <div class="sidebar-settings-about-main">
-                  <div class="sidebar-settings-about-copy">
-                    <span class="sidebar-settings-about-label">当前版本</span>
-                    <strong class="sidebar-settings-about-version">{{ displayAppVersion }}</strong>
-                  </div>
+                  <button
+                    class="sidebar-settings-about-trigger"
+                    type="button"
+                    :disabled="isMobileShellUpdateLoading || isMobileShellInstalling"
+                    :title="isMobileShellAvailable ? '点击检查 GitHub 新版本' : '打开 GitHub 发布页'"
+                    @click="onOpenAppVersionDetails"
+                  >
+                    <div class="sidebar-settings-about-copy">
+                      <span class="sidebar-settings-about-label">当前版本</span>
+                      <strong class="sidebar-settings-about-version">{{ aboutAppVersionLabel }}</strong>
+                      <span class="sidebar-settings-about-action">{{ mobileShellVersionActionLabel }}</span>
+                    </div>
+                    <span
+                      v-if="isMobileShellAvailable && hasMobileShellUpdate"
+                      class="sidebar-settings-about-update-badge"
+                    >
+                      新版本
+                    </span>
+                  </button>
                   <button
                     class="sidebar-settings-github-button"
                     type="button"
@@ -436,9 +492,44 @@
     </template>
 
     <template #content>
-      <section id="main-content" class="content-root" tabindex="-1">
+        <section
+          id="main-content"
+          class="content-root"
+          :class="{ 'content-root--dual-pane-touch': isDualPaneMobile }"
+          tabindex="-1"
+        >
         <ContentHeader :title="contentTitle">
           <template #title-prefix>
+          </template>
+          <template #title-suffix>
+            <button
+              v-if="showMobileThreadRefreshButton"
+              class="content-title-refresh-button"
+              type="button"
+              :data-busy="isManualThreadRefreshRunning ? 'true' : 'false'"
+              :disabled="isManualThreadRefreshRunning"
+              :title="mobileThreadRefreshButtonTitle"
+              :aria-label="mobileThreadRefreshButtonTitle"
+              @click="onRefreshSelectedThreadContent"
+            >
+              <IconTablerRefresh class="content-title-refresh-button-icon" />
+            </button>
+          </template>
+          <template #subtitle>
+            <p v-if="headerSubtitle" class="content-header-subtitle">{{ headerSubtitle }}</p>
+          </template>
+          <template #leading>
+            <SidebarThreadControls
+              v-if="isSidebarCollapsed || isMobile"
+              class="sidebar-thread-controls-header-host"
+              :is-sidebar-collapsed="isSidebarCollapsed"
+              :show-new-thread-button="true"
+              @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
+              @start-new-thread="onStartNewThreadFromToolbar"
+            />
+          </template>
+          <template #meta>
+            <div class="content-meta-row" aria-live="polite">
             <span
               v-if="showContentContextBadge"
               class="content-context-badge"
@@ -462,34 +553,6 @@
               </span>
               <span class="content-context-badge-number">{{ contentContextPercentLabel }}</span>
             </span>
-          </template>
-          <template #subtitle>
-            <p v-if="headerSubtitle" class="content-header-subtitle">{{ headerSubtitle }}</p>
-          </template>
-          <template #leading>
-            <SidebarThreadControls
-              v-if="isSidebarCollapsed || isMobile"
-              class="sidebar-thread-controls-header-host"
-              :is-sidebar-collapsed="isSidebarCollapsed"
-              :show-new-thread-button="true"
-              @toggle-sidebar="setSidebarCollapsed(!isSidebarCollapsed)"
-              @start-new-thread="onStartNewThreadFromToolbar"
-            />
-          </template>
-          <template #actions>
-            <button
-              class="content-favorites-button"
-              type="button"
-              title="查看全局收藏内容"
-              @click="isFavoritesModalVisible = true"
-            >
-              <IconTablerBookmark class="content-favorites-button-icon" :filled="favoriteCount > 0" />
-              <span>收藏</span>
-              <span v-if="favoriteCount > 0" class="content-favorites-button-badge">{{ favoriteCount }}</span>
-            </button>
-          </template>
-          <template #meta>
-            <div class="content-meta-row" aria-live="polite">
               <div class="content-status-strip">
                 <span class="content-status-pill" :data-tone="contentStatusTone">
                   <span class="content-status-pill-label">{{ contentStatusCaption }}</span>
@@ -497,6 +560,16 @@
                 </span>
                 <span v-if="contentStatusDetail" class="content-status-detail">{{ contentStatusDetail }}</span>
               </div>
+              <button
+                class="content-favorites-button"
+                type="button"
+                title="查看全局收藏内容"
+                aria-label="查看全局收藏内容"
+                @click="isFavoritesModalVisible = true"
+              >
+                <IconTablerBookmark class="content-favorites-button-icon" :filled="favoriteCount > 0" />
+                <span v-if="favoriteCount > 0" class="content-favorites-button-badge">{{ favoriteCount }}</span>
+              </button>
             </div>
           </template>
         </ContentHeader>
@@ -557,6 +630,7 @@
                 :is-turn-in-progress="false"
                 :is-interrupting-turn="false" :send-with-enter="sendWithEnter"
                 :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
+                :show-dictation-button="dictationButtonVisible"
                 :prepend-draft-request="rollbackDraftPrependRequest"
                 :dictation-language="dictationLanguage"
                 @submit="onSubmitThreadMessage"
@@ -605,6 +679,7 @@
                   :has-queue-above="selectedThreadQueuedMessages.length > 0"
                   :send-with-enter="sendWithEnter"
                   :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
+                  :show-dictation-button="dictationButtonVisible"
                   :prepend-draft-request="rollbackDraftPrependRequest"
                   :dictation-language="dictationLanguage"
                   @submit="onSubmitThreadMessage" @update:selected-model="onSelectModel"
@@ -650,6 +725,49 @@
     </div>
   </Teleport>
 
+  <Teleport to="body">
+    <div
+      v-if="isMobileShellUpdatePromptVisible"
+      class="mobile-update-confirm-overlay"
+      @click.self="closeMobileShellUpdatePrompt"
+    >
+      <div class="mobile-update-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="mobile-update-confirm-title">
+        <p class="mobile-update-confirm-kicker">发现新版本</p>
+        <h2 id="mobile-update-confirm-title" class="mobile-update-confirm-title">
+          {{ mobileShellUpdatePromptTitle }}
+        </h2>
+        <p class="mobile-update-confirm-text">
+          {{ mobileShellUpdatePromptText }}
+        </p>
+        <div class="mobile-update-confirm-meta">
+          <span>当前安装 {{ mobileShellInstalledVersionLabel }}</span>
+          <span>{{ mobileShellUpdatePublishedAtLabel }}</span>
+        </div>
+        <div class="mobile-update-confirm-meta">
+          <span>更新包</span>
+          <span>{{ mobileShellLatestAssetLabel }}</span>
+        </div>
+        <div class="mobile-update-confirm-meta">
+          <span>大小</span>
+          <span>{{ mobileShellUpdateAssetSizeLabel }}</span>
+        </div>
+        <div class="mobile-update-confirm-actions">
+          <button class="mobile-update-confirm-button" type="button" @click="closeMobileShellUpdatePrompt">
+            稍后再说
+          </button>
+          <button
+            class="mobile-update-confirm-button mobile-update-confirm-button-primary"
+            type="button"
+            :disabled="!canInstallLatestMobileShellRelease"
+            @click="confirmLatestMobileShellReleaseInstall"
+          >
+            {{ mobileShellInstallButtonLabel }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
+
   <FavoritesModal
     :visible="isFavoritesModalVisible"
     :favorites="displayFavorites"
@@ -674,7 +792,11 @@ import QueuedMessages from './components/content/QueuedMessages.vue'
 import ComposerDropdown from './components/content/ComposerDropdown.vue'
 import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vue'
 import FavoritesModal from './components/content/FavoritesModal.vue'
+import IconTablerBroom from './components/icons/IconTablerBroom.vue'
 import IconTablerBookmark from './components/icons/IconTablerBookmark.vue'
+import IconTablerCopy from './components/icons/IconTablerCopy.vue'
+import IconTablerMicrophone from './components/icons/IconTablerMicrophone.vue'
+import IconTablerRefresh from './components/icons/IconTablerRefresh.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
 import IconTablerSettings from './components/icons/IconTablerSettings.vue'
 import IconTablerX from './components/icons/IconTablerX.vue'
@@ -711,15 +833,21 @@ import type {
 import { getPathLeafName, getPathParent } from './pathUtils.js'
 import {
   getMobileShellAppInfo,
+  getMobileShellNotificationPermissionStatus,
+  getMobileShellRuntimeInfo,
   getMobileShellServerConfig,
   installMobileShellApk,
   isNativeAndroidShell,
+  requestMobileShellNotificationPermission,
   resetMobileShellServerUrl,
   setMobileShellServerUrl,
   type MobileShellAppInfo,
+  type MobileShellNotificationPermissionStatus,
+  type MobileShellRuntimeInfo,
   type MobileShellServerConfig,
 } from './mobile/mobileShell'
 import {
+  compareMobileReleaseVersions,
   fetchLatestMobileRelease,
   getMobileReleasesPageUrl,
   isMobileReleaseUpdateAvailable,
@@ -762,7 +890,7 @@ const DEFAULT_TUNNEL_STATUS: TunnelStatus = {
 const SETTINGS_HELP = {
   sendWithEnter: '开启后直接按 Enter 发送，关闭后使用 Command + Enter 发送。',
   appearance: '在跟随系统、浅色和深色之间切换。',
-  dictationClickToToggle: '改为点击开始、点击结束听写，而不是按住说话。',
+  dictationButtonVisible: '控制输入框右侧是否显示语音按钮。',
   dictationAutoSend: '录音结束后自动发送转写内容。',
   rollbackCommits: '开启后每条消息都会生成回滚提交，回滚时会重置到该消息之前的提交。',
   githubTrendingProjects: '显示或隐藏侧栏里的 GitHub 热门页面入口。',
@@ -928,6 +1056,7 @@ const {
   syncLagging,
   syncError,
   refreshAll,
+  refreshSelectedThreadContent,
   refreshSkills,
   refreshRateLimits,
   selectThread,
@@ -962,7 +1091,8 @@ const {
 
 const route = useRoute()
 const router = useRouter()
-const { isMobile } = useMobile()
+const { isMobile, isDualPaneMobile } = useMobile()
+const isSettingsSheetMode = computed(() => isMobile.value || isDualPaneMobile.value)
 const { favorites, toggleFavorite, removeFavorite, refreshFavorites } = useFavorites()
 const homeThreadComposerRef = ref<ThreadComposerExposed | null>(null)
 const threadComposerRef = ref<ThreadComposerExposed | null>(null)
@@ -972,6 +1102,7 @@ const trendingProjects = ref<GithubTrendingProject[]>([])
 const isTrendingProjectsLoading = ref(false)
 const githubTipsScope = ref<GithubTipsScope>('trending-daily')
 const lastLoadedGithubTipsScope = ref<GithubTipsScope | ''>('')
+const isManualThreadRefreshRunning = ref(false)
 const editingQueuedMessageState = ref<{ threadId: string; queueIndex: number } | null>(null)
 const isRouteSyncInProgress = ref(false)
 const hasInitialized = ref(false)
@@ -999,6 +1130,7 @@ const isSettingsOpen = ref(false)
 const SEND_WITH_ENTER_KEY = 'codex-web-local.send-with-enter.v1'
 const DARK_MODE_KEY = 'codex-web-local.dark-mode.v1'
 const DICTATION_CLICK_TO_TOGGLE_KEY = 'codex-web-local.dictation-click-to-toggle.v1'
+const DICTATION_BUTTON_VISIBLE_KEY = 'codex-web-local.dictation-button-visible.v1'
 const DICTATION_AUTO_SEND_KEY = 'codex-web-local.dictation-auto-send.v1'
 const DICTATION_LANGUAGE_KEY = 'codex-web-local.dictation-language.v1'
 const WORKTREE_GIT_AUTOMATION_KEY = 'codex-web-local.worktree-git-automation.v1'
@@ -1006,6 +1138,7 @@ const GITHUB_TRENDING_PROJECTS_KEY = 'codex-web-local.github-trending-projects.v
 const sendWithEnter = ref(loadBoolPref(SEND_WITH_ENTER_KEY, true))
 const darkMode = ref<'system' | 'light' | 'dark'>(loadDarkModePref())
 const dictationClickToToggle = ref(loadBoolPref(DICTATION_CLICK_TO_TOGGLE_KEY, false))
+const dictationButtonVisible = ref(loadBoolPref(DICTATION_BUTTON_VISIBLE_KEY, true))
 const rollbackDraftPrependRequest = ref<{ id: number; text: string } | null>(null)
 let rollbackDraftPrependRequestId = 0
 const dictationAutoSend = ref(loadBoolPref(DICTATION_AUTO_SEND_KEY, true))
@@ -1025,6 +1158,8 @@ let tunnelStatusMessageTimer: ReturnType<typeof setTimeout> | null = null
 const isMobileShellAvailable = ref(isNativeAndroidShell())
 const mobileShellServerConfig = ref<MobileShellServerConfig | null>(null)
 const mobileShellAppInfo = ref<MobileShellAppInfo | null>(null)
+const mobileShellRuntimeInfo = ref<MobileShellRuntimeInfo | null>(null)
+const mobileShellNotificationPermission = ref<MobileShellNotificationPermissionStatus | null>(null)
 const mobileShellLatestRelease = ref<MobileLatestRelease | null>(null)
 const mobileShellServerInput = ref('')
 const mobileShellStatus = ref('')
@@ -1033,6 +1168,8 @@ const isMobileShellLoading = ref(false)
 const isMobileShellSaving = ref(false)
 const isMobileShellUpdateLoading = ref(false)
 const isMobileShellInstalling = ref(false)
+const isMobileShellNotificationRequesting = ref(false)
+const isMobileShellUpdatePromptVisible = ref(false)
 let mobileShellStatusTimer: ReturnType<typeof setTimeout> | null = null
 let mobileShellUpdateStatusTimer: ReturnType<typeof setTimeout> | null = null
 const desktopAppStatus = ref<DesktopAppStatus>({
@@ -1077,7 +1214,7 @@ const isNonThreadRoute = computed(() => (
 const displayAppVersion = computed(() => {
   const version = String(appVersion).trim()
   if (!version || version === 'unknown') return '未知版本'
-  return version.startsWith('v') ? version : `v${version}`
+  return version.replace(/^v/i, '')
 })
 const displayWorktreeName = computed(() => {
   const name = String(worktreeName).trim()
@@ -1111,6 +1248,51 @@ const mobileShellServerUrlLabel = computed(() => (
 const mobileShellDefaultUrlLabel = computed(() => (
   mobileShellServerConfig.value?.defaultServerUrl.trim() || '未配置'
 ))
+const mobileShellRuntimeNetworkLabel = computed(() => {
+  const runtime = mobileShellRuntimeInfo.value
+  if (!runtime) return '未读取'
+  const state = runtime.connected ? (runtime.validated ? '可用' : '待验证') : '离线'
+  const transportLabels: Record<string, string> = {
+    wifi: 'Wi-Fi',
+    cellular: '蜂窝',
+    ethernet: '以太网',
+    vpn: 'VPN',
+    bluetooth: '蓝牙',
+    usb: 'USB',
+    none: '无网络',
+    unknown: '未知',
+  }
+  const transport = transportLabels[runtime.transport] ?? runtime.transport
+  return `${state} · ${transport}${runtime.metered ? ' · 计费网络' : ''}`
+})
+const mobileShellRuntimeDeviceLabel = computed(() => {
+  const runtime = mobileShellRuntimeInfo.value
+  if (!runtime) return '未读取'
+  const model = [runtime.manufacturer, runtime.model]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ')
+  return `${model || 'Android'} · ${runtime.powerSaveMode ? '省电模式' : '标准模式'}`
+})
+const mobileShellRuntimeWebViewLabel = computed(() => {
+  const runtime = mobileShellRuntimeInfo.value
+  if (!runtime) return '未读取'
+  const version = runtime.webViewVersion.trim()
+  if (version) return version
+  return runtime.webViewPackage.trim() || `Android ${runtime.sdkInt}`
+})
+const mobileShellNotificationPermissionLabel = computed(() => {
+  const permission = mobileShellNotificationPermission.value
+  if (!permission) return '未读取'
+  if (permission.granted) return '已允许'
+  if (!permission.notificationsEnabled) return '系统已关闭'
+  return permission.requiresRuntimePermission ? '待授权' : '未允许'
+})
+const canRequestMobileShellNotifications = computed(() => (
+  isMobileShellAvailable.value
+  && !isMobileShellNotificationRequesting.value
+  && mobileShellNotificationPermission.value?.granted !== true
+))
 const normalizedMobileShellServerInput = computed(() => normalizeUrlInput(mobileShellServerInput.value))
 const canSaveMobileShellServerUrl = computed(() => {
   if (!isMobileShellAvailable.value || isMobileShellSaving.value) return false
@@ -1133,6 +1315,11 @@ const mobileShellInstalledVersionLabel = computed(() => {
   if (!version) return '未读取'
   return version.startsWith('v') ? version : `v${version}`
 })
+const aboutAppVersionLabel = computed(() => (
+  isMobileShellAvailable.value
+    ? mobileShellInstalledVersionLabel.value
+    : displayAppVersion.value
+))
 const mobileShellLatestVersionLabel = computed(() => {
   const tagName = mobileShellLatestRelease.value?.tagName.trim() || ''
   if (!tagName) return isMobileShellUpdateLoading.value ? '检查中' : '未检测到'
@@ -1148,6 +1335,20 @@ const hasMobileShellUpdate = computed(() => (
     mobileShellLatestRelease.value?.tagName ?? '',
   )
 ))
+const mobileShellReleaseComparison = computed(() => {
+  const installed = mobileShellAppInfo.value?.versionName ?? ''
+  const latest = mobileShellLatestRelease.value?.tagName ?? ''
+  if (!installed.trim() || !latest.trim()) return 0
+  return compareMobileReleaseVersions(installed, latest)
+})
+const mobileShellVersionActionLabel = computed(() => {
+  if (!isMobileShellAvailable.value) return '打开 GitHub 发布页'
+  if (isMobileShellInstalling.value) return '正在下载安装...'
+  if (isMobileShellUpdateLoading.value) return '正在检查新版本...'
+  if (hasMobileShellUpdate.value) return `发现 ${mobileShellLatestVersionLabel.value}，点击更新`
+  if (mobileShellReleaseComparison.value > 0) return '当前安装包比 GitHub 更新'
+  return '点击检查 GitHub 更新'
+})
 const canInstallLatestMobileShellRelease = computed(() => (
   isMobileShellAvailable.value
   && !isMobileShellInstalling.value
@@ -1162,10 +1363,37 @@ const mobileShellInstallButtonLabel = computed(() => {
   if (!mobileShellLatestRelease.value?.asset?.downloadUrl) return '暂无安装包'
   return hasMobileShellUpdate.value ? '下载并安装' : '重新安装'
 })
+const mobileShellUpdatePromptTitle = computed(() => {
+  if (mobileShellLatestRelease.value?.releaseName.trim()) {
+    return mobileShellLatestRelease.value.releaseName.trim()
+  }
+  if (mobileShellLatestRelease.value?.tagName.trim()) {
+    return `CX Codex ${mobileShellLatestRelease.value.tagName.trim()}`
+  }
+  return 'CX Codex 新版本'
+})
+const mobileShellUpdatePublishedAtLabel = computed(() => {
+  const iso = mobileShellLatestRelease.value?.publishedAtIso.trim() || ''
+  if (!iso) return '发布时间未知'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return '发布时间未知'
+  return `发布于 ${date.toLocaleString()}`
+})
+const mobileShellUpdateAssetSizeLabel = computed(() => {
+  const size = mobileShellLatestRelease.value?.asset?.size ?? 0
+  return formatFileSize(size)
+})
+const mobileShellUpdatePromptText = computed(() => {
+  if (mobileShellLatestRelease.value?.asset?.name.trim()) {
+    return `检测到 ${mobileShellLatestVersionLabel.value}，确认后会直接下载 ${mobileShellLatestRelease.value.asset.name.trim()} 并拉起系统安装界面。`
+  }
+  return `检测到 ${mobileShellLatestVersionLabel.value}，确认后会直接下载并打开系统安装界面。`
+})
 const mobileShellUpdateHint = computed(() => {
   if (isMobileShellUpdateLoading.value) return '正在读取 GitHub 最新发布信息...'
   if (!mobileShellLatestRelease.value?.asset) return '发布页还没有可直接安装的 Android APK。'
   if (hasMobileShellUpdate.value) return '检测到新版本后，可直接下载并拉起系统安装界面。'
+  if (mobileShellReleaseComparison.value > 0) return '当前安装版比 GitHub 最新发布更高，通常说明你还没有把新 APK 发到 Release。'
   return '当前安装版已与最新发布一致，如需覆盖安装也可以直接重新安装。'
 })
 const tunnelPathsHint = computed(() => {
@@ -1220,6 +1448,13 @@ const headerSubtitle = computed(() => {
   const cwd = selectedThread.value?.cwd?.trim() ?? ''
   return cwd || ''
 })
+const showMobileThreadRefreshButton = computed(() => (
+  route.name === 'thread'
+  && selectedThreadId.value.trim().length > 0
+))
+const mobileThreadRefreshButtonTitle = computed(() => (
+  isManualThreadRefreshRunning.value ? '正在刷新当前会话内容...' : '刷新当前会话内容'
+))
 const contentContextUsage = computed(() => {
   if (isNonThreadRoute.value || isRouteOnlyEmptyThread.value) return null
   if (!selectedThread.value) return null
@@ -1726,6 +1961,8 @@ onMounted(() => {
   queueIdleTask(() => { void refreshFavorites() }, 1500)
   queueIdleTask(() => { void refreshTunnelStatus() }, 1550)
   queueIdleTask(() => { void refreshMobileShellServerConfig() }, 1600)
+  queueIdleTask(() => { void refreshMobileShellRuntimeInfo() }, 1625)
+  queueIdleTask(() => { void refreshMobileShellNotificationPermission() }, 1640)
   queueIdleTask(() => { void refreshMobileShellUpdateState() }, 1650)
   queueIdleTask(() => { void refreshDesktopAppAvailability() }, 1700)
   scheduleTrendingProjectsLoad()
@@ -1803,6 +2040,8 @@ watch(isSettingsOpen, (open) => {
     void refreshWebBridgeSettings()
     void refreshMobileShellServerConfig({ preserveInput: true })
     void refreshMobileShellUpdateState()
+    void refreshMobileShellRuntimeInfo()
+    void refreshMobileShellNotificationPermission()
     window.addEventListener('pointerdown', onWindowPointerDownForSettings, { capture: true })
     return
   }
@@ -1880,6 +2119,19 @@ function normalizeUrlInput(value: string): string {
     normalized = normalized.slice(0, -1)
   }
   return normalized
+}
+
+function formatFileSize(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '未知大小'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let size = value
+  let unitIndex = 0
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024
+    unitIndex += 1
+  }
+  const precision = unitIndex === 0 ? 0 : unitIndex === 1 ? 1 : 2
+  return `${size.toFixed(precision)} ${units[unitIndex]}`
 }
 
 function setFavoritesStatusText(message: string): void {
@@ -1966,6 +2218,41 @@ async function refreshMobileShellServerConfig(options: { preserveInput?: boolean
   }
 }
 
+async function refreshMobileShellRuntimeInfo(): Promise<void> {
+  if (!isMobileShellAvailable.value) return
+
+  try {
+    mobileShellRuntimeInfo.value = await getMobileShellRuntimeInfo()
+  } catch {
+    mobileShellRuntimeInfo.value = null
+  }
+}
+
+async function refreshMobileShellNotificationPermission(): Promise<void> {
+  if (!isMobileShellAvailable.value) return
+
+  try {
+    mobileShellNotificationPermission.value = await getMobileShellNotificationPermissionStatus()
+  } catch {
+    mobileShellNotificationPermission.value = null
+  }
+}
+
+async function requestMobileShellNotifications(): Promise<void> {
+  if (!isMobileShellAvailable.value || isMobileShellNotificationRequesting.value) return
+
+  isMobileShellNotificationRequesting.value = true
+  try {
+    mobileShellNotificationPermission.value = await requestMobileShellNotificationPermission()
+    window.setTimeout(() => { void refreshMobileShellNotificationPermission() }, 900)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '请求通知权限失败'
+    setMobileShellStatus(message)
+  } finally {
+    isMobileShellNotificationRequesting.value = false
+  }
+}
+
 function openLatestMobileShellReleasePage(): void {
   const targetUrl = mobileShellLatestRelease.value?.htmlUrl.trim() || getMobileReleasesPageUrl()
   if (!targetUrl) {
@@ -2000,6 +2287,18 @@ async function refreshMobileShellUpdateState(showSuccessMessage = false): Promis
     setMobileShellUpdateStatus(message)
   } finally {
     isMobileShellUpdateLoading.value = false
+  }
+}
+
+async function checkMobileShellUpdate(options: { showSuccessMessage?: boolean; promptOnUpdate?: boolean } = {}): Promise<void> {
+  const { showSuccessMessage = false, promptOnUpdate = false } = options
+  await refreshMobileShellUpdateState(showSuccessMessage)
+  if (
+    promptOnUpdate
+    && hasMobileShellUpdate.value
+    && mobileShellLatestRelease.value?.asset?.downloadUrl
+  ) {
+    isMobileShellUpdatePromptVisible.value = true
   }
 }
 
@@ -2097,6 +2396,14 @@ function openMobileShellServerUrl(): void {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
+function onOpenAppVersionDetails(): void {
+  if (!isMobileShellAvailable.value) {
+    openLatestMobileShellReleasePage()
+    return
+  }
+  void checkMobileShellUpdate({ showSuccessMessage: true, promptOnUpdate: true })
+}
+
 async function saveMobileShellServerAddress(): Promise<void> {
   if (!isMobileShellAvailable.value || isMobileShellSaving.value) return
 
@@ -2163,6 +2470,15 @@ async function installLatestMobileShellRelease(): Promise<void> {
   } finally {
     isMobileShellInstalling.value = false
   }
+}
+
+function closeMobileShellUpdatePrompt(): void {
+  isMobileShellUpdatePromptVisible.value = false
+}
+
+async function confirmLatestMobileShellReleaseInstall(): Promise<void> {
+  closeMobileShellUpdatePrompt()
+  await installLatestMobileShellRelease()
 }
 
 function closeDesktopRefreshConfirm(): void {
@@ -2424,6 +2740,11 @@ function setSidebarCollapsed(nextValue: boolean): void {
 
 function onWindowKeyDown(event: KeyboardEvent): void {
   if (event.defaultPrevented) return
+  if (event.key === 'Escape' && isMobileShellUpdatePromptVisible.value) {
+    event.preventDefault()
+    closeMobileShellUpdatePrompt()
+    return
+  }
   if (event.key === 'Escape' && isDesktopRefreshConfirmVisible.value) {
     event.preventDefault()
     closeDesktopRefreshConfirm()
@@ -2493,6 +2814,20 @@ function onRefreshTrendingProjects(): void {
   lastLoadedGithubTipsScope.value = ''
   cancelPendingTrendingProjectsLoad()
   scheduleTrendingProjectsLoad('immediate')
+}
+
+async function onRefreshSelectedThreadContent(): Promise<void> {
+  if (!showMobileThreadRefreshButton.value || isManualThreadRefreshRunning.value) return
+
+  isManualThreadRefreshRunning.value = true
+  try {
+    await refreshSelectedThreadContent()
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : '刷新当前会话内容失败'
+    window.alert(message)
+  } finally {
+    isManualThreadRefreshRunning.value = false
+  }
 }
 
 function permissionDecisionLabel(value: PermissionDecision): string {
@@ -2871,9 +3206,9 @@ function cycleDarkMode(): void {
   applyDarkMode()
 }
 
-function toggleDictationClickToToggle(): void {
-  dictationClickToToggle.value = !dictationClickToToggle.value
-  window.localStorage.setItem(DICTATION_CLICK_TO_TOGGLE_KEY, dictationClickToToggle.value ? '1' : '0')
+function toggleDictationButtonVisible(): void {
+  dictationButtonVisible.value = !dictationButtonVisible.value
+  window.localStorage.setItem(DICTATION_BUTTON_VISIBLE_KEY, dictationButtonVisible.value ? '1' : '0')
 }
 
 function toggleDictationAutoSend(): void {
@@ -3235,6 +3570,10 @@ async function submitFirstMessageForNewThread(
   @apply h-full flex flex-col select-none;
 }
 
+.sidebar-root--dual-pane-touch .sidebar-scrollable {
+  @apply px-2.5 py-2.5 gap-2.5;
+}
+
 .skip-to-content {
   position: fixed;
   left: 1rem;
@@ -3273,11 +3612,15 @@ async function submitFirstMessageForNewThread(
 }
 
 .content-root {
-  @apply h-full min-h-0 w-full flex flex-col overflow-y-hidden overflow-x-visible;
+  @apply h-full min-h-0 min-w-0 w-full flex flex-col overflow-y-hidden overflow-x-visible;
   --content-shell-max-width: min(88rem, calc(100vw - 2.75rem));
   background:
     radial-gradient(circle at top right, rgba(13, 148, 136, 0.02), transparent 22%),
     linear-gradient(180deg, rgba(255,255,255,0.975) 0%, rgba(250,247,240,0.99) 100%);
+}
+
+.content-root--dual-pane-touch {
+  --content-shell-max-width: 100%;
 }
 
 .sidebar-thread-controls-host {
@@ -3296,19 +3639,16 @@ async function submitFirstMessageForNewThread(
   @apply w-4 h-4;
 }
 
-.sidebar-toolbar-pill {
-  @apply h-8 rounded-xl border border-[#ddd5c7] bg-[#fffdf8] px-3 text-[11px] font-semibold text-[#5f5548] transition-colors duration-100;
-  font-family: var(--font-sans-ui);
-  letter-spacing: -0.012em;
+.sidebar-toolbar-icon-button {
+  @apply inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-[#e4dac9] bg-[#fffdf8] text-[#6b6255] transition-colors duration-100 hover:border-[#cdbfa8] hover:bg-[#f7f1e5] hover:text-[#2d261f];
 }
 
-.sidebar-toolbar-pill:hover,
-.sidebar-toolbar-pill:focus-visible {
-  @apply border-[#cec2ad] bg-[#f7f1e5] text-[#2d261f];
+.sidebar-toolbar-icon-button:disabled {
+  @apply cursor-not-allowed border-[#ece4d6] bg-[#faf6ef] text-[#b1a89b] hover:border-[#ece4d6] hover:bg-[#faf6ef] hover:text-[#b1a89b];
 }
 
-.sidebar-toolbar-pill:disabled {
-  @apply cursor-not-allowed border-[#ece4d6] bg-[#faf6ef] text-[#b1a89b];
+.sidebar-toolbar-icon {
+  @apply h-4 w-4;
 }
 
 .sidebar-search-bar {
@@ -3371,7 +3711,7 @@ async function submitFirstMessageForNewThread(
 }
 
 .content-body {
-  @apply flex-1 min-h-0 w-full flex flex-col gap-2.5 pt-0.5 pb-2 sm:pb-4 overflow-y-hidden overflow-x-visible;
+  @apply flex-1 min-h-0 min-w-0 w-full flex flex-col gap-2.5 pt-0.5 pb-2 sm:pb-4 overflow-y-hidden overflow-x-visible;
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }
 
@@ -3381,8 +3721,25 @@ async function submitFirstMessageForNewThread(
   letter-spacing: -0.006em;
 }
 
+.content-title-refresh-button {
+  @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#ddd3c2] bg-[#fffdf8] text-[#5a5144] transition-[background-color,border-color,color,transform] duration-150 hover:border-[#c8b9a2] hover:bg-[#f6f2ea] hover:text-[#1f2937] disabled:cursor-not-allowed disabled:opacity-60;
+  box-shadow: 0 10px 20px -20px rgba(31, 41, 55, 0.24);
+}
+
+.content-title-refresh-button[data-busy='true'] {
+  @apply border-[#e7d9b0] bg-[#fcf7e8] text-[#8a6a11];
+}
+
+.content-title-refresh-button-icon {
+  @apply h-3.5 w-3.5;
+}
+
+.content-title-refresh-button[data-busy='true'] .content-title-refresh-button-icon {
+  animation: content-title-refresh-spin 0.9s linear infinite;
+}
+
 .content-favorites-button {
-  @apply inline-flex items-center gap-1.5 rounded-full border border-[#ddd3c2] bg-[#fffdf8] px-3 py-1.5 text-[11px] font-semibold text-[#544a3d] transition-[background-color,border-color,color] duration-150 hover:border-[#ccb89c] hover:bg-[#f7f1e5] hover:text-[#1f2937];
+  @apply inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1 rounded-full border border-[#ddd3c2] bg-[#fffdf8] px-2 text-[11px] font-semibold text-[#544a3d] transition-[background-color,border-color,color] duration-150 hover:border-[#ccb89c] hover:bg-[#f7f1e5] hover:text-[#1f2937];
   font-family: var(--font-sans-ui);
   letter-spacing: -0.01em;
 }
@@ -3395,8 +3752,18 @@ async function submitFirstMessageForNewThread(
   @apply inline-flex min-w-5 items-center justify-center rounded-full bg-[#0f766e] px-1.5 py-0.5 text-[10px] text-white;
 }
 
+@keyframes content-title-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .content-meta-row {
-  @apply flex w-full min-w-0 flex-wrap items-center gap-2;
+  @apply flex w-full min-w-0 flex-nowrap items-center gap-2;
 }
 
 .content-context-badge {
@@ -3490,13 +3857,23 @@ async function submitFirstMessageForNewThread(
 }
 
 .content-grid {
-  @apply flex-1 min-h-0 flex flex-col gap-2.5 w-full;
+  @apply flex-1 min-h-0 min-w-0 flex flex-col gap-2.5 w-full;
   width: min(100%, var(--content-shell-max-width));
   margin-inline: auto;
 }
 
 .content-thread {
-  @apply flex-1 min-h-0 overflow-hidden;
+  @apply flex-1 min-h-0 min-w-0 overflow-hidden;
+}
+
+.content-root--dual-pane-touch .content-body,
+.content-root--dual-pane-touch .content-grid,
+.content-root--dual-pane-touch .content-thread {
+  min-width: 0;
+}
+
+.content-root--dual-pane-touch .content-grid {
+  width: 100%;
 }
 
 .composer-with-queue {
@@ -3646,6 +4023,7 @@ async function submitFirstMessageForNewThread(
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   padding-bottom: max(0.9rem, env(safe-area-inset-bottom));
 }
 
@@ -3769,6 +4147,26 @@ async function submitFirstMessageForNewThread(
   @apply block w-full rounded-2xl border border-[#e6dccb] bg-[#f7f4ed] px-3 py-2 text-[11px] leading-4 text-[#5f5446] break-all;
 }
 
+.sidebar-settings-code-row {
+  @apply flex w-full min-w-0 items-stretch gap-2;
+}
+
+.sidebar-settings-code-row .sidebar-settings-code {
+  @apply min-w-0 flex-1;
+}
+
+.sidebar-settings-copy-button {
+  @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-[#ddd5c7] bg-[#fffdf8] text-[#5b5146] transition-colors duration-100 hover:border-[#cdbfa8] hover:bg-[#f7f1e5] disabled:cursor-not-allowed disabled:opacity-45;
+}
+
+.sidebar-settings-copy-icon {
+  @apply h-4 w-4;
+}
+
+.sidebar-settings-toggle-icon {
+  @apply h-3 w-3;
+}
+
 .sidebar-settings-actions {
   @apply flex flex-wrap gap-2 px-3 py-2;
 }
@@ -3861,6 +4259,14 @@ async function submitFirstMessageForNewThread(
   @apply flex items-center justify-between gap-2;
 }
 
+.sidebar-settings-about-trigger {
+  @apply min-w-0 flex flex-1 items-center justify-between gap-3 rounded-[22px] border border-[#d8e5ff] bg-white/78 px-3 py-2 text-left transition-colors duration-100 hover:bg-[#f4f8ff] hover:border-[#bcd3ff] cursor-pointer;
+}
+
+.sidebar-settings-about-trigger:disabled {
+  @apply cursor-not-allowed opacity-65 hover:bg-white/78 hover:border-[#d8e5ff];
+}
+
 .sidebar-settings-about-copy {
   @apply min-w-0 flex flex-col gap-0.5;
 }
@@ -3871,6 +4277,14 @@ async function submitFirstMessageForNewThread(
 
 .sidebar-settings-about-version {
   @apply text-sm leading-5 font-semibold text-[#2d261f];
+}
+
+.sidebar-settings-about-action {
+  @apply text-[11px] leading-4 text-[#6a7cae];
+}
+
+.sidebar-settings-about-update-badge {
+  @apply inline-flex shrink-0 items-center rounded-full border border-[#bfdbfe] bg-[#e8f1ff] px-2 py-0.5 text-[10px] font-semibold text-[#1d4ed8];
 }
 
 .sidebar-settings-github-button {
@@ -3951,6 +4365,14 @@ async function submitFirstMessageForNewThread(
 
   .content-context-badge {
     @apply gap-1 px-1 py-0.5 text-[10px];
+  }
+
+  .content-title-refresh-button {
+    @apply h-6.5 w-6.5;
+  }
+
+  .content-title-refresh-button-icon {
+    @apply h-3.25 w-3.25;
   }
 
   .content-context-badge-icon {
@@ -4041,6 +4463,46 @@ async function submitFirstMessageForNewThread(
   @apply border-[#c2410c] bg-[#c2410c] hover:border-[#9a3412] hover:bg-[#9a3412];
 }
 
+.mobile-update-confirm-overlay {
+  @apply fixed inset-0 z-[55] flex items-center justify-center bg-[#1f2937]/42 p-4 backdrop-blur-[3px];
+}
+
+.mobile-update-confirm-dialog {
+  @apply w-full max-w-md rounded-[28px] border border-[#ddd5c7] bg-[#fffdf8] p-5 shadow-2xl shadow-[#1f2937]/15;
+}
+
+.mobile-update-confirm-kicker {
+  @apply m-0 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#5978c2];
+}
+
+.mobile-update-confirm-title {
+  @apply mt-2 mb-0 text-lg font-semibold leading-7 text-[#1f2937];
+}
+
+.mobile-update-confirm-text {
+  @apply mt-2 mb-0 text-sm leading-6 text-[#5c5247];
+}
+
+.mobile-update-confirm-meta {
+  @apply mt-3 flex items-center justify-between gap-3 rounded-2xl border border-[#ebe3d5] bg-[#fbf8f2] px-3 py-2 text-[12px] leading-5 text-[#6a6052];
+}
+
+.mobile-update-confirm-meta span:last-child {
+  @apply min-w-0 text-right break-all text-[#2d261f];
+}
+
+.mobile-update-confirm-actions {
+  @apply mt-5 flex items-center justify-end gap-2;
+}
+
+.mobile-update-confirm-button {
+  @apply inline-flex items-center justify-center rounded-full border border-[#d8cfbf] bg-[#fffdf8] px-4 py-2 text-sm font-semibold text-[#544a3d] transition-colors duration-100 hover:border-[#bca98d] hover:bg-[#f7f1e5];
+}
+
+.mobile-update-confirm-button-primary {
+  @apply border-[#1f2937] bg-[#1f2937] text-white hover:border-[#111827] hover:bg-[#111827];
+}
+
 @media (prefers-reduced-motion: reduce) {
   .settings-panel-enter-active,
   .settings-panel-leave-active,
@@ -4052,11 +4514,18 @@ async function submitFirstMessageForNewThread(
   .sidebar-search-clear,
   .sidebar-skills-link,
   .desktop-refresh-button,
+  .content-title-refresh-button,
   .sidebar-settings-button,
   .sidebar-settings-row,
+  .sidebar-settings-about-trigger,
   .sidebar-settings-github-button,
+  .mobile-update-confirm-button,
   .desktop-refresh-confirm-button {
     transition: none !important;
+  }
+
+  .content-title-refresh-button[data-busy='true'] .content-title-refresh-button-icon {
+    animation: none !important;
   }
 }
 

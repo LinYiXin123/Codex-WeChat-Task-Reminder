@@ -12,7 +12,8 @@
 
 - 已接入 Capacitor Android 基础依赖
 - 已新增 App 生命周期和网络状态桥接
-- App 回到前台、网络恢复时，会复用现有 Web 端的自动补同步逻辑
+- 已新增 Android 原生通知权限和任务通知桥接
+- App 回到前台、网络恢复或 WebView 重新载入时，会先回放持久化的服务端事件游标，再复用现有 Web 端自动补同步逻辑
 
 当前这版仍然依赖远程 `codexui-server-bridge`，不支持离线独立运行。
 
@@ -22,13 +23,13 @@
 
 例如局域网或公网地址：
 
-- `http://192.168.1.110:7420`
+- `http://192.168.x.x:7420`
 - `https://your-remote-host.example.com`
 
 2. 在 PowerShell 中设置 Android 壳要连接的地址
 
 ```powershell
-$env:CAP_SERVER_URL = "http://192.168.1.110:7420"
+$env:CAP_SERVER_URL = "https://your-remote-host.example.com:7420"
 ```
 
 3. 生成 Android 工程
@@ -96,6 +97,12 @@ cd android
   - 可读取 GitHub 最新 Release
   - 可显示当前安装版本、最新版本和 APK 名称
   - 可直接下载最新 APK 并拉起系统安装
+- Android 原生插件已补充移动端稳定性能力：
+  - 对话执行、发送、排队、打断时接入轻量触感反馈
+  - 对话活跃和同步追平期间保持屏幕活跃，减少锁屏 / 息屏后的断点感
+  - App 设置里可读取原生网络、设备省电状态和 WebView 版本，方便定位真机差异
+  - App 设置里可检测和申请 Android 通知权限
+  - 等待确认、任务完成和任务出错时，可通过 Android 本地通知提醒
 
 ## 本地一键打包
 
@@ -107,6 +114,32 @@ cd android
 
 - `artifacts/cx-codex-android-v0.2.0-bridge.5.apk`
 - `artifacts/cx-codex-android-v0.2.0-bridge.5.apk.sha256`
+
+## 7420 回归检查
+
+每次调整移动端恢复、折叠屏布局、Android 壳或 7420 服务稳定性后，建议先启动本地服务，再执行：
+
+```powershell
+npm run test:7420
+```
+
+脚本会检查：
+
+- `http://127.0.0.1:7420/health`
+- `http://127.0.0.1:7420/codex-api/health`
+- `http://116.62.234.104:17420/health`
+- `http://127.0.0.1:7420/codex-api/events/replay`
+- WebView 通知游标恢复
+- 桌面 `1440x900`
+- 手机 `390x844`
+- 折叠屏 `884x1104`
+- 页面关键元素、横向溢出和浏览器错误
+
+如果本地服务没有启动，可用：
+
+```powershell
+npm run test:7420 -- -RestartIfUnhealthy
+```
 
 ## GitHub Release 挂 APK
 
@@ -127,10 +160,11 @@ cd android
 ## 已知边界
 
 - 如果没有设置 `CAP_SERVER_URL`，安卓壳仍可生成，但不会自动绑定远程服务地址。
-- 当前实现优先解决“回到前台自动补同步”，不是“锁屏期间持续流式更新”。
+- 当前实现优先解决“回到前台自动补同步”和“关键任务本地提醒”，不是“锁屏期间持续流式更新”。
+- Android 通知依赖系统通知权限；如果用户关闭通知，Web 端仍会在回到前台后通过事件回放追平状态。
 - 真机安装、调试和发布仍需要本机 Android SDK / Android Studio。
 
 ## 后续建议
 
-- 增加本地通知，用于任务完成和等待确认提醒
-- 补线程快照与事件游标回补接口，降低后台恢复丢消息概率
+- 在真机上补一轮锁屏、切后台、弱网和折叠屏展开 / 合上回归
+- 继续把高频线程状态做成更轻的服务端快照，降低长线程恢复时的重读压力

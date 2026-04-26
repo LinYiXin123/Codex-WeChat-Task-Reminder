@@ -10,6 +10,13 @@ export type RpcNotification = {
   method: string
   params: unknown
   atIso: string
+  seq?: number
+}
+
+export type RpcNotificationReplay = {
+  notifications: RpcNotification[]
+  latestSeq: number
+  oldestSeq: number
 }
 
 export type RpcConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
@@ -27,6 +34,9 @@ type ServerRequestReplyBody = {
 const WS_OPEN_TIMEOUT_MS = 2500
 const RECONNECT_BASE_DELAY_MS = 1000
 const RECONNECT_MAX_DELAY_MS = 8000
+const TRANSPORT_STALE_CHECK_MS = 15000
+const TRANSPORT_STALE_MS = 45000
+const BRIDGE_HEARTBEAT_METHOD = 'bridge/heartbeat'
 const RPC_FETCH_TIMEOUT_MS = 20000
 const META_FETCH_TIMEOUT_MS = 12000
 const SERVER_REQUEST_FETCH_TIMEOUT_MS = 15000
@@ -197,6 +207,47 @@ function toNotification(value: unknown): RpcNotification | null {
     method: record.method,
     params: record.params ?? null,
     atIso,
+    seq: typeof record.seq === 'number' && Number.isFinite(record.seq) ? Math.max(0, Math.trunc(record.seq)) : undefined,
+  }
+}
+
+export async function fetchRpcNotificationReplay(afterSeq: number, limit = 200): Promise<RpcNotificationReplay> {
+  const normalizedAfterSeq = Number.isFinite(afterSeq) ? Math.max(0, Math.trunc(afterSeq)) : 0
+  const normalizedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(Math.trunc(limit), 500)) : 200
+  const response = await fetchWithTimeout(
+    `/codex-api/events/replay?after=${encodeURIComponent(String(normalizedAfterSeq))}&limit=${encodeURIComponent(String(normalizedLimit))}`,
+    {},
+    META_FETCH_TIMEOUT_MS,
+    'Notification replay request',
+  )
+
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    payload = null
+  }
+
+  if (!response.ok) {
+    throw new CodexApiError(
+      extractErrorMessage(payload, `Notification replay failed with HTTP ${response.status}`),
+      {
+        code: 'http_error',
+        method: 'events/replay',
+        status: response.status,
+      },
+    )
+  }
+
+  const record = asRecord(payload)
+  const data = asRecord(record?.data)
+  const rawNotifications = Array.isArray(data?.notifications) ? data.notifications : []
+  return {
+    notifications: rawNotifications
+      .map((value) => toNotification(value))
+      .filter((value): value is RpcNotification => value !== null),
+    latestSeq: typeof data?.latestSeq === 'number' ? Math.max(0, Math.trunc(data.latestSeq)) : normalizedAfterSeq,
+    oldestSeq: typeof data?.oldestSeq === 'number' ? Math.max(0, Math.trunc(data.oldestSeq)) : 0,
   }
 }
 
@@ -218,6 +269,8 @@ export function subscribeRpcNotifications(
   let hasEverConnected = false
   let authProbeInFlight = false
   let connectionState: RpcConnectionState = 'connecting'
+  let transportWatchdogTimer: number | null = null
+  let lastTransportActivityAtMs = Date.now()
 
   const preferredTransport = (): Transport => (typeof WebSocket !== 'undefined' ? 'ws' : 'sse')
 
@@ -234,10 +287,42 @@ export function subscribeRpcNotifications(
     }
   }
 
+  const clearTransportWatchdog = () => {
+    if (transportWatchdogTimer !== null) {
+      window.clearInterval(transportWatchdogTimer)
+      transportWatchdogTimer = null
+    }
+  }
+
+  const noteTransportActivity = () => {
+    lastTransportActivityAtMs = Date.now()
+  }
+
   const clearActiveTransport = () => {
+    clearTransportWatchdog()
     const currentCleanup = cleanup
     cleanup = null
     currentCleanup?.()
+  }
+
+  const forceTransportReconnect = () => {
+    if (closed) return
+    activeAttempt += 1
+    clearActiveTransport()
+    scheduleReconnect(preferredTransport())
+  }
+
+  const startTransportWatchdog = () => {
+    clearTransportWatchdog()
+    transportWatchdogTimer = window.setInterval(() => {
+      if (closed) {
+        clearTransportWatchdog()
+        return
+      }
+      if (typeof document !== 'undefined' && document.hidden) return
+      if (Date.now() - lastTransportActivityAtMs < TRANSPORT_STALE_MS) return
+      forceTransportReconnect()
+    }, TRANSPORT_STALE_CHECK_MS)
   }
 
   const probeAuthorization = () => {
@@ -259,6 +344,9 @@ export function subscribeRpcNotifications(
       const parsed = JSON.parse(payload) as unknown
       const notification = toNotification(parsed)
       if (notification) {
+        if (notification.method === BRIDGE_HEARTBEAT_METHOD) {
+          return
+        }
         onNotification(notification)
       }
     } catch {
@@ -290,25 +378,31 @@ export function subscribeRpcNotifications(
 
     source.onopen = () => {
       if (isStaleAttempt(attemptId)) return
+      noteTransportActivity()
       hasEverConnected = true
       setConnectionState('connected')
       reconnectAttempt = 0
+      startTransportWatchdog()
     }
 
     source.addEventListener('ready', () => {
       if (isStaleAttempt(attemptId)) return
+      noteTransportActivity()
       hasEverConnected = true
       setConnectionState('connected')
       reconnectAttempt = 0
+      startTransportWatchdog()
     })
 
     source.onmessage = (event) => {
       if (isStaleAttempt(attemptId)) return
+      noteTransportActivity()
       handleNotificationPayload(event.data)
     }
 
     source.onerror = () => {
       if (isStaleAttempt(attemptId)) return
+      setConnectionState('reconnecting')
       if (source.readyState !== EventSource.CLOSED) return
       source.close()
       scheduleReconnect(preferredTransport())
@@ -351,15 +445,18 @@ export function subscribeRpcNotifications(
         cleanup?.()
         return
       }
+      noteTransportActivity()
       didOpen = true
       hasEverConnected = true
       setConnectionState('connected')
       reconnectAttempt = 0
       clearFallbackTimer()
+      startTransportWatchdog()
     }
 
     socket.onmessage = (event) => {
       if (isStaleAttempt(attemptId)) return
+      noteTransportActivity()
       handleNotificationPayload(String(event.data))
     }
 
@@ -393,6 +490,7 @@ export function subscribeRpcNotifications(
     activeAttempt += 1
     const attemptId = activeAttempt
     clearActiveTransport()
+    noteTransportActivity()
     setConnectionState(hasEverConnected || reconnectAttempt > 0 ? 'reconnecting' : 'connecting')
 
     if (transport === 'ws') {
@@ -408,6 +506,7 @@ export function subscribeRpcNotifications(
   return () => {
     closed = true
     clearReconnectTimer()
+    clearTransportWatchdog()
     clearActiveTransport()
     setConnectionState('disconnected')
   }

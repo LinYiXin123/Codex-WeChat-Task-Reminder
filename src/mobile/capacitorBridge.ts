@@ -31,6 +31,12 @@ export async function initializeCapacitorBridge(): Promise<void> {
     await CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       dispatchMobileEvent(isActive ? MOBILE_APP_RESUME_EVENT : MOBILE_APP_PAUSE_EVENT)
     })
+    await CapacitorApp.addListener('resume', () => {
+      dispatchMobileEvent(MOBILE_APP_RESUME_EVENT)
+    })
+    await CapacitorApp.addListener('pause', () => {
+      dispatchMobileEvent(MOBILE_APP_PAUSE_EVENT)
+    })
 
     await Network.addListener('networkStatusChange', ({ connected }) => {
       dispatchMobileEvent(connected ? MOBILE_NETWORK_ONLINE_EVENT : MOBILE_NETWORK_OFFLINE_EVENT)

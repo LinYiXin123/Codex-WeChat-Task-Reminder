@@ -10,6 +10,9 @@
             <slot name="title-prefix" />
           </div>
           <h1 class="content-title">{{ title }}</h1>
+          <div v-if="hasTitleSuffix" class="content-title-suffix">
+            <slot name="title-suffix" />
+          </div>
         </div>
         <slot name="subtitle" />
       </div>
@@ -33,6 +36,7 @@ defineProps<{
 const slots = useSlots()
 const hasMeta = computed(() => Boolean(slots.meta))
 const hasTitlePrefix = computed(() => Boolean(slots['title-prefix']))
+const hasTitleSuffix = computed(() => Boolean(slots['title-suffix']))
 </script>
 
 <style scoped>
@@ -64,6 +68,10 @@ const hasTitlePrefix = computed(() => Boolean(slots['title-prefix']))
 }
 
 .content-title-prefix {
+  @apply shrink-0 flex items-center;
+}
+
+.content-title-suffix {
   @apply shrink-0 flex items-center;
 }
 

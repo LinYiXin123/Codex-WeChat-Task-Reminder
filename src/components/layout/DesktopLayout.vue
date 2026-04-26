@@ -1,5 +1,9 @@
 <template>
-  <div class="desktop-layout" :class="{ 'is-mobile': isMobile }" :style="layoutStyle">
+  <div
+    class="desktop-layout"
+    :class="{ 'is-mobile': isMobile, 'is-dual-pane-touch': isDualPaneMobile }"
+    :style="layoutStyle"
+  >
     <Teleport v-if="isMobile" to="body">
       <Transition name="drawer">
         <div v-if="!isSidebarCollapsed" class="mobile-drawer-backdrop" @click="$emit('close-sidebar')">
@@ -15,7 +19,7 @@
         <slot name="sidebar" />
       </aside>
       <button
-        v-if="!isSidebarCollapsed"
+        v-if="!isSidebarCollapsed && !isDualPaneMobile"
         class="desktop-resize-handle"
         type="button"
         aria-label="Resize sidebar"
@@ -46,15 +50,23 @@ defineEmits<{
   'close-sidebar': []
 }>()
 
-const { isMobile } = useMobile()
+const { isMobile, isDualPaneMobile, viewportWidth } = useMobile()
 
 const SIDEBAR_WIDTH_KEY = 'codex-web-local.sidebar-width.v1'
 const MIN_SIDEBAR_WIDTH = 260
 const MAX_SIDEBAR_WIDTH = 620
 const DEFAULT_SIDEBAR_WIDTH = 320
+const TOUCH_DUAL_PANE_MIN_SIDEBAR_WIDTH = 236
+const TOUCH_DUAL_PANE_MAX_SIDEBAR_WIDTH = 340
+const TOUCH_DUAL_PANE_SIDEBAR_RATIO = 0.31
+const TOUCH_DUAL_PANE_MIN_CONTENT_WIDTH = 430
 
 function clampSidebarWidth(value: number): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value))
+}
+
+function clampTouchDualPaneSidebarWidth(value: number): number {
+  return Math.min(TOUCH_DUAL_PANE_MAX_SIDEBAR_WIDTH, Math.max(TOUCH_DUAL_PANE_MIN_SIDEBAR_WIDTH, value))
 }
 
 function loadSidebarWidth(): number {
@@ -66,6 +78,17 @@ function loadSidebarWidth(): number {
 }
 
 const sidebarWidth = ref(loadSidebarWidth())
+const resolvedSidebarWidth = computed(() => {
+  if (isDualPaneMobile.value) {
+    const ratioWidth = Math.round(viewportWidth.value * TOUCH_DUAL_PANE_SIDEBAR_RATIO)
+    const contentSafeMaxWidth = Math.max(
+      TOUCH_DUAL_PANE_MIN_SIDEBAR_WIDTH,
+      viewportWidth.value - TOUCH_DUAL_PANE_MIN_CONTENT_WIDTH,
+    )
+    return clampTouchDualPaneSidebarWidth(Math.min(ratioWidth, contentSafeMaxWidth))
+  }
+  return sidebarWidth.value
+})
 const layoutStyle = computed(() => {
   if (isMobile.value || props.isSidebarCollapsed) {
     return {
@@ -73,8 +96,14 @@ const layoutStyle = computed(() => {
       '--layout-columns': 'minmax(0, 1fr)',
     }
   }
+  if (isDualPaneMobile.value) {
+    return {
+      '--sidebar-width': `${resolvedSidebarWidth.value}px`,
+      '--layout-columns': 'var(--sidebar-width) minmax(0, 1fr)',
+    }
+  }
   return {
-    '--sidebar-width': `${sidebarWidth.value}px`,
+    '--sidebar-width': `${resolvedSidebarWidth.value}px`,
     '--layout-columns': 'var(--sidebar-width) 1px minmax(0, 1fr)',
   }
 })
@@ -123,6 +152,12 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
   @apply min-h-0 overflow-hidden border-r border-[#e6dccb] bg-[#faf7f0];
 }
 
+.desktop-layout.is-dual-pane-touch .desktop-sidebar {
+  background:
+    linear-gradient(180deg, rgba(251, 247, 239, 0.995) 0%, rgba(246, 241, 232, 0.995) 100%);
+  box-shadow: 10px 0 28px -28px rgba(31, 41, 55, 0.22);
+}
+
 .desktop-resize-handle {
   @apply relative w-px cursor-col-resize bg-[#d6cfc0] hover:bg-[#b9af98] transition;
 }
@@ -133,8 +168,10 @@ function onResizeHandleMouseDown(event: MouseEvent): void {
 }
 
 .desktop-main {
-  @apply relative min-h-0 overflow-y-hidden overflow-x-visible;
+  @apply relative min-h-0 min-w-0 overflow-y-hidden overflow-x-visible;
   background: linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(250,247,240,0.985) 100%);
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 .mobile-drawer-backdrop {

@@ -12,6 +12,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const distDir = join(__dirname, '..', 'dist')
 const spaEntryFile = join(distDir, 'index.html')
+const BRIDGE_HEARTBEAT_METHOD = 'bridge/heartbeat'
 
 export type ServerOptions = {
   password?: string
@@ -238,6 +239,16 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
     attachWebSocket: (server: HttpServer) => {
       const wss = new WebSocketServer({ noServer: true })
       const heartbeatState = new WeakMap<WebSocket, boolean>()
+      const sendSocketJson = (ws: WebSocket, payload: unknown): boolean => {
+        if (ws.readyState !== 1) return false
+        try {
+          ws.send(JSON.stringify(payload))
+          return true
+        } catch {
+          ws.terminate()
+          return false
+        }
+      }
       const heartbeat = setInterval(() => {
         for (const ws of wss.clients) {
           if (heartbeatState.get(ws) === false) {
@@ -247,7 +258,16 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
           heartbeatState.set(ws, false)
           if (ws.readyState === 1) {
-            ws.ping()
+            try {
+              ws.ping()
+              sendSocketJson(ws, {
+                method: BRIDGE_HEARTBEAT_METHOD,
+                params: { ok: true },
+                atIso: new Date().toISOString(),
+              })
+            } catch {
+              ws.terminate()
+            }
           }
         }
       }, 15000)
@@ -271,10 +291,9 @@ export function createServer(options: ServerOptions = {}): ServerInstance {
 
       wss.on('connection', (ws: WebSocket) => {
         heartbeatState.set(ws, true)
-        ws.send(JSON.stringify({ method: 'ready', params: { ok: true }, atIso: new Date().toISOString() }))
+        sendSocketJson(ws, { method: 'ready', params: { ok: true }, atIso: new Date().toISOString() })
         const unsubscribe = bridge.subscribeNotifications((notification) => {
-          if (ws.readyState !== 1) return
-          ws.send(JSON.stringify(notification))
+          sendSocketJson(ws, notification)
         })
 
         ws.on('pong', () => {

@@ -2,6 +2,7 @@ import {
   type RpcConnectionState,
   fetchRpcMethodCatalog,
   fetchRpcNotificationCatalog,
+  fetchRpcNotificationReplay,
   fetchPendingServerRequests,
   rpcCall,
   respondServerRequest,
@@ -40,6 +41,7 @@ export type ThreadRuntimeSnapshot = {
   inProgress: boolean
   activeTurnId: string
   updatedAtIso: string
+  messageState: 'fresh' | 'cached' | 'unavailable'
   pendingServerRequests: unknown[]
   tokenUsage: UiThreadTokenUsage | null
 }
@@ -488,6 +490,11 @@ export async function getThreadRuntimeSnapshot(
       : {}
   const threadRead = data.threadRead as ThreadReadResponse | undefined
   const updatedAtIso = typeof data.updatedAtIso === 'string' ? data.updatedAtIso.trim() : ''
+  const rawMessageState = typeof data.messageState === 'string' ? data.messageState.trim() : ''
+  const messageState: ThreadRuntimeSnapshot['messageState'] =
+    rawMessageState === 'cached' || rawMessageState === 'unavailable'
+      ? rawMessageState
+      : 'fresh'
   const pendingServerRequests = Array.isArray(data.pendingServerRequests) ? data.pendingServerRequests : []
   const tokenUsage = normalizeThreadTokenUsage(data.tokenUsage)
 
@@ -501,6 +508,7 @@ export async function getThreadRuntimeSnapshot(
         ? data.activeTurnId.trim()
         : (threadRead ? readActiveTurnIdFromResponse(threadRead) : ''),
     updatedAtIso,
+    messageState,
     pendingServerRequests,
     tokenUsage,
   }
@@ -548,6 +556,10 @@ export async function getMethodCatalog(): Promise<string[]> {
 
 export async function getNotificationCatalog(): Promise<string[]> {
   return fetchRpcNotificationCatalog()
+}
+
+export async function getNotificationReplay(afterSeq: number, limit = 200): Promise<{ notifications: RpcNotification[]; latestSeq: number; oldestSeq: number }> {
+  return fetchRpcNotificationReplay(afterSeq, limit)
 }
 
 export function subscribeCodexNotifications(

@@ -47,8 +47,8 @@
                 <p class="favorites-card-title">{{ record.threadTitle || '未命名会话' }}</p>
                 <p class="favorites-card-meta">收藏于 {{ formatFavoriteTime(record.favoritedAtIso) }}</p>
               </div>
-              <button class="favorites-remove" type="button" @click="$emit('remove', record)">
-                取消收藏
+              <button class="favorites-remove" type="button" aria-label="取消收藏" title="取消收藏" @click="$emit('remove', record)">
+                <IconTablerBookmark class="favorites-remove-icon" filled />
               </button>
             </div>
 
@@ -74,6 +74,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import IconTablerChevronRight from '../icons/IconTablerChevronRight.vue'
+import IconTablerBookmark from '../icons/IconTablerBookmark.vue'
 import IconTablerCopy from '../icons/IconTablerCopy.vue'
 import IconTablerX from '../icons/IconTablerX.vue'
 import type { FavoriteRecord } from '../../composables/useFavorites'
@@ -230,7 +231,11 @@ function formatFavoriteTime(value: string): string {
 }
 
 .favorites-remove {
-  @apply inline-flex items-center justify-center rounded-full border border-[#ead9b5] bg-[#fff8ea] px-2.5 py-1 text-xs text-[#8a4a0d] transition-colors hover:bg-[#fff0cf];
+  @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#ead9b5] bg-[#fff8ea] p-0 text-[#8a4a0d] transition-colors hover:bg-[#fff0cf];
+}
+
+.favorites-remove-icon {
+  @apply h-4 w-4;
 }
 
 .favorites-card-text {
