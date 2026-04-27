@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_BRANDING_DIR = ROOT / "public" / "branding"
 ANDROID_RES_DIR = ROOT / "android" / "app" / "src" / "main" / "res"
+SOURCE_ICON = ROOT / "assets" / "branding" / "cx-codex-source.png"
 
 WHITE = (255, 255, 255, 255)
 TRANSPARENT = (0, 0, 0, 0)
@@ -40,6 +41,42 @@ def save_png(image: Image.Image, path: Path, size: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     resized = image.resize((size, size), Image.LANCZOS)
     resized.save(path, format="PNG")
+
+
+def make_contained_icon(source: Image.Image, size: int, scale: float = 1.0) -> Image.Image:
+    normalized_scale = max(0.1, min(scale, 1.0))
+    target_box = max(1, int(size * normalized_scale))
+    canvas = Image.new("RGBA", (size, size), WHITE)
+    contained = ImageOps.contain(source.convert("RGBA"), (target_box, target_box), Image.LANCZOS)
+    offset = ((size - contained.width) // 2, (size - contained.height) // 2)
+    canvas.alpha_composite(contained, offset)
+    return canvas
+
+
+def load_preferred_source_icon() -> Image.Image | None:
+    if not SOURCE_ICON.exists():
+        return None
+    return Image.open(SOURCE_ICON).convert("RGBA")
+
+
+def export_from_source_icon(source: Image.Image) -> None:
+    PUBLIC_BRANDING_DIR.mkdir(parents=True, exist_ok=True)
+
+    app_icon = make_contained_icon(source, 1024, 1.0)
+    foreground_icon = make_contained_icon(source, 1024, 0.68)
+
+    save_png(app_icon, PUBLIC_BRANDING_DIR / "cx-codex-app-icon.png", 1024)
+    save_png(app_icon, PUBLIC_BRANDING_DIR / "cx-codex-logo.png", 512)
+    save_png(foreground_icon, PUBLIC_BRANDING_DIR / "cx-codex-logo-foreground.png", 512)
+
+    for density, size in LEGACY_SIZES.items():
+        legacy_icon = make_contained_icon(source, size, 1.0)
+        legacy_icon.save(ANDROID_RES_DIR / density / "ic_launcher.png", format="PNG")
+        legacy_icon.save(ANDROID_RES_DIR / density / "ic_launcher_round.png", format="PNG")
+
+    for density, size in FOREGROUND_SIZES.items():
+        foreground = make_contained_icon(source, size, 0.68)
+        foreground.save(ANDROID_RES_DIR / density / "ic_launcher_foreground.png", format="PNG")
 
 
 def build_tile_canvas(size: int) -> tuple[Image.Image, tuple[int, int, int, int]]:
@@ -200,6 +237,12 @@ def make_icon(size: int) -> Image.Image:
 
 
 def main() -> None:
+    source_icon = load_preferred_source_icon()
+    if source_icon is not None:
+        export_from_source_icon(source_icon)
+        source_icon.close()
+        return
+
     PUBLIC_BRANDING_DIR.mkdir(parents=True, exist_ok=True)
     source_size = 1024
     icon = make_icon(source_size)
