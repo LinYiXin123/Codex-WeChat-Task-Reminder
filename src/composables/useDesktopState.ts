@@ -2192,13 +2192,18 @@ export function useDesktopState() {
       state === 'starting' ||
       state === 'running' ||
       state === 'waiting_permission' ||
-      state === 'stopping' ||
-      state === 'completed_pending_sync'
+      state === 'stopping'
     )
   }
 
   function isRuntimeExecutionSettledState(state: ThreadRuntimeSnapshot['executionState'] | undefined): boolean {
-    return state === 'completed' || state === 'failed' || state === 'interrupted' || state === 'idle'
+    return (
+      state === 'completed_pending_sync' ||
+      state === 'completed' ||
+      state === 'failed' ||
+      state === 'interrupted' ||
+      state === 'idle'
+    )
   }
 
   function applyRuntimeSnapshotState(threadId: string, snapshot: ThreadRuntimeSnapshot): void {
@@ -4255,15 +4260,16 @@ export function useDesktopState() {
     }
   }
 
-  async function refreshAll(options: { loadMessages?: boolean; loadSkills?: boolean } = {}) {
+  async function refreshAll(
+    options: { loadMessages?: boolean; loadSkills?: boolean; refreshModelPreferences?: boolean } = {},
+  ) {
     error.value = ''
 
     try {
-      const threadsPromise = loadThreads()
-      await Promise.all([
-        threadsPromise,
-        refreshModelPreferences(),
-      ])
+      await loadThreads()
+      if (options.refreshModelPreferences !== false) {
+        void refreshModelPreferences()
+      }
       if (options.loadSkills !== false) {
         await refreshSkills()
       }
@@ -4805,7 +4811,7 @@ export function useDesktopState() {
     saveProjectDisplayNames(projectDisplayNameById.value)
   }
 
-  function removeProject(projectName: string): void {
+  function removeProjectLocally(projectName: string): void {
     if (projectName.length === 0) return
 
     const nextProjectOrder = projectOrder.value.filter((name) => name !== projectName)
@@ -4834,6 +4840,26 @@ export function useDesktopState() {
     }
 
     void persistProjectOrderToWorkspaceRoots()
+  }
+
+  async function removeProject(projectName: string): Promise<void> {
+    const normalizedProjectName = projectName.trim()
+    if (normalizedProjectName.length === 0) return
+
+    const targetGroup = sourceGroups.value.find((group) => group.projectName === normalizedProjectName)
+    const threadIds = targetGroup?.threads
+      .map((thread) => thread.id.trim())
+      .filter((threadId) => threadId.length > 0) ?? []
+
+    try {
+      for (const threadId of threadIds) {
+        await archiveThread(threadId)
+      }
+      removeProjectLocally(normalizedProjectName)
+      await loadThreads()
+    } catch (unknownError) {
+      error.value = unknownError instanceof Error ? unknownError.message : 'Failed to remove project'
+    }
   }
 
   function reorderProject(projectName: string, toIndex: number): void {

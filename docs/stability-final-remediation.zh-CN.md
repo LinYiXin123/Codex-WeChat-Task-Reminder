@@ -361,7 +361,7 @@ Android 启动和 resume 时做健康检查：
 新增诊断项：
 
 1. 本地 `127.0.0.1:7420/health`
-2. 公网 `http://116.62.234.104:17420/health`
+2. 公网 `<your-public-url>/health`
 3. app-server health
 4. tunnel/FRP 状态
 5. Android 当前 serverUrl

@@ -69,7 +69,7 @@ public class MobileShellPlugin extends Plugin {
     public void setServerUrl(PluginCall call) {
         String serverUrl = MobileShellConfig.normalizeServerUrl(call.getString("serverUrl", ""));
         if (!MobileShellConfig.isValidServerUrl(serverUrl)) {
-            call.reject("服务地址格式无效，请使用完整的 http(s)://host:port 地址");
+            call.reject("服务地址格式无效，请使用完整的 http(s)://host 地址");
             return;
         }
 
@@ -104,6 +104,46 @@ public class MobileShellPlugin extends Plugin {
         result.put("restartScheduled", true);
         call.resolve(result);
         scheduleRestart();
+    }
+
+    @PluginMethod
+    public void getAuthConfig(PluginCall call) {
+        String authKey = MobileShellConfig.getStoredAuthKey(getContext());
+        JSObject result = new JSObject();
+        result.put("authKey", authKey);
+        result.put("hasAuthKey", !authKey.isEmpty());
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void setAuthKey(PluginCall call) {
+        String authKey = call.getString("authKey", "");
+        authKey = authKey == null ? "" : authKey.trim();
+        if (authKey.isEmpty()) {
+            call.reject("密钥不能为空");
+            return;
+        }
+
+        MobileShellConfig.getPreferences(getContext())
+            .edit()
+            .putString(MobileShellConfig.PREF_AUTH_KEY, authKey)
+            .apply();
+
+        JSObject result = new JSObject();
+        result.put("hasAuthKey", true);
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void clearAuthKey(PluginCall call) {
+        MobileShellConfig.getPreferences(getContext())
+            .edit()
+            .remove(MobileShellConfig.PREF_AUTH_KEY)
+            .apply();
+
+        JSObject result = new JSObject();
+        result.put("hasAuthKey", false);
+        call.resolve(result);
     }
 
     @PluginMethod
@@ -175,6 +215,29 @@ public class MobileShellPlugin extends Plugin {
             JSObject result = new JSObject();
             result.put("enabled", enabled);
             call.resolve(result);
+        });
+    }
+
+    @PluginMethod
+    public void openUrl(PluginCall call) {
+        String incomingUrl = call.getString("url", "");
+        String url = incomingUrl == null ? "" : incomingUrl.trim();
+        if (!isValidOpenUrl(url)) {
+            call.reject("链接地址无效");
+            return;
+        }
+
+        mainHandler.post(() -> {
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+                JSObject result = new JSObject();
+                result.put("opened", true);
+                call.resolve(result);
+            } catch (Exception exception) {
+                call.reject("打开链接失败：" + exception.getMessage(), exception);
+            }
         });
     }
 
@@ -587,6 +650,27 @@ public class MobileShellPlugin extends Plugin {
             }
             String normalizedScheme = scheme.toLowerCase(Locale.ROOT);
             return normalizedScheme.equals("http") || normalizedScheme.equals("https");
+        } catch (URISyntaxException exception) {
+            return false;
+        }
+    }
+
+    private static boolean isValidOpenUrl(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (normalized.isEmpty()) {
+            return false;
+        }
+        try {
+            URI uri = new URI(normalized);
+            String scheme = uri.getScheme();
+            if (scheme == null) {
+                return false;
+            }
+            String normalizedScheme = scheme.toLowerCase(Locale.ROOT);
+            return normalizedScheme.equals("http")
+                || normalizedScheme.equals("https")
+                || normalizedScheme.equals("mailto")
+                || normalizedScheme.equals("tel");
         } catch (URISyntaxException exception) {
             return false;
         }

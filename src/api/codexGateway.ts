@@ -27,6 +27,7 @@ import {
 } from './normalizers/v2'
 import type { SpeedMode, UiMessage, UiProjectGroup, UiThreadTokenUsage, UiTokenUsageBreakdown } from '../types/codex'
 import { normalizePathForUi } from '../pathUtils.js'
+import { shouldAutoLoginForResponse, tryMobileShellAutoLogin } from '../mobile/mobileAuth'
 
 type CurrentModelConfig = {
   model: string
@@ -336,10 +337,17 @@ async function fetchWithTimeout(
   }
 
   try {
-    return await fetch(input, {
+    const response = await fetch(input, {
       ...init,
       signal: controller.signal,
     })
+    if (shouldAutoLoginForResponse(response) && await tryMobileShellAutoLogin()) {
+      return await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      })
+    }
+    return response
   } catch (error) {
     if (didTimeout || (error instanceof Error && error.name === 'AbortError' && !upstreamSignal?.aborted)) {
       const requestLabel = options.label?.trim() || 'Request'
@@ -1499,7 +1507,7 @@ function formatGithubDate(date: Date): string {
   return `${year}-${month}-${day}`
 }
 
-export async function getGithubTrendingProjects(limit = 5): Promise<GithubTrendingProject[]> {
+export async function getGithubTrendingProjects(limit = 10): Promise<GithubTrendingProject[]> {
   const safeLimit = Math.min(10, Math.max(1, Math.floor(limit)))
   const sinceDate = new Date()
   sinceDate.setUTCDate(sinceDate.getUTCDate() - 7)
@@ -1555,7 +1563,7 @@ export async function getGithubTrendingProjects(limit = 5): Promise<GithubTrendi
 
 export async function getGithubProjectsForScope(
   scope: GithubTipsScope,
-  limit = 6,
+  limit = 10,
 ): Promise<GithubTrendingProject[]> {
   const safeLimit = Math.min(10, Math.max(1, Math.floor(limit)))
   if (scope.startsWith('search-')) {

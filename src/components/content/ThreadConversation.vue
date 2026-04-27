@@ -294,6 +294,7 @@
                   :href="readMcpElicitationUrl(request)"
                   target="_blank"
                   rel="noopener noreferrer"
+                  @click="onHyperlinkClick($event, readMcpElicitationUrl(request))"
                 >
                   打开需要处理的页面
                 </a>
@@ -497,6 +498,7 @@
                       target="_blank"
                       rel="noopener noreferrer"
                       :title="att.path"
+                      @click="onHyperlinkClick($event, toBrowseUrl(att.path))"
                       @contextmenu.prevent="onFileLinkContextMenu($event, att.path)"
                     >
                       {{ att.path }}
@@ -538,6 +540,7 @@
                             target="_blank"
                             rel="noopener noreferrer"
                             :title="segment.path"
+                            @click="onHyperlinkClick($event, toBrowseUrl(segment.path))"
                             @contextmenu.prevent="onFileLinkContextMenu($event, segment.path)"
                           >
                             {{ segment.displayPath }}
@@ -550,6 +553,7 @@
                           target="_blank"
                           rel="noopener noreferrer"
                           :title="segment.href"
+                          @click="onHyperlinkClick($event, segment.href)"
                           @contextmenu.prevent="onUrlLinkContextMenu($event, segment.href)"
                         >
                           {{ segment.value }}
@@ -703,6 +707,7 @@ import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
 import IconTablerBookmark from '../icons/IconTablerBookmark.vue'
 import IconTablerCopy from '../icons/IconTablerCopy.vue'
 import LoadingInline from './LoadingInline.vue'
+import { isNativeAndroidShell, openMobileShellUrl } from '../../mobile/mobileShell'
 
 export type ThreadConversationExposed = {
   focusMessage: (messageId: string) => Promise<boolean>
@@ -713,6 +718,7 @@ const collapsingCommandIds = ref<Set<string>>(new Set())
 const prevCommandStatuses = ref<Record<string, string>>({})
 const commandElapsedNowMs = ref(Date.now())
 const observedCommandStartedAtById = ref<Record<string, number>>({})
+const liveOverlayObservedAtMs = ref(0)
 let commandElapsedTimer: number | null = null
 
 function isCommandMessage(message: UiMessage): boolean {
@@ -874,7 +880,7 @@ function syncObservedCommandStartTimes(messages: UiMessage[]): void {
   }
 
   observedCommandStartedAtById.value = next
-  if (hasRunningCommand) {
+  if (hasRunningCommand || props.liveOverlay) {
     startCommandElapsedTimer()
   } else {
     stopCommandElapsedTimer()
@@ -907,7 +913,7 @@ const props = defineProps<{
   favoriteMessageIds?: string[]
 }>()
 
-const MESSAGE_WINDOW_SIZE = 20
+const MESSAGE_WINDOW_SIZE = 10
 const renderableMessages = computed<UiMessage[]>(() => (
   props.messages.filter((message) => !isCommandMessage(message) && message.messageType !== 'worked')
 ))
@@ -1287,6 +1293,7 @@ const loadingIndicatorText = computed(() => {
 })
 const showJumpToLatestButton = computed(() => (
   hasRenderableConversation.value &&
+  hasPendingBelowFoldUpdates.value &&
   !shouldLockToBottom()
 ))
 const overlayPrimaryPendingRequest = computed<UiServerRequest | null>(() => props.pendingRequests[0] ?? null)
@@ -1311,6 +1318,10 @@ const liveOverlayBehaviorSignature = computed<string>(() => {
     overlayPrimaryPendingRequest.value?.method ?? '',
     String(props.pendingRequests.length),
   ].join('|')
+})
+const liveOverlayElapsedLabel = computed(() => {
+  if (!props.liveOverlay || liveOverlayObservedAtMs.value <= 0) return ''
+  return formatHandledDuration(Math.max(0, commandElapsedNowMs.value - liveOverlayObservedAtMs.value))
 })
 const jumpToLatestTitle = computed(() => (
   hasPendingBelowFoldUpdates.value ? '跳到最新输出' : '回到底部'
@@ -2337,6 +2348,37 @@ function onUrlLinkContextMenu(event: MouseEvent, href: string): void {
   isFileLinkContextMenuVisible.value = true
 }
 
+function isMobileShellExternalUrl(href: string): boolean {
+  return /^(https?:|mailto:|tel:)/iu.test(href.trim())
+}
+
+async function openHyperlink(href: string): Promise<void> {
+  const normalizedHref = href.trim()
+  if (!normalizedHref || normalizedHref === '#') return
+
+  if (isNativeAndroidShell() && normalizedHref.startsWith('/')) {
+    window.location.href = normalizedHref
+    return
+  }
+
+  if (isNativeAndroidShell() && isMobileShellExternalUrl(normalizedHref)) {
+    try {
+      await openMobileShellUrl(normalizedHref)
+      return
+    } catch {
+      // Fall through to the browser fallback for non-standard Android WebView setups.
+    }
+  }
+
+  window.open(normalizedHref, '_blank', 'noopener,noreferrer')
+}
+
+function onHyperlinkClick(event: MouseEvent, href: string): void {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  event.preventDefault()
+  void openHyperlink(href)
+}
+
 function closeFileLinkContextMenu(): void {
   if (!isFileLinkContextMenuVisible.value) return
   isFileLinkContextMenuVisible.value = false
@@ -2346,14 +2388,14 @@ function openFileLinkContextBrowse(): void {
   const href = fileLinkContextBrowseUrl.value
   closeFileLinkContextMenu()
   if (!href || href === '#') return
-  window.open(href, '_blank', 'noopener,noreferrer')
+  void openHyperlink(href)
 }
 
 function openFileLinkContextEdit(): void {
   const href = fileLinkContextEditUrl.value
   closeFileLinkContextMenu()
   if (!href || href === '#') return
-  window.open(href, '_blank', 'noopener,noreferrer')
+  void openHyperlink(href)
 }
 
 async function copyFileLinkContextLink(): Promise<void> {
@@ -3009,6 +3051,14 @@ function liveOverlayDetails(overlay: UiLiveOverlay): string[] {
   if (command && !details.includes(command)) {
     details.push(command)
   }
+  if (!command) {
+    if (!details.some((detail) => /命令|command/iu.test(detail))) {
+      details.push('暂无命令执行')
+    }
+    if (liveOverlayElapsedLabel.value && !details.some((detail) => /已等待|waiting/iu.test(detail))) {
+      details.push(`已等待 ${liveOverlayElapsedLabel.value}`)
+    }
+  }
   return details.slice(-3)
 }
 
@@ -3266,6 +3316,18 @@ function clearBelowFoldUpdates(): void {
   hasPendingBelowFoldUpdates.value = false
 }
 
+function renderableMessageSignature(messages: UiMessage[]): string {
+  return messages
+    .filter((message) => !isCommandMessage(message) && message.messageType !== 'worked')
+    .map((message) => [
+      message.id,
+      message.messageType ?? '',
+      message.text.length,
+      message.turnIndex ?? '',
+    ].join(':'))
+    .join('|')
+}
+
 watch(
   () => renderableConversationEntries.value.length,
   (nextLength, previousLength) => {
@@ -3415,7 +3477,10 @@ watch(
     prunePreparedMessageBlockCache(next)
     pruneMeasuredMessageHeights(renderableConversationEntries.value)
 
-    if (previousMessages.length > 0 && !shouldFollowBottom) {
+    const hasNewRenderableOutput = previousMessages.length > 0 &&
+      renderableMessageSignature(next) !== renderableMessageSignature(previousMessages)
+
+    if (hasNewRenderableOutput && !shouldFollowBottom) {
       markBelowFoldUpdate()
     }
 
@@ -3429,14 +3494,29 @@ watch(
   async (signature) => {
     if (!signature) return
     const shouldFollowBottom = shouldLockToBottom()
-    if (!shouldFollowBottom) {
-      markBelowFoldUpdate()
-    }
     await nextTick()
     if (!shouldFollowBottom) return
     enforceBottomState()
     scheduleBottomLock(8)
   },
+)
+
+watch(
+  () => props.liveOverlay,
+  (overlay, previousOverlay) => {
+    if (overlay) {
+      if (!previousOverlay || liveOverlayObservedAtMs.value <= 0) {
+        liveOverlayObservedAtMs.value = Date.now()
+      }
+      startCommandElapsedTimer()
+      return
+    }
+    liveOverlayObservedAtMs.value = 0
+    if (Object.keys(observedCommandStartedAtById.value).length === 0) {
+      stopCommandElapsedTimer()
+    }
+  },
+  { immediate: true },
 )
 
 watch(
@@ -3467,6 +3547,7 @@ watch(
 watch(
   () => props.activeThreadId,
   () => {
+    liveOverlayObservedAtMs.value = props.liveOverlay ? Date.now() : 0
     modalImageUrl.value = ''
     closeFileLinkContextMenu()
     failedMarkdownImageKeys.value = new Set()

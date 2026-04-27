@@ -3,7 +3,6 @@ package com.codexui.bridge;
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
-import com.getcapacitor.CapConfig;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Locale;
@@ -12,11 +11,12 @@ public final class MobileShellConfig {
 
     public static final String PREFS_NAME = "CodexUiMobileShell";
     public static final String PREF_SERVER_URL = "serverUrl";
+    public static final String PREF_AUTH_KEY = "authKey";
 
     private MobileShellConfig() {}
 
     public static String getBundledServerUrl(Context context) {
-        return normalizeServerUrl(CapConfig.loadDefault(context).getServerUrl());
+        return "";
     }
 
     public static SharedPreferences getPreferences(Context context) {
@@ -27,27 +27,17 @@ public final class MobileShellConfig {
         return normalizeServerUrl(getPreferences(context).getString(PREF_SERVER_URL, ""));
     }
 
+    public static String getStoredAuthKey(Context context) {
+        String value = getPreferences(context).getString(PREF_AUTH_KEY, "");
+        return value == null ? "" : value.trim();
+    }
+
     public static String resolveServerUrl(Context context, String configServerUrl) {
-        String storedUrl = getStoredServerUrl(context);
-        if (!storedUrl.isEmpty()) {
-            return storedUrl;
-        }
-
-        String normalizedConfigUrl = normalizeServerUrl(configServerUrl);
-        if (!normalizedConfigUrl.isEmpty()) {
-            return normalizedConfigUrl;
-        }
-
-        return getBundledServerUrl(context);
+        return getStoredServerUrl(context);
     }
 
     public static boolean isUsingDefaultServerUrl(Context context, String configServerUrl) {
-        String storedUrl = getStoredServerUrl(context);
-        if (!storedUrl.isEmpty()) {
-            return false;
-        }
-        String resolved = resolveServerUrl(context, configServerUrl);
-        return resolved.equals(getBundledServerUrl(context));
+        return getStoredServerUrl(context).isEmpty();
     }
 
     public static String normalizeServerUrl(String value) {
@@ -77,7 +67,7 @@ public final class MobileShellConfig {
             if (!normalizedScheme.equals("http") && !normalizedScheme.equals("https")) {
                 return false;
             }
-            return uri.getPort() != -1;
+            return true;
         } catch (URISyntaxException exception) {
             return false;
         }

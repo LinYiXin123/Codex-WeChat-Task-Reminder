@@ -2,7 +2,7 @@ param(
   [int]$DurationSeconds = 7200,
   [int]$IntervalSeconds = 15,
   [string]$LocalBaseUrl = "http://127.0.0.1:7420",
-  [string]$PublicBaseUrl = "http://116.62.234.104:17420",
+  [string]$PublicBaseUrl = "",
   [string]$OutputDir = "output\soak-7420",
   [int]$MaxQueuedRpc = 3,
   [int]$MaxPendingRpc = 3,
@@ -68,13 +68,15 @@ function Read-DateOrNull {
   }
 }
 
+$effectiveSkipPublic = $SkipPublic -or [string]::IsNullOrWhiteSpace($PublicBaseUrl)
+
 Write-Host "[7420-soak] start duration=${DurationSeconds}s interval=${IntervalSeconds}s local=$LocalBaseUrl public=$PublicBaseUrl"
 
 while ((Get-Date) -lt $deadline) {
   $now = Get-Date
   $local = Invoke-JsonHealth -Url "$LocalBaseUrl/health" -TimeoutSeconds 8
   $api = Invoke-JsonHealth -Url "$LocalBaseUrl/codex-api/health" -TimeoutSeconds 20
-  $public = if ($SkipPublic) {
+  $public = if ($effectiveSkipPublic) {
     [pscustomobject]@{ ok = $true; value = $null; error = $null }
   } else {
     Invoke-JsonHealth -Url "$PublicBaseUrl/health" -TimeoutSeconds 12
@@ -139,7 +141,7 @@ while ((Get-Date) -lt $deadline) {
   if ($consecutiveApiFailures -gt $MaxConsecutiveFailures) {
     $failures.Add("codex-api health failed $consecutiveApiFailures times in a row") | Out-Null
   }
-  if (-not $SkipPublic -and $consecutivePublicFailures -gt $MaxConsecutiveFailures) {
+  if (-not $effectiveSkipPublic -and $consecutivePublicFailures -gt $MaxConsecutiveFailures) {
     $failures.Add("public health failed $consecutivePublicFailures times in a row") | Out-Null
   }
   if ($queuedRpcCount -gt $MaxQueuedRpc) {
@@ -166,7 +168,7 @@ while ((Get-Date) -lt $deadline) {
 $completedAt = Get-Date
 $passed = $failures.Count -eq 0
 $publicReportUrl = $PublicBaseUrl
-if ($SkipPublic) {
+if ($effectiveSkipPublic) {
   $publicReportUrl = $null
 }
 $summary = [pscustomobject]@{

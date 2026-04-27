@@ -26,11 +26,13 @@
 - `http://192.168.x.x:7420`
 - `https://your-remote-host.example.com`
 
-2. 在 PowerShell 中设置 Android 壳要连接的地址
+2. 可选：在 PowerShell 中设置 Android 壳要预置的连接地址
 
 ```powershell
 $env:CAP_SERVER_URL = "https://your-remote-host.example.com:7420"
 ```
+
+默认发行 APK 不预置任何服务地址。首次进入 App 时需要输入连接地址，保存后会持久化到本机，后续启动会自动进入该地址。
 
 3. 生成 Android 工程
 
@@ -86,13 +88,14 @@ cd android
 ## 当前 Android 产品化收口
 
 - 应用名称：`CX Codex`
-- 默认远程地址：通过 `CAP_SERVER_URL` 同步写入原生配置
+- 默认远程地址：发行包默认留空；如需私有包预置地址，可通过 `CAP_SERVER_URL` 同步写入原生配置
 - Android 已显式放开 HTTP 明文访问，适配自托管 `http://host:port` 场景
 - 启动页已改为原生 SplashScreen + 品牌图标方案
 - App 设置里已新增“移动端连接”区块：
   - 可直接查看当前连接地址
   - 可手动修改服务地址并保存重连
-  - 可恢复打包时写入的默认地址
+  - 私有预置包可恢复打包时写入的默认地址；公开发行包默认地址为空
+- Android 会在登录成功后持久化访问密钥；Cookie / token 失效或服务重启后，会优先使用本机密钥自动重登
 - App 设置里已新增“App 更新”区块：
   - 可读取 GitHub 最新 Release
   - 可显示当前安装版本、最新版本和 APK 名称
@@ -107,13 +110,19 @@ cd android
 ## 本地一键打包
 
 ```powershell
-./scripts/package-android-release.ps1 -Version v0.2.0-bridge.5 -ServerUrl https://your-codex-host.example.com -VersionCode 5
+./scripts/package-android-release.ps1 -Version 2.1.7 -VersionCode 20107
 ```
 
 默认会产出：
 
-- `artifacts/cx-codex-android-v0.2.0-bridge.5.apk`
-- `artifacts/cx-codex-android-v0.2.0-bridge.5.apk.sha256`
+- `artifacts/cx-codex-android-2.1.7.apk`
+- `artifacts/cx-codex-android-2.1.7.apk.sha256`
+
+如需构建私有预置地址包，再显式传入：
+
+```powershell
+./scripts/package-android-release.ps1 -Version 2.1.7 -ServerUrl https://your-codex-host.example.com -VersionCode 20107
+```
 
 ## 7420 回归检查
 
@@ -127,7 +136,7 @@ npm run test:7420
 
 - `http://127.0.0.1:7420/health`
 - `http://127.0.0.1:7420/codex-api/health`
-- `http://116.62.234.104:17420/health`
+- 传入 `-PublicHealthUrl` 时会额外检查公网 `/health`
 - `http://127.0.0.1:7420/codex-api/events/replay`
 - WebView 通知游标恢复
 - 桌面 `1440x900`
@@ -159,7 +168,7 @@ npm run test:7420 -- -RestartIfUnhealthy
 
 ## 已知边界
 
-- 如果没有设置 `CAP_SERVER_URL`，安卓壳仍可生成，但不会自动绑定远程服务地址。
+- 如果没有设置 `CAP_SERVER_URL`，安卓壳仍可生成，首次进入会显示连接地址配置页。
 - 当前实现优先解决“回到前台自动补同步”和“关键任务本地提醒”，不是“锁屏期间持续流式更新”。
 - Android 通知依赖系统通知权限；如果用户关闭通知，Web 端仍会在回到前台后通过事件回放追平状态。
 - 真机安装、调试和发布仍需要本机 Android SDK / Android Studio。

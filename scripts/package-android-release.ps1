@@ -2,7 +2,7 @@
   [Parameter(Mandatory = $true)]
   [string]$Version,
 
-  [string]$ServerUrl = 'http://116.62.234.104:17420',
+  [string]$ServerUrl = '',
 
   [string]$OutputDir,
 

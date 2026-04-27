@@ -177,7 +177,7 @@ export async function resolveLaunchOptions(args: {
 
   const tunnel = flagProvided(rawArgv, 'tunnel')
     ? cliOptions.tunnel
-    : config.tunnel ?? true
+    : config.tunnel ?? false
   const open = flagProvided(rawArgv, 'open')
     ? cliOptions.open
     : config.open ?? true

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [string]$BaseUrl = "http://127.0.0.1:7420",
-  [string]$PublicHealthUrl = "http://116.62.234.104:17420/health",
+  [string]$PublicHealthUrl = "",
   [int]$Port = 7420,
   [string]$ConfigPath = "$env:USERPROFILE\.codexui\config.json",
   [switch]$RestartIfUnhealthy,

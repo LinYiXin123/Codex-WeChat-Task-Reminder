@@ -1,75 +1,73 @@
 # codexui-server-bridge
 
-把本机 Codex 变成可从手机和浏览器访问的稳定工作台。
-5 分钟部署，Windows / Windows Server 友好，适合局域网、自托管远程访问和日常移动使用。
+Self-hosted OpenAI Codex Web UI and Android client bridge.
 
-![Windows one-command deploy](./docs/one-command-windows.svg)
+把本机 Codex 变成可从浏览器、手机和远程入口访问的稳定工作台。重点面向 Windows / Windows Server、Android、局域网、自托管远程访问和长期日常使用。
 
-默认中文说明见本文件。
+> 截图使用浏览器渲染的脱敏演示数据，不包含真实账号、真实路径、密钥、公网地址或私人会话内容。
 
-- 中文兼容页: [README.zh-CN.md](./README.zh-CN.md)
-- 中文更新日志: [docs/changelog.zh-CN.md](./docs/changelog.zh-CN.md)
-- 中文发版说明: [RELEASE.md](./RELEASE.md)
-- 路线图: [docs/roadmap.zh-CN.md](./docs/roadmap.zh-CN.md)
-- GitHub 包装文案包: [docs/github-launch-kit.zh-CN.md](./docs/github-launch-kit.zh-CN.md)
-- Cloudflare Tunnel: [docs/cloudflare-tunnel.zh-CN.md](./docs/cloudflare-tunnel.zh-CN.md)
-- 中文部署提示词: [docs/deploy-with-codex.zh-CN.md](./docs/deploy-with-codex.zh-CN.md)
-- English deploy prompt: [docs/deploy-with-codex.en.md](./docs/deploy-with-codex.en.md)
+![CX Codex desktop workspace](./docs/screenshots/chat.png)
 
-## 一句话卖点
+## 核心卖点
 
-这个项目不是要替代官方 Codex，而是补上官方桌面端之外最常见的一块需求：
+- 本机 Codex 浏览器入口：复用本机 Codex、项目目录和登录态，不重建复杂云端账号体系。
+- Android / 手机友好：支持移动端连接地址持久化、密钥持久化、无感重登、前台恢复补同步。
+- 状态更可靠：减少任务结束后仍显示“思考中”、任务执行中无状态、线程切换慢和移动端恢复卡顿。
+- Windows 友好部署：提供 Windows bootstrap、固定端口、服务脚本、发布包和常见排障文档。
+- 自托管远程访问：可用于局域网、VPN、Tailscale、frp、Nginx、Caddy 或 Cloudflare Tunnel。
+- 面向开源传播：README、Release、Topics、Issue 模板和截图围绕“Codex Web UI / Android / self-hosted / Windows”统一表达，方便 GitHub 和 AI 检索。
 
-- 让本机 Codex 稳定出现在浏览器里
-- 让手机也能继续看、继续发、继续跟进任务
-- 让 Windows 和 Windows Server 用户少踩部署坑
-- 让远程访问尽量接近“一条命令可用”
+## 适合谁
 
-如果你需要的是：
+- 想在电脑上跑 Codex，同时用手机继续查看和发送任务的人。
+- 想在 Windows Server 上常驻一个 Codex Web 入口的人。
+- 想把本地 Codex 通过局域网、VPN 或自托管公网入口安全访问的人。
+- 想要一个轻量、可维护、开源的 Codex browser bridge，而不是重型 SaaS 平台的人。
 
-- 在电脑上跑 Codex，手机浏览器继续使用
-- 在 Windows Server 上常驻一个可访问的 Codex Web 入口
-- 用 Cloudflare Tunnel、Tailscale、反向代理把本地 Codex 暴露出去
-- 继续复用现有 Codex 登录态、项目目录和本地文件
+## 产品截图
 
-这个项目就是为这几个场景做的。
+桌面工作台：
 
-## 为什么值得用
+![Desktop conversation](./docs/screenshots/chat.png)
 
-相比“自己拼一套 Web 前端 + 反代 + 脚本”，这个项目的重点不是花哨，而是少折腾：
+Android / 手机会话：
 
-- 一条命令安装，优先走自带 bootstrap 脚本
-- 首先照顾 Windows / Windows Server，自带固定端口和常驻思路
-- 默认适配手机浏览器，不要求额外客户端
-- 继续复用本机 Codex，而不是重建另一套账号或云端系统
-- 支持本地文件浏览、图片回显、会话队列和线程状态恢复
-- 支持 Cloudflare Tunnel 这类“零公网 IP 也能先用起来”的远程入口
+![Mobile conversation](./docs/screenshots/chat-mobile.png)
 
-## 看图理解
+Android 首次连接：
 
-桌面端：
+![Android first connection](./docs/screenshots/android-setup.png)
 
-![Desktop chat](./docs/screenshots/chat.png)
+GitHub 热门项目：
 
-手机端：
+![GitHub trending module](./docs/screenshots/github-trending.png)
 
-![Mobile chat](./docs/screenshots/chat-mobile.png)
+## 快速安装
 
-技能中心：
+Windows 一条命令：
 
-![Skills hub](./docs/screenshots/skills-hub.png)
-
-## 最快部署方式
-
-如果目标机器上的 Codex 已经能执行命令，最快的方式不是手动装，而是直接让 Codex 自己部署。
-
-仓库地址：
-
-```text
-https://github.com/Qjzn/codexui-server-bridge
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1 | iex
 ```
 
-把下面这段提示词直接给目标机器上的 Codex：
+安装脚本会自动完成：
+
+- 安装或复用 Node.js
+- 下载并构建项目
+- 生成默认配置
+- 创建启动脚本
+- 尝试放通端口
+- 启动 Codex Web 服务
+
+默认本地访问：
+
+```text
+http://127.0.0.1:7420
+```
+
+## 让 Codex 自动部署
+
+也可以把下面的提示词交给目标机器上的 Codex：
 
 ```text
 打开并检查 https://github.com/Qjzn/codexui-server-bridge 这个仓库。
@@ -77,8 +75,8 @@ https://github.com/Qjzn/codexui-server-bridge
 
 要求：
 - 创建一个稳定的 Codex Web UI 服务，端口固定为 7420
-- 尽量优先使用仓库里自带的 bootstrap 或 setup 脚本
-- 如果这台机器已经登录过 Codex，就尽量复用现有登录态
+- 优先使用仓库自带 bootstrap 或 setup 脚本
+- 如果这台机器已经登录过 Codex，尽量复用现有登录态
 - 尽量开启本机浏览器访问和局域网访问
 - 如果机器允许，配置开机或登录后自动启动
 - 完成后输出：本机访问地址、局域网访问地址、密码、重启命令
@@ -86,143 +84,42 @@ https://github.com/Qjzn/codexui-server-bridge
 直接执行部署，不要只给步骤说明。
 ```
 
-## Windows 一条命令安装
+## Android 客户端
 
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1 | iex
-```
+`CX Codex` Android 壳用于连接你自己的 Codex Web 服务。
 
-安装脚本会自动完成这些事：
+设计原则：
 
-- 安装可用的 Node.js
-- 下载仓库到本地
-- 构建前端和 CLI
-- 生成默认配置
-- 创建启动脚本
-- 尝试放通 `7420`
-- 立即启动服务
+- APK 默认不内置任何私人服务器地址。
+- 首次启动先输入连接地址，并永久保存到设备本地。
+- 输入访问密钥后永久保存，Cookie 或 token 失效时自动重登。
+- App 切后台或锁屏后恢复，会主动补同步线程状态和最新消息。
+- App 内链接可通过原生桥接打开。
 
-安装完成后，直接在浏览器或手机里打开输出的地址即可。
+Release 页面会发布 Android APK；如果你自己构建，请查看：
 
-## Windows 一条命令开启公网临时访问
-
-如果没有公网 IP、不想配置路由器端口映射，可以使用 Cloudflare 快速隧道：
-
-```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1'))) -EnableCloudflareTunnel
-```
-
-脚本会自动下载 `cloudflared.exe`，启动后在日志里输出 `https://*.trycloudflare.com` 地址。长期固定域名请看：
-
-- [Cloudflare Tunnel 远程访问](./docs/cloudflare-tunnel.zh-CN.md)
-
-## 典型使用场景
-
-### 1. 电脑跑 Codex，手机继续跟进
-
-- 在 Windows 电脑上执行 Codex
-- 手机浏览器直接访问 `7420`
-- 出门后继续看会话、继续发新任务、继续跟进执行状态
-
-### 2. Windows Server 常驻入口
-
-- 在 Windows Server 上固定跑一个 Codex Web 服务
-- 局域网、VPN 或远程入口统一访问
-- 适合长期挂着，不想每次重新找命令和路径
-
-### 3. 自托管远程访问
-
-- 没有公网 IP 也可以先用 Cloudflare Tunnel 起一个临时公网地址
-- 后续再切换到 Tailscale、frp、Nginx 或 Caddy
-- 保持本地登录态、本地文件和本地项目目录
-
-## 当前最有价值的能力
-
-- 固定端口和配置文件驱动启动
-- Web UI 与本地 Codex app-server 桥接
-- 手机端和桌面端统一访问
-- 本地文件浏览 / 编辑 / 图片查看
-- 执行中继续排队发消息，引用可立即插队执行
-- 更稳定的线程状态恢复、消息补同步和移动端体验
-- Cloudflare Tunnel 快速隧道支持
-
-## 最近维护重点
-
-当前主线已经覆盖这些改进：
-
-- MCP 补充信息请求改为可理解的待输入卡片，不再暴露底层方法名
-- 线程切换更快响应，减少“点第二个线程还卡在第一个”的情况
-- 空线程 deep link、空线程移除、空线程恢复边界收口
-- 图片上传与本地图片回显链路修正
-- 执行中新增消息默认进入队列，支持引用立即执行
-- 队列持久化与稳定性修复，避免提前出队导致丢消息
-- 会话区命令卡片只保留执行中状态，完成后不再堆积
-- 侧栏新增“全部已读”
-- “刷新桌面端”入口改到设置面板
-- Cloudflare Tunnel 状态、版本号和 GitHub 仓库入口进入设置面板
-- 全局 UI/UX 收口，手机端和侧栏交互更简约
-
-详细记录见：
-
-- [docs/changelog.zh-CN.md](./docs/changelog.zh-CN.md)
-
-## 这不是一个什么项目
-
-为了减少误解，这里说清楚边界：
-
-- 不是官方 Codex 替代品
-- 不是多用户 SaaS 平台
-- 不是重依赖数据库和云端账号体系的复杂服务
-- 不是“先做十个高级功能、再解决安装门槛”的产品路线
-
-当前方向很明确：
-
-- 先把本地 Codex 浏览器入口做稳
-- 先把手机和远程访问做顺
-- 先让普通用户低门槛跑起来
+- [docs/android-shell.zh-CN.md](./docs/android-shell.zh-CN.md)
 
 ## 手动运行
-
-### 本地快速启动
 
 ```bash
 npx codexapp
 ```
 
-默认打开：
-
-```text
-http://localhost:18923
-```
-
-### 固定到 7420
+固定到 `7420`：
 
 ```powershell
 npx codexapp --host 0.0.0.0 --port 7420 --no-tunnel --password "change-me"
 ```
 
-如果直接启用快速隧道：
-
-```powershell
-npx codexapp --host 0.0.0.0 --port 7420 --tunnel
-```
-
-程序会优先查找本机 `cloudflared`，找不到时会在交互终端提示自动安装到用户目录。也可以显式指定：
-
-```powershell
-npx codexapp --host 0.0.0.0 --port 7420 --tunnel --cloudflared-command "C:\\Users\\your-user\\.local\\bin\\cloudflared.exe"
-```
-
-### 配置文件方式
-
-优先级：
+配置文件优先级：
 
 1. `--config <path>`
 2. `CODEXUI_CONFIG`
 3. `./codexui.config.json`
 4. `~/.codexui/config.json`
 
-示例：
+示例配置：
 
 ```json
 {
@@ -231,46 +128,73 @@ npx codexapp --host 0.0.0.0 --port 7420 --tunnel --cloudflared-command "C:\\User
   "password": "replace-with-your-password",
   "tunnel": false,
   "open": false,
-  "projectPath": "C:\\Users\\your-user\\Documents\\Playground",
-  "cloudflaredCommand": "C:\\Users\\your-user\\.local\\bin\\cloudflared.exe"
+  "projectPath": "C:\\Users\\your-user\\Documents\\Playground"
 }
 ```
 
-示例配置：
+## 远程访问
 
-- [codexui.config.example.json](./codexui.config.example.json)
+本项目不强绑定某一种公网方案。推荐路径：
 
-## 相关文档
+- 局域网：直接访问服务器 IP 和端口。
+- 私有网络：Tailscale / ZeroTier。
+- 自有公网：Nginx / Caddy / frp。
+- 临时公网：Cloudflare Tunnel。
 
-- Windows Server 安装: [docs/windows-server.md](./docs/windows-server.md)
-- Cloudflare Tunnel 远程访问: [docs/cloudflare-tunnel.zh-CN.md](./docs/cloudflare-tunnel.zh-CN.md)
-- 项目路线图: [docs/roadmap.zh-CN.md](./docs/roadmap.zh-CN.md)
+Cloudflare Tunnel 一条命令：
+
+```powershell
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1'))) -EnableCloudflareTunnel
+```
+
+长期固定域名请看：
+
+- [docs/cloudflare-tunnel.zh-CN.md](./docs/cloudflare-tunnel.zh-CN.md)
+
+## 功能清单
+
+- Codex Web UI browser bridge
+- Android CX Codex client shell
+- 移动端恢复补同步
+- 线程列表、会话内容、执行状态和停止状态展示
+- 消息收藏、置顶、复制和跳转
+- 本地文件链接和图片预览
+- GitHub 热门项目模块
+- MCP / 工具权限控制
+- Windows bootstrap 和发布包
+- 健康检查、回归脚本和浸泡脚本
+
+## 项目边界
+
+这个项目不是官方 Codex 替代品，也不是多用户 SaaS。当前优先级是：
+
+1. 本地 Codex 浏览器入口稳定。
+2. Android / 手机体验接近桌面端。
+3. Windows / Windows Server 部署省事。
+4. 自托管远程访问可诊断、可维护。
+
+## 文档
+
+- 中文兼容页: [README.zh-CN.md](./README.zh-CN.md)
+- 更新日志: [docs/changelog.zh-CN.md](./docs/changelog.zh-CN.md)
+- 发版说明: [RELEASE.md](./RELEASE.md)
+- 路线图: [docs/roadmap.zh-CN.md](./docs/roadmap.zh-CN.md)
+- 运营规划: [docs/operations-plan.zh-CN.md](./docs/operations-plan.zh-CN.md)
 - GitHub 包装文案包: [docs/github-launch-kit.zh-CN.md](./docs/github-launch-kit.zh-CN.md)
-- Release 文案模板: [docs/release-template.zh-CN.md](./docs/release-template.zh-CN.md)
+- Release 模板: [docs/release-template.zh-CN.md](./docs/release-template.zh-CN.md)
+- Android 壳: [docs/android-shell.zh-CN.md](./docs/android-shell.zh-CN.md)
+- Windows Server 安装: [docs/windows-server.md](./docs/windows-server.md)
+- Cloudflare Tunnel: [docs/cloudflare-tunnel.zh-CN.md](./docs/cloudflare-tunnel.zh-CN.md)
 - 贡献指南: [CONTRIBUTING.md](./CONTRIBUTING.md)
 - 安全策略: [SECURITY.md](./SECURITY.md)
-- 发版说明: [RELEASE.md](./RELEASE.md)
-- 更新日志: [docs/changelog.zh-CN.md](./docs/changelog.zh-CN.md)
+
+## GitHub 搜索关键词
+
+OpenAI Codex Web UI, Codex Android client, self-hosted Codex, Codex browser bridge, Codex remote access, Windows Codex UI, mobile Codex, local Codex web, AI coding agent UI, Cloudflare Tunnel Codex, Tailscale Codex, frp Codex.
 
 ## 反馈与贡献
 
-- 安装部署问题请使用 `Install` Issue 模板
-- 稳定性、同步、手机端体验问题请使用 `Bug` Issue 模板
-- 新能力建议请使用 `Feature` Issue 模板
-- 提交前请先脱敏密码、Token、Cookie、真实公网地址和个人目录
-
-## 隐私与发布约定
-
-发布说明和 Release 资产默认只保留通用示例，不包含：
-
-- 私人账号
-- 本地密码
-- 私有 IP
-- 个人目录
-- 机器专属路径
-
-## Fork 来源
-
-[pavel-voronin/codex-web-local](https://github.com/pavel-voronin/codex-web-local)  
-→ [friuns2/codexui](https://github.com/friuns2/codexui)  
-→ [Qjzn/codexui-server-bridge](https://github.com/Qjzn/codexui-server-bridge)
+- 安装部署问题请使用 `Install` Issue 模板。
+- 稳定性、同步、手机端体验问题请使用 `Bug` Issue 模板。
+- 新能力建议请使用 `Feature` Issue 模板。
+- 提交截图、日志或配置前，请先脱敏密码、Token、Cookie、真实公网地址和个人目录。

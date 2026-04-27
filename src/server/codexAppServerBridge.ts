@@ -256,7 +256,7 @@ const THREAD_RESPONSE_TURN_LIMIT = 10
 const THREAD_METHODS_WITH_TURNS = new Set(['thread/read', 'thread/resume', 'thread/fork', 'thread/rollback'])
 const APP_SERVER_RPC_TIMEOUT_MS = 60_000
 const APP_SERVER_RPC_INIT_TIMEOUT_MS = 60_000
-const APP_SERVER_RPC_LIGHT_THREAD_TIMEOUT_MS = 20_000
+const APP_SERVER_RPC_LIGHT_THREAD_TIMEOUT_MS = 30_000
 const APP_SERVER_RPC_HEAVY_THREAD_TIMEOUT_MS = 60_000
 const APP_SERVER_RPC_SLOW_WARN_MS = 1_800
 const APP_SERVER_RPC_MAX_IN_FLIGHT = 2
@@ -580,12 +580,17 @@ function isRuntimeActiveState(state: RuntimeExecutionState): boolean {
     || state === 'running'
     || state === 'waiting_permission'
     || state === 'stopping'
-    || state === 'completed_pending_sync'
   )
 }
 
 function isRuntimeSettledState(state: RuntimeExecutionState): boolean {
-  return state === 'completed' || state === 'failed' || state === 'interrupted' || state === 'idle'
+  return (
+    state === 'completed_pending_sync' ||
+    state === 'completed' ||
+    state === 'failed' ||
+    state === 'interrupted' ||
+    state === 'idle'
+  )
 }
 
 function createInitialRuntimeState(threadId: string): ThreadRuntimeState {
@@ -764,7 +769,7 @@ class RuntimeStateStore {
     const current = this.getMutable(threadId)
     const nextState: RuntimeExecutionState = inProgress
       ? (current.executionState === 'waiting_permission' ? 'waiting_permission' : 'running')
-      : isRuntimeActiveState(current.executionState)
+      : (isRuntimeActiveState(current.executionState) || current.executionState === 'completed_pending_sync')
         ? 'completed'
         : current.executionState === 'idle'
           ? 'completed'
@@ -775,7 +780,7 @@ class RuntimeStateStore {
       activeItemId: inProgress ? current.activeItemId : '',
       stopRequested: inProgress ? current.stopRequested : false,
       updatedAtIso: updatedAtIso || new Date().toISOString(),
-      lastCompletedAtIso: !inProgress && isRuntimeActiveState(current.executionState)
+      lastCompletedAtIso: !inProgress && (isRuntimeActiveState(current.executionState) || current.executionState === 'completed_pending_sync')
         ? new Date().toISOString()
         : current.lastCompletedAtIso,
       degradedReason: null,
@@ -806,7 +811,7 @@ class RuntimeStateStore {
       inProgress: isRuntimeActiveState(executionState),
       activeTurnId: state.activeTurnId,
       activeItemId: state.activeItemId,
-      canStop: isRuntimeActiveState(executionState) && executionState !== 'completed_pending_sync',
+      canStop: isRuntimeActiveState(executionState),
       stopRequested: state.stopRequested,
       updatedAtIso: state.updatedAtIso,
       lastEventSeq: state.lastEventSeq,
@@ -902,7 +907,7 @@ function getRpcQueuePriority(method: string, params: unknown): number {
     return 4
   }
 
-  if (method === 'skills/list' || method === 'account/rateLimits/read') {
+  if (method === 'model/list' || method === 'skills/list' || method === 'account/rateLimits/read') {
     return 5
   }
 

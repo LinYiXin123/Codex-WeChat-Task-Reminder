@@ -1,5 +1,6 @@
 import type { RpcEnvelope, RpcMethodCatalog } from '../types/codex'
 import { CodexApiError, extractErrorMessage, isAbortLikeError } from './codexErrors'
+import { shouldAutoLoginForResponse, tryMobileShellAutoLogin } from '../mobile/mobileAuth'
 
 type RpcRequestBody = {
   method: string
@@ -41,7 +42,7 @@ const RPC_FETCH_TIMEOUT_MS = 20000
 const RPC_INTERACTIVE_FETCH_TIMEOUT_MS = 90000
 const RPC_LONG_FETCH_TIMEOUT_MS = 75000
 const RPC_LIST_FETCH_TIMEOUT_MS = 45000
-const RPC_LIGHT_READ_FETCH_TIMEOUT_MS = 30000
+const RPC_LIGHT_READ_FETCH_TIMEOUT_MS = 40000
 const META_FETCH_TIMEOUT_MS = 12000
 const SERVER_REQUEST_FETCH_TIMEOUT_MS = 15000
 
@@ -95,10 +96,17 @@ async function fetchWithTimeout(
   }
 
   try {
-    return await fetch(input, {
+    const response = await fetch(input, {
       ...init,
       signal: controller.signal,
     })
+    if (shouldAutoLoginForResponse(response) && await tryMobileShellAutoLogin()) {
+      return await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      })
+    }
+    return response
   } catch (error) {
     if (didTimeout || (error instanceof Error && error.name === 'AbortError' && !upstreamSignal?.aborted)) {
       throw new CodexApiError(`${timeoutLabel} timed out after ${Math.ceil(timeoutMs / 1000)}s`, {

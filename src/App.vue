@@ -1,6 +1,53 @@
 <template>
   <a class="skip-to-content" href="#main-content">跳到主要内容</a>
-  <DesktopLayout :is-sidebar-collapsed="isSidebarCollapsed" @close-sidebar="setSidebarCollapsed(true)">
+  <section v-if="isMobileShellConfigBooting" class="mobile-shell-setup-page" aria-label="读取连接配置">
+    <div class="mobile-shell-setup-card">
+      <div class="mobile-shell-setup-brand">
+        <img src="/branding/cx-codex-app-icon.png" alt="" class="mobile-shell-setup-logo" />
+        <div class="mobile-shell-setup-copy">
+          <p class="mobile-shell-setup-kicker">CX Codex</p>
+          <h1 class="mobile-shell-setup-title">正在启动</h1>
+        </div>
+      </div>
+      <p class="mobile-shell-setup-status mobile-shell-setup-status--boot">
+        正在读取本机连接配置...
+      </p>
+    </div>
+  </section>
+  <section v-else-if="requiresMobileShellServerSetup" class="mobile-shell-setup-page" aria-label="配置连接地址">
+    <div class="mobile-shell-setup-card">
+      <div class="mobile-shell-setup-brand">
+        <img src="/branding/cx-codex-app-icon.png" alt="" class="mobile-shell-setup-logo" />
+        <div class="mobile-shell-setup-copy">
+          <p class="mobile-shell-setup-kicker">CX Codex</p>
+          <h1 class="mobile-shell-setup-title">输入连接地址</h1>
+        </div>
+      </div>
+      <label class="mobile-shell-setup-field">
+        <span>服务地址</span>
+        <input
+          v-model="mobileShellServerInput"
+          type="url"
+          inputmode="url"
+          autocomplete="url"
+          placeholder="https://your-codex-host.example.com"
+          :disabled="isMobileShellSaving"
+        />
+      </label>
+      <button
+        class="mobile-shell-setup-submit"
+        type="button"
+        :disabled="!canSaveMobileShellServerUrl"
+        @click="saveMobileShellServerAddress"
+      >
+        {{ isMobileShellSaving ? '保存中...' : '保存并进入' }}
+      </button>
+      <p class="mobile-shell-setup-status">
+        {{ mobileShellStatus || '地址会永久保存到本机 App，后续启动会自动进入。' }}
+      </p>
+    </div>
+  </section>
+  <DesktopLayout v-else :is-sidebar-collapsed="isSidebarCollapsed" @close-sidebar="setSidebarCollapsed(true)">
     <template #sidebar>
       <section class="sidebar-root" :class="{ 'sidebar-root--dual-pane-touch': isDualPaneMobile }">
         <div class="sidebar-scrollable">
@@ -195,83 +242,6 @@
                   {{ webBridgeSettingsStatus }}
                 </p>
               </section>
-              <section class="sidebar-settings-section" aria-label="Cloudflare Tunnel">
-                <p class="sidebar-settings-section-title">Cloudflare Tunnel</p>
-                <button
-                  class="sidebar-settings-row"
-                  type="button"
-                  :disabled="isTunnelConfigSaving"
-                  @click="toggleTunnelEnabled"
-                >
-                  <span class="sidebar-settings-label">自动启用 Tunnel</span>
-                  <span class="sidebar-settings-toggle" :class="{ 'is-on': tunnelStatus.enabled !== false }" />
-                </button>
-                <div class="sidebar-settings-row sidebar-settings-row--static">
-                  <span class="sidebar-settings-label">状态</span>
-                  <span class="sidebar-settings-value">{{ tunnelStatusLabel }}</span>
-                </div>
-                <div class="sidebar-settings-row sidebar-settings-row--static sidebar-settings-row--stacked">
-                  <span class="sidebar-settings-label">公网地址</span>
-                  <span class="sidebar-settings-code-row">
-                    <span class="sidebar-settings-code">{{ tunnelPublicUrlLabel }}</span>
-                    <button
-                      class="sidebar-settings-copy-button"
-                      type="button"
-                      :disabled="!tunnelStatus.publicUrl"
-                      aria-label="复制公网地址"
-                      title="复制公网地址"
-                      @click="copyTunnelPublicUrl"
-                    >
-                      <IconTablerCopy class="sidebar-settings-copy-icon" />
-                    </button>
-                  </span>
-                </div>
-                <div class="sidebar-settings-row sidebar-settings-row--static sidebar-settings-row--stacked">
-                  <span class="sidebar-settings-label">cloudflared</span>
-                  <span class="sidebar-settings-code">{{ tunnelCommandLabel }}</span>
-                </div>
-                <div class="sidebar-settings-actions">
-                  <button
-                    class="sidebar-settings-github-button"
-                    type="button"
-                    :disabled="!canOpenTunnelPublicUrl"
-                    @click="openTunnelPublicUrl"
-                  >
-                    打开公网地址
-                  </button>
-                  <button
-                    class="sidebar-settings-github-button sidebar-settings-github-button--secondary"
-                    type="button"
-                    :disabled="isTunnelStatusLoading || isTunnelConfigSaving || !canSaveResolvedCloudflaredCommand"
-                    @click="saveDetectedCloudflaredCommand"
-                  >
-                    保存检测到的路径
-                  </button>
-                  <button
-                    class="sidebar-settings-github-button sidebar-settings-github-button--secondary"
-                    type="button"
-                    :disabled="isTunnelStatusLoading || isTunnelConfigSaving"
-                    @click="refreshTunnelStatus"
-                  >
-                    {{ isTunnelStatusLoading ? '检测中...' : '重新检测' }}
-                  </button>
-                </div>
-                <p class="sidebar-settings-hint">
-                  {{ tunnelStatus.reason || '读取配置和日志后，会在这里显示当前 Tunnel 状态。' }}
-                </p>
-                <p class="sidebar-settings-hint">
-                  {{ tunnelToggleHint }}
-                </p>
-                <p v-if="tunnelLastDetectedHint" class="sidebar-settings-hint">
-                  {{ tunnelLastDetectedHint }}
-                </p>
-                <p v-if="tunnelPathsHint" class="sidebar-settings-hint">
-                  {{ tunnelPathsHint }}
-                </p>
-                <p v-if="tunnelStatusMessage" class="sidebar-settings-hint sidebar-settings-hint-status">
-                  {{ tunnelStatusMessage }}
-                </p>
-              </section>
               <section v-if="isMobileShellAvailable" class="sidebar-settings-section" aria-label="移动端连接">
                 <p class="sidebar-settings-section-title">移动端连接</p>
                 <div class="sidebar-settings-row sidebar-settings-row--static sidebar-settings-row--stacked">
@@ -435,9 +405,6 @@
                 <span class="sidebar-settings-label">刷新桌面端</span>
                 <span class="sidebar-settings-value">{{ desktopRefreshButtonLabel }}</span>
               </button>
-              <div class="sidebar-settings-rate-limits">
-                <RateLimitStatus :snapshots="accountRateLimitSnapshots" />
-              </div>
               <section class="sidebar-settings-about" aria-label="项目版本和 GitHub 仓库">
                 <div class="sidebar-settings-brand-card">
                   <img class="sidebar-settings-brand-logo" :src="MOBILE_SHELL_BRANDING_LOGO_URL" alt="CX Codex 标识" />
@@ -794,7 +761,6 @@ import SidebarThreadControls from './components/sidebar/SidebarThreadControls.vu
 import FavoritesModal from './components/content/FavoritesModal.vue'
 import IconTablerBroom from './components/icons/IconTablerBroom.vue'
 import IconTablerBookmark from './components/icons/IconTablerBookmark.vue'
-import IconTablerCopy from './components/icons/IconTablerCopy.vue'
 import IconTablerMicrophone from './components/icons/IconTablerMicrophone.vue'
 import IconTablerRefresh from './components/icons/IconTablerRefresh.vue'
 import IconTablerSearch from './components/icons/IconTablerSearch.vue'
@@ -809,13 +775,11 @@ import {
   getGithubProjectsForScope,
   getHomeDirectory,
   getProjectRootSuggestion,
-  getTunnelStatus,
   getWebBridgeSettings,
   getWorkspaceRootsState,
   openProjectRoot,
   refreshDesktopApp,
   searchThreads,
-  updateTunnelStatus,
   updateWebBridgeSettings,
 } from './api/codexGateway'
 import type { ReasoningEffort, SpeedMode, ThreadScrollState, UiLiveOverlay, UiMessage, UiServerRequest, UiThread } from './types/codex'
@@ -826,7 +790,6 @@ import type {
   GithubTipsScope,
   GithubTrendingProject,
   PermissionDecision,
-  TunnelStatus,
   WebBridgeSettings,
 } from './api/codexGateway'
 import { getPathLeafName, getPathParent } from './pathUtils.js'
@@ -855,7 +818,6 @@ import {
 
 const SkillsHub = defineAsyncComponent(() => import('./components/content/SkillsHub.vue'))
 const GithubTrendingHub = defineAsyncComponent(() => import('./components/content/GithubTrendingHub.vue'))
-const RateLimitStatus = defineAsyncComponent(() => import('./components/content/RateLimitStatus.vue'))
 const ComposerRuntimeDropdown = defineAsyncComponent(() => import('./components/content/ComposerRuntimeDropdown.vue'))
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
@@ -873,18 +835,6 @@ const DEFAULT_WEB_BRIDGE_SETTINGS: WebBridgeSettings = {
     fileChange: 'allowForSession',
     mcpTools: 'ask',
   },
-}
-const DEFAULT_TUNNEL_STATUS: TunnelStatus = {
-  enabled: null,
-  active: false,
-  publicUrl: '',
-  configPath: '',
-  configuredCommand: '',
-  resolvedCommand: '',
-  cloudflaredAvailable: false,
-  logPath: '',
-  lastDetectedAtIso: '',
-  reason: '',
 }
 const SETTINGS_HELP = {
   sendWithEnter: '开启后直接按 Enter 发送，关闭后使用 Command + Enter 发送。',
@@ -1043,7 +993,6 @@ const {
   selectedReasoningEffort,
   selectedSpeedMode,
   installedSkills,
-  accountRateLimitSnapshots,
   messages,
   isLoadingThreads,
   isLoadingMessages,
@@ -1057,7 +1006,6 @@ const {
   refreshAll,
   refreshSelectedThreadContent,
   refreshSkills,
-  refreshRateLimits,
   selectThread,
   setThreadScrollState,
   archiveThreadById,
@@ -1149,13 +1097,16 @@ const showGithubTrendingProjects = ref(loadBoolPref(GITHUB_TRENDING_PROJECTS_KEY
 const webBridgeSettings = ref<WebBridgeSettings>(DEFAULT_WEB_BRIDGE_SETTINGS)
 const webBridgeSettingsStatus = ref('')
 let webBridgeSettingsStatusTimer: ReturnType<typeof setTimeout> | null = null
-const tunnelStatus = ref<TunnelStatus>(DEFAULT_TUNNEL_STATUS)
-const tunnelStatusMessage = ref('')
 let favoritesStatusTimer: ReturnType<typeof setTimeout> | null = null
-const isTunnelStatusLoading = ref(false)
-const isTunnelConfigSaving = ref(false)
-let tunnelStatusMessageTimer: ReturnType<typeof setTimeout> | null = null
+function isBundledMobileShellEntry(): boolean {
+  if (!isNativeAndroidShell() || typeof window === 'undefined') return false
+  const hostname = window.location.hostname.toLowerCase()
+  return window.location.protocol === 'capacitor:' || hostname === 'localhost' || hostname === '127.0.0.1'
+}
+
+const startsOnBundledMobileShellEntry = isBundledMobileShellEntry()
 const isMobileShellAvailable = ref(isNativeAndroidShell())
+const mobileShellSetupChecked = ref(!isNativeAndroidShell() || startsOnBundledMobileShellEntry)
 const mobileShellServerConfig = ref<MobileShellServerConfig | null>(null)
 const mobileShellAppInfo = ref<MobileShellAppInfo | null>(null)
 const mobileShellRuntimeInfo = ref<MobileShellRuntimeInfo | null>(null)
@@ -1220,30 +1171,17 @@ const displayWorktreeName = computed(() => {
   const name = String(worktreeName).trim()
   return name && name !== 'unknown' ? name : '默认工作区'
 })
-const tunnelStatusLabel = computed(() => {
-  if (isTunnelStatusLoading.value) return '检测中'
-  if (tunnelStatus.value.active) return '已连接'
-  if (tunnelStatus.value.enabled === false) return '已关闭'
-  if (tunnelStatus.value.cloudflaredAvailable) return '待启动'
-  return '未就绪'
-})
-const tunnelToggleLabel = computed(() => (tunnelStatus.value.enabled === false ? '已关闭' : '已开启'))
-const tunnelPublicUrlLabel = computed(() => (
-  tunnelStatus.value.publicUrl.trim() || '未检测到'
-))
-const tunnelCommandLabel = computed(() => (
-  tunnelStatus.value.resolvedCommand.trim()
-  || tunnelStatus.value.configuredCommand.trim()
-  || '未检测到'
-))
-const canOpenTunnelPublicUrl = computed(() => tunnelStatus.value.publicUrl.trim().length > 0)
-const canSaveResolvedCloudflaredCommand = computed(() => {
-  const resolved = tunnelStatus.value.resolvedCommand.trim()
-  if (!resolved) return false
-  return resolved !== tunnelStatus.value.configuredCommand.trim()
-})
 const mobileShellServerUrlLabel = computed(() => (
   mobileShellServerConfig.value?.serverUrl.trim() || '未配置'
+))
+const isMobileShellConfigBooting = computed(() => (
+  isMobileShellAvailable.value
+  && !mobileShellSetupChecked.value
+))
+const requiresMobileShellServerSetup = computed(() => (
+  isMobileShellAvailable.value
+  && mobileShellSetupChecked.value
+  && !(mobileShellServerConfig.value?.serverUrl.trim())
 ))
 const mobileShellDefaultUrlLabel = computed(() => (
   mobileShellServerConfig.value?.defaultServerUrl.trim() || '未配置'
@@ -1396,28 +1334,6 @@ const mobileShellUpdateHint = computed(() => {
   if (mobileShellReleaseComparison.value > 0) return '当前安装版比 GitHub 最新发布更高，通常说明你还没有把新 APK 发到 Release。'
   return '当前安装版已与最新发布一致，如需覆盖安装也可以直接重新安装。'
 })
-const tunnelPathsHint = computed(() => {
-  const hints: string[] = []
-  if (tunnelStatus.value.configPath.trim()) {
-    hints.push(`配置: ${tunnelStatus.value.configPath.trim()}`)
-  }
-  if (tunnelStatus.value.logPath.trim()) {
-    hints.push(`日志: ${tunnelStatus.value.logPath.trim()}`)
-  }
-  return hints.join(' · ')
-})
-const tunnelLastDetectedHint = computed(() => {
-  const detectedAtIso = tunnelStatus.value.lastDetectedAtIso.trim()
-  if (!detectedAtIso) return ''
-  const date = new Date(detectedAtIso)
-  if (Number.isNaN(date.getTime())) return ''
-  return `最近识别时间：${date.toLocaleString()}`
-})
-const tunnelToggleHint = computed(() => (
-  tunnelStatus.value.active
-    ? '当前 Tunnel 已在运行。修改开关会写入配置，并在下次重启 7420 时继续沿用。'
-    : '这里会直接写入本机配置。若当前服务已启动，开关修改通常需要重启 7420 后完全生效。'
-))
 const isRouteOnlyEmptyThread = computed(() => (
   route.name === 'thread'
   && !!routeThreadId.value
@@ -1953,20 +1869,7 @@ onMounted(() => {
   window.addEventListener('focus', onWindowFocusRefreshAccountState)
   applyDarkMode()
   darkModeMediaQuery?.addEventListener('change', applyDarkMode)
-  void initialize()
-  void applyLaunchProjectPathFromUrl()
-  queueIdleTask(() => { void loadHomeDirectory() }, 800)
-  queueIdleTask(() => { void loadWorkspaceRootOptionsState() }, 950)
-  queueIdleTask(() => { void refreshDefaultProjectName() }, 1200)
-  queueIdleTask(() => { void refreshWebBridgeSettings() }, 1400)
-  queueIdleTask(() => { void refreshFavorites() }, 1500)
-  queueIdleTask(() => { void refreshTunnelStatus() }, 1550)
-  queueIdleTask(() => { void refreshMobileShellServerConfig() }, 1600)
-  queueIdleTask(() => { void refreshMobileShellRuntimeInfo() }, 1625)
-  queueIdleTask(() => { void refreshMobileShellNotificationPermission() }, 1640)
-  queueIdleTask(() => { void refreshMobileShellUpdateState() }, 1650)
-  queueIdleTask(() => { void refreshDesktopAppAvailability() }, 1700)
-  scheduleTrendingProjectsLoad()
+  void initializeRuntime()
 })
 
 onUnmounted(() => {
@@ -1984,10 +1887,6 @@ onUnmounted(() => {
     clearTimeout(webBridgeSettingsStatusTimer)
     webBridgeSettingsStatusTimer = null
   }
-  if (tunnelStatusMessageTimer) {
-    clearTimeout(tunnelStatusMessageTimer)
-    tunnelStatusMessageTimer = null
-  }
   if (mobileShellStatusTimer) {
     clearTimeout(mobileShellStatusTimer)
     mobileShellStatusTimer = null
@@ -2004,6 +1903,7 @@ onUnmounted(() => {
 })
 
 function onWindowFocusRefreshAccountState(): void {
+  if (requiresMobileShellServerSetup.value) return
   void refreshFavorites()
 }
 
@@ -2037,10 +1937,8 @@ watch(sidebarSearchQuery, (value) => {
 
 watch(isSettingsOpen, (open) => {
   if (open) {
-    void refreshRateLimits()
     void refreshWebBridgeSettings()
     void refreshMobileShellServerConfig({ preserveInput: true })
-    void refreshMobileShellUpdateState()
     void refreshMobileShellRuntimeInfo()
     void refreshMobileShellNotificationPermission()
     window.addEventListener('pointerdown', onWindowPointerDownForSettings, { capture: true })
@@ -2073,19 +1971,6 @@ function setWebBridgeSettingsStatus(message: string): void {
     webBridgeSettingsStatus.value = ''
     webBridgeSettingsStatusTimer = null
   }, 2200)
-}
-
-function setTunnelStatusMessage(message: string): void {
-  tunnelStatusMessage.value = message
-  if (tunnelStatusMessageTimer) {
-    clearTimeout(tunnelStatusMessageTimer)
-    tunnelStatusMessageTimer = null
-  }
-  if (!message) return
-  tunnelStatusMessageTimer = setTimeout(() => {
-    tunnelStatusMessage.value = ''
-    tunnelStatusMessageTimer = null
-  }, 2600)
 }
 
 function setMobileShellStatus(message: string): void {
@@ -2186,21 +2071,6 @@ async function saveWebBridgeSettings(nextSettings: WebBridgeSettings): Promise<v
   }
 }
 
-async function refreshTunnelStatus(): Promise<void> {
-  isTunnelStatusLoading.value = true
-  try {
-    tunnelStatus.value = await getTunnelStatus()
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '加载 Tunnel 状态失败'
-    tunnelStatus.value = {
-      ...DEFAULT_TUNNEL_STATUS,
-      reason: message,
-    }
-  } finally {
-    isTunnelStatusLoading.value = false
-  }
-}
-
 async function refreshMobileShellServerConfig(options: { preserveInput?: boolean } = {}): Promise<void> {
   if (!isMobileShellAvailable.value) return
 
@@ -2215,6 +2085,7 @@ async function refreshMobileShellServerConfig(options: { preserveInput?: boolean
     const message = error instanceof Error ? error.message : '读取移动端连接地址失败'
     setMobileShellStatus(message)
   } finally {
+    mobileShellSetupChecked.value = true
     isMobileShellLoading.value = false
   }
 }
@@ -2303,18 +2174,6 @@ async function checkMobileShellUpdate(options: { showSuccessMessage?: boolean; p
   }
 }
 
-async function updateTunnelConfig(options: { enabled?: boolean | null; cloudflaredCommand?: string }): Promise<void> {
-  isTunnelConfigSaving.value = true
-  try {
-    tunnelStatus.value = await updateTunnelStatus(options)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '保存 Tunnel 配置失败'
-    setTunnelStatusMessage(message)
-  } finally {
-    isTunnelConfigSaving.value = false
-  }
-}
-
 async function refreshDesktopAppAvailability(): Promise<void> {
   try {
     desktopAppStatus.value = await getDesktopAppStatus()
@@ -2339,53 +2198,6 @@ function onRefreshDesktopApp(): void {
   }
 
   isDesktopRefreshConfirmVisible.value = true
-}
-
-async function copyTunnelPublicUrl(): Promise<void> {
-  const url = tunnelStatus.value.publicUrl.trim()
-  if (!url) {
-    setTunnelStatusMessage('当前没有可复制的公网地址')
-    return
-  }
-
-  try {
-    await copyTextToClipboard(url)
-    setTunnelStatusMessage('公网地址已复制')
-  } catch {
-    setTunnelStatusMessage('复制失败，请手动复制地址')
-  }
-}
-
-function openTunnelPublicUrl(): void {
-  const url = tunnelStatus.value.publicUrl.trim()
-  if (!url) {
-    setTunnelStatusMessage('当前没有可打开的公网地址')
-    return
-  }
-  window.open(url, '_blank', 'noopener,noreferrer')
-}
-
-function toggleTunnelEnabled(): void {
-  const nextEnabled = tunnelStatus.value.enabled === false
-  setTunnelStatusMessage(nextEnabled ? '正在启用 Tunnel 配置...' : '正在关闭 Tunnel 配置...')
-  void updateTunnelConfig({ enabled: nextEnabled })
-    .then(() => {
-      setTunnelStatusMessage(nextEnabled ? 'Tunnel 已写入为开启状态，重启 7420 后会继续启用' : 'Tunnel 已写入为关闭状态')
-    })
-}
-
-function saveDetectedCloudflaredCommand(): void {
-  const resolvedCommand = tunnelStatus.value.resolvedCommand.trim()
-  if (!resolvedCommand) {
-    setTunnelStatusMessage('当前没有可保存的 cloudflared 路径')
-    return
-  }
-
-  setTunnelStatusMessage('正在保存 cloudflared 路径...')
-  void updateTunnelConfig({ cloudflaredCommand: resolvedCommand })
-    .then(() => {
-      setTunnelStatusMessage('cloudflared 路径已保存到本机配置')
-    })
 }
 
 function openMobileShellServerUrl(): void {
@@ -2715,7 +2527,7 @@ function onRenameThread(payload: { threadId: string; title: string }): void {
 }
 
 function onRemoveProject(projectName: string): void {
-  removeProject(projectName)
+  void removeProject(projectName)
 }
 
 function onReorderProject(payload: { projectName: string; toIndex: number }): void {
@@ -3038,7 +2850,7 @@ async function loadTrendingProjects(scope: GithubTipsScope = githubTipsScope.val
   const requestToken = ++trendingProjectsRequestToken
   isTrendingProjectsLoading.value = true
   try {
-    const rows = await getGithubProjectsForScope(scope, 6)
+    const rows = await getGithubProjectsForScope(scope, 10)
     if (requestToken !== trendingProjectsRequestToken) return
     if (!showGithubTrendingProjects.value || !isGithubTrendingRoute.value) return
     if (scope !== githubTipsScope.value) return
@@ -3325,6 +3137,32 @@ function rememberRoutableThreadId(threadId: string): void {
   routeWarmThreadIds.value = [...routeWarmThreadIds.value, normalized]
 }
 
+async function initializeRuntime(): Promise<void> {
+  if (isMobileShellAvailable.value) {
+    await refreshMobileShellServerConfig()
+    if (requiresMobileShellServerSetup.value) return
+  }
+
+  await initialize()
+  void applyLaunchProjectPathFromUrl()
+  scheduleInitialBackgroundTasks()
+}
+
+function scheduleInitialBackgroundTasks(): void {
+  queueIdleTask(() => { void loadHomeDirectory() }, 800)
+  queueIdleTask(() => { void loadWorkspaceRootOptionsState() }, 950)
+  queueIdleTask(() => { void refreshDefaultProjectName() }, 1200)
+  queueIdleTask(() => { void refreshWebBridgeSettings() }, 1400)
+  queueIdleTask(() => { void refreshFavorites() }, 1500)
+  queueIdleTask(() => { void refreshMobileShellServerConfig() }, 1600)
+  queueIdleTask(() => { void refreshMobileShellRuntimeInfo() }, 1625)
+  queueIdleTask(() => { void refreshMobileShellNotificationPermission() }, 1640)
+  if (!isMobileShellAvailable.value) {
+    queueIdleTask(() => { void refreshDesktopAppAvailability() }, 1700)
+  }
+  scheduleTrendingProjectsLoad()
+}
+
 async function initialize(): Promise<void> {
   await refreshAll({ loadMessages: false, loadSkills: false })
   hasInitialized.value = true
@@ -3586,6 +3424,69 @@ async function submitFirstMessageForNewThread(
   transform: translateY(0);
 }
 
+.mobile-shell-setup-page {
+  @apply min-h-dvh w-full bg-[#f8f6f0] px-5 py-8 text-[#2d261f];
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: max(2rem, env(safe-area-inset-top));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+}
+
+.mobile-shell-setup-card {
+  @apply w-full max-w-md rounded-[28px] border border-[#e5dbca] bg-[#fffdf8] p-5;
+  box-shadow: 0 24px 54px -38px rgba(31, 41, 55, 0.34);
+}
+
+.mobile-shell-setup-brand {
+  @apply flex items-center gap-3;
+}
+
+.mobile-shell-setup-logo {
+  @apply h-14 w-14 shrink-0 rounded-[18px] border border-white/80 bg-white object-contain;
+}
+
+.mobile-shell-setup-copy {
+  @apply min-w-0;
+}
+
+.mobile-shell-setup-kicker {
+  @apply m-0 text-xs font-semibold uppercase tracking-[0.12em] text-[#0f766e];
+}
+
+.mobile-shell-setup-title {
+  @apply m-0 mt-1 text-2xl font-semibold leading-tight;
+}
+
+.mobile-shell-setup-field {
+  @apply mt-6 flex flex-col gap-2 text-sm font-medium text-[#5b5146];
+}
+
+.mobile-shell-setup-field input {
+  @apply min-h-12 w-full rounded-2xl border border-[#ddd5c7] bg-white px-4 text-base text-[#2d261f] outline-none;
+}
+
+.mobile-shell-setup-field input:focus {
+  border-color: #99f6e4;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.13);
+}
+
+.mobile-shell-setup-submit {
+  @apply mt-4 inline-flex min-h-12 w-full items-center justify-center rounded-2xl border border-[#0f766e] bg-[#0f766e] px-4 text-sm font-semibold text-white;
+}
+
+.mobile-shell-setup-submit:disabled {
+  @apply cursor-not-allowed border-[#cbe7e1] bg-[#dff4ee] text-[#699b92];
+}
+
+.mobile-shell-setup-status {
+  @apply m-0 mt-3 text-xs leading-5 text-[#7b7062];
+}
+
+.mobile-shell-setup-status--boot {
+  @apply mt-6 text-sm;
+}
+
 .sidebar-root input,
 .sidebar-root textarea {
   @apply select-text;
@@ -3619,7 +3520,7 @@ async function submitFirstMessageForNewThread(
 }
 
 .sidebar-search-toggle {
-  @apply h-8 w-8 rounded-xl border border-transparent bg-transparent text-[#6e6458] flex items-center justify-center transition-colors duration-100 hover:border-[#ddd5c7] hover:bg-[#fffdf8];
+  @apply inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-[#e4dac9] bg-[#fffdf8] text-[#6b6255] transition-colors duration-100 hover:border-[#cdbfa8] hover:bg-[#f7f1e5] hover:text-[#2d261f];
 }
 
 .sidebar-search-toggle[aria-pressed='true'] {

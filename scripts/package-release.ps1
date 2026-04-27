@@ -25,6 +25,30 @@ function Copy-ReleaseItem {
   }
 }
 
+function Get-Sha256Hex {
+  param(
+    [string]$Path
+  )
+
+  $fileHashCommand = Get-Command Get-FileHash -ErrorAction SilentlyContinue
+  if ($null -ne $fileHashCommand) {
+    return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToLowerInvariant()
+  }
+
+  $stream = [System.IO.File]::OpenRead($Path)
+  try {
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+      $bytes = $sha256.ComputeHash($stream)
+      return ([BitConverter]::ToString($bytes) -replace "-", "").ToLowerInvariant()
+    } finally {
+      $sha256.Dispose()
+    }
+  } finally {
+    $stream.Dispose()
+  }
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
   $OutputDir = Join-Path $repoRoot "artifacts"
@@ -99,8 +123,8 @@ foreach ($relativePath in $optionalReleaseItems) {
 
 Compress-Archive -Path (Join-Path $stagingRoot "*") -DestinationPath $zipPath -Force
 
-$hash = Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath
-"$($hash.Hash.ToLower())  $([System.IO.Path]::GetFileName($zipPath))" | Set-Content -LiteralPath $checksumPath -Encoding ASCII
+$hash = Get-Sha256Hex -Path $zipPath
+"$hash  $([System.IO.Path]::GetFileName($zipPath))" | Set-Content -LiteralPath $checksumPath -Encoding ASCII
 
 Write-Host "Release bundle: $zipPath"
 Write-Host "Checksum file:  $checksumPath"

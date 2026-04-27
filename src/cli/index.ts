@@ -693,7 +693,7 @@ program
   .option('-p, --port <port>', 'port to listen on', '5999')
   .option('--password <pass>', 'set a specific password')
   .option('--no-password', 'disable password protection')
-  .option('--tunnel', 'start cloudflared tunnel', true)
+  .option('--tunnel', 'start cloudflared tunnel')
   .option('--no-tunnel', 'disable cloudflared tunnel startup')
   .option('--cloudflared-command <path>', 'set explicit cloudflared executable path')
   .option('--open', 'open browser on startup', true)

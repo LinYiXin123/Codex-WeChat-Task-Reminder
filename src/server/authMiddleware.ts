@@ -105,6 +105,44 @@ const form=document.getElementById('f');
 const errEl=document.getElementById('err');
 const noticeEl=document.getElementById('notice');
 const noticeTextEl=document.getElementById('notice-text');
+const pwEl=document.getElementById('pw');
+const buttonEl=form.querySelector('button');
+function mobileShell(){
+  try{return window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.MobileShell}catch{return null}
+}
+async function getStoredMobileAuthKey(){
+  const shell=mobileShell();
+  if(!shell||!shell.getAuthConfig)return '';
+  try{
+    const config=await shell.getAuthConfig();
+    return config&&typeof config.authKey==='string'?config.authKey.trim():'';
+  }catch{return ''}
+}
+async function persistMobileAuthKey(password){
+  const shell=mobileShell();
+  if(!shell||!shell.setAuthKey)return;
+  try{await shell.setAuthKey({authKey:password})}catch{}
+}
+function setBusy(message){
+  if(buttonEl)buttonEl.textContent=message;
+  if(buttonEl)buttonEl.disabled=true;
+}
+function clearBusy(){
+  if(buttonEl)buttonEl.textContent='登录';
+  if(buttonEl)buttonEl.disabled=false;
+}
+async function loginWithPassword(password,options){
+  const normalized=typeof password==='string'?password.trim():'';
+  if(!normalized)return false;
+  const res=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:normalized})});
+  if(res.ok){
+    if(options&&options.persist)await persistMobileAuthKey(normalized);
+    try{window.sessionStorage.removeItem('${WEB_AUTH_STATUS_STORAGE_KEY}')}catch{}
+    window.location.reload();
+    return true;
+  }
+  return false;
+}
 try{
   const raw=window.sessionStorage.getItem('${WEB_AUTH_STATUS_STORAGE_KEY}');
   if(raw){
@@ -117,15 +155,22 @@ try{
     window.sessionStorage.removeItem('${WEB_AUTH_STATUS_STORAGE_KEY}');
   }
 }catch{}
+setTimeout(async()=>{
+  const storedKey=await getStoredMobileAuthKey();
+  if(!storedKey)return;
+  errEl.style.display='none';
+  setBusy('自动登录中...');
+  const ok=await loginWithPassword(storedKey,{persist:false});
+  if(!ok)clearBusy();
+},80);
 form.addEventListener('submit',async e=>{
   e.preventDefault();
   errEl.style.display='none';
-  const res=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:document.getElementById('pw').value})});
-  if(res.ok){
-    try{window.sessionStorage.removeItem('${WEB_AUTH_STATUS_STORAGE_KEY}')}catch{}
-    window.location.reload()
-  }else{
-    errEl.style.display='block';document.getElementById('pw').value='';document.getElementById('pw').focus()
+  setBusy('登录中...');
+  const ok=await loginWithPassword(pwEl.value,{persist:true});
+  if(!ok){
+    clearBusy();
+    errEl.style.display='block';pwEl.value='';pwEl.focus()
   }
 });
 </script>
@@ -168,7 +213,7 @@ export function createAuthSession(password: string): AuthSession {
           const token = randomBytes(32).toString('hex')
           validTokens.add(token)
 
-          res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict`)
+          res.setHeader('Set-Cookie', `${TOKEN_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000`)
           res.json({ ok: true })
         } catch {
           res.status(400).json({ error: '请求体格式无效' })

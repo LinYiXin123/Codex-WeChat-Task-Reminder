@@ -540,7 +540,7 @@ This file tracks manual regression and feature verification steps.
 #### Prerequisites
 - `7420` 服务运行中。
 - 本机可访问 `http://127.0.0.1:7420/health` 与 `http://127.0.0.1:7420/codex-api/health`。
-- 若不跳过公网检查，公网入口 `http://116.62.234.104:17420/health` 可访问。
+- 若传入 `-PublicHealthUrl`，公网入口 `/health` 可访问。
 
 #### Steps
 1. 短时验证脚本：执行 `npm run test:7420:soak -- -DurationSeconds 90 -IntervalSeconds 15`。
@@ -629,11 +629,40 @@ This file tracks manual regression and feature verification steps.
 
 #### Expected Results
 - 未配置远程地址时，原生层不会把空字符串传给 Capacitor `serverUrl`。
-- 默认打包脚本会写入当前公网地址 `http://116.62.234.104:17420`。
+- 默认打包脚本不写入任何服务地址；如需私有预置包，必须显式传入 `-ServerUrl`。
 - APK 可启动到 WebView；公网不可用时应显示页面加载错误或 Web 侧状态，而不是原生闪退。
 
 #### Rollback/Cleanup
 - 若需回退，恢复 `android/app/src/main/java/com/codexui/bridge/MainActivity.java` 与 `scripts/package-android-release.ps1`。
+
+---
+
+### Feature: 2.1.15 公开发行文档与脱敏截图
+
+#### Prerequisites
+- Playwright Chromium 已可用。
+- 当前工作区已包含 2.1.15 代码、README、Release 文案和截图资产。
+- 不使用真实账号、真实路径、Token、公网地址或私人会话作为截图内容。
+
+#### Steps
+1. 运行 Playwright/Chromium 截图脚本，生成 `docs/screenshots/chat.png`、`chat-mobile.png`、`android-setup.png`、`github-trending.png`。
+2. 打开 `README.md`，确认首屏介绍的是 `OpenAI Codex Web UI`、Android、自托管远程访问和 Windows 友好部署。
+3. 搜索 README、Release 和包装文案，确认不再引用旧图 `one-command-windows.svg`、`social-preview.svg`、`skills-hub.png`、`skills-hub-mobile.png`。
+4. 打开 `RELEASE.md` 和 `docs/release-template.zh-CN.md`，确认版本命名为 `2.1.x`，没有 `bridge`、`beta`、`rc` 等英文后缀。
+5. 打开 `.github/release-body.md`，确认版本号和本次用户可感知变化对应当前 Release。
+6. 打开 `docs/operations-plan.zh-CN.md`，确认包含版本节奏、Issue 运营、搜索关键词和近期路线。
+7. 执行 `npm.cmd run package:release -- -Version 2.1.15`，确认即使 Windows PowerShell 缺少 `Get-FileHash` 也能生成 sha256。
+
+#### Expected Results
+- README 不包含旧截图引用。
+- 所有公开截图都使用演示数据。
+- Release 文案不包含私人地址、密钥、真实路径或私人会话。
+- GitHub 搜索关键词覆盖 Codex Web UI、Android client、self-hosted、Windows、remote access。
+- 运营规划能直接指导后续版本维护和项目推广。
+- Release zip 和 sha256 文件生成成功。
+
+#### Rollback/Cleanup
+- 若需回退，恢复 `README.md`、`RELEASE.md`、`.github/release-body.md`、`docs/github-launch-kit.zh-CN.md`、`docs/release-template.zh-CN.md`、`docs/operations-plan.zh-CN.md` 与 `docs/screenshots/`。
 
 ---
 

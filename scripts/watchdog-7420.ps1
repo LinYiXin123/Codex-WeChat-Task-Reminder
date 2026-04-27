@@ -6,7 +6,7 @@ param(
   [string]$NodePath = "C:\Program Files\nodejs\node.exe",
   [string]$BindHealthHost = "127.0.0.1",
   [int]$FailureThreshold = 2,
-  [string]$PublicHealthUrl = "http://116.62.234.104:17420/health",
+  [string]$PublicHealthUrl = "",
   [string]$StatePath = "$env:USERPROFILE\.codexui\codexui-7420-watchdog.state.json",
   [string]$LogPath = "$env:USERPROFILE\.codexui\codexui-7420-watchdog.log"
 )

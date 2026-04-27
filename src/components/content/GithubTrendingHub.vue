@@ -53,15 +53,7 @@
 
           <div v-if="showProjectDetails(project)" class="trending-card-details">
             <div
-              v-if="hasOriginalDescription(project)"
-              class="trending-card-detail-block"
-            >
-              <p class="trending-card-detail-label">原始介绍</p>
-              <p class="trending-card-detail-text">{{ project.description.trim() }}</p>
-            </div>
-            <div
               class="trending-card-detail-block trending-card-detail-block-link"
-              :class="{ 'trending-card-detail-block-muted': hasOriginalDescription(project) }"
             >
               <p class="trending-card-detail-label">仓库地址</p>
               <p class="trending-card-detail-text trending-card-url">{{ project.url }}</p>
@@ -125,14 +117,8 @@ function getPrimaryDescription(project: GithubTrendingProject): string {
   return project.descriptionZh?.trim() || project.description.trim() || '暂无介绍。'
 }
 
-function hasOriginalDescription(project: GithubTrendingProject): boolean {
-  const translated = project.descriptionZh?.trim() ?? ''
-  const original = project.description.trim()
-  return Boolean(translated && original && translated !== original)
-}
-
 function showProjectDetails(project: GithubTrendingProject): boolean {
-  return hasOriginalDescription(project) || project.url.trim().length > 0
+  return project.url.trim().length > 0
 }
 </script>
 
@@ -238,12 +224,8 @@ function showProjectDetails(project: GithubTrendingProject): boolean {
   @apply flex flex-col gap-1;
 }
 
-.trending-card-detail-block-muted {
-  @apply border-t border-[#e8decf] pt-3;
-}
-
 .trending-card-detail-block-link {
-  @apply border-t border-[#e8decf] pt-3;
+  @apply pt-0;
 }
 
 .trending-card-detail-label {

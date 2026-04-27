@@ -7,6 +7,11 @@ export type MobileShellServerConfig = {
   restartScheduled?: boolean
 }
 
+export type MobileShellAuthConfig = {
+  authKey: string
+  hasAuthKey: boolean
+}
+
 export type MobileShellAppInfo = {
   appName: string
   packageName: string
@@ -60,10 +65,17 @@ export type MobileShellInstallResult = {
   savedPath?: string
 }
 
+export type MobileShellOpenUrlResult = {
+  opened: boolean
+}
+
 type MobileShellPlugin = {
   getServerConfig(): Promise<MobileShellServerConfig>
   setServerUrl(options: { serverUrl: string }): Promise<MobileShellServerConfig>
   resetServerUrl(): Promise<MobileShellServerConfig>
+  getAuthConfig(): Promise<MobileShellAuthConfig>
+  setAuthKey(options: { authKey: string }): Promise<{ hasAuthKey: boolean }>
+  clearAuthKey(): Promise<{ hasAuthKey: boolean }>
   getAppInfo(): Promise<MobileShellAppInfo>
   getRuntimeInfo(): Promise<MobileShellRuntimeInfo>
   setKeepAwake(options: { enabled: boolean }): Promise<MobileShellKeepAwakeResult>
@@ -77,6 +89,7 @@ type MobileShellPlugin = {
     notificationId?: number
   }): Promise<MobileShellNotificationResult>
   installApkFromUrl(options: { url: string; fileName?: string }): Promise<MobileShellInstallResult>
+  openUrl(options: { url: string }): Promise<MobileShellOpenUrlResult>
 }
 
 const MobileShell = registerPlugin<MobileShellPlugin>('MobileShell')
@@ -95,6 +108,18 @@ export async function setMobileShellServerUrl(serverUrl: string): Promise<Mobile
 
 export async function resetMobileShellServerUrl(): Promise<MobileShellServerConfig> {
   return await MobileShell.resetServerUrl()
+}
+
+export async function getMobileShellAuthConfig(): Promise<MobileShellAuthConfig> {
+  return await MobileShell.getAuthConfig()
+}
+
+export async function setMobileShellAuthKey(authKey: string): Promise<{ hasAuthKey: boolean }> {
+  return await MobileShell.setAuthKey({ authKey })
+}
+
+export async function clearMobileShellAuthKey(): Promise<{ hasAuthKey: boolean }> {
+  return await MobileShell.clearAuthKey()
 }
 
 export async function getMobileShellAppInfo(): Promise<MobileShellAppInfo> {
@@ -134,4 +159,8 @@ export async function showMobileShellNotification(
 
 export async function installMobileShellApk(url: string, fileName = ''): Promise<MobileShellInstallResult> {
   return await MobileShell.installApkFromUrl({ url, fileName })
+}
+
+export async function openMobileShellUrl(url: string): Promise<MobileShellOpenUrlResult> {
+  return await MobileShell.openUrl({ url })
 }
