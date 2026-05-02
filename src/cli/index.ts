@@ -545,6 +545,13 @@ async function startServer(options: {
   codexCommand?: string
   ripgrepCommand?: string
   cloudflaredCommand?: string
+  desktopWeChatNotifyOnCompletion: boolean
+  desktopWeChatTargetName?: string
+  desktopWeChatSourceBinding?: string
+  desktopWeChatSourceIndex?: string
+  hermesAgentNotifyOnCompletion: boolean
+  hermesWeixinNotifyOnCompletion: boolean
+  desktopAppAutoRefresh: boolean
 }) {
   const version = await readCliVersion()
   const projectPath = options.projectPath?.trim() ?? ''
@@ -564,6 +571,41 @@ async function startServer(options: {
   }
   if (options.cloudflaredCommand) {
     process.env.CODEXUI_CLOUDFLARED_COMMAND = options.cloudflaredCommand
+  }
+  if (options.desktopWeChatNotifyOnCompletion) {
+    process.env.CODEXUI_DESKTOP_WECHAT_NOTIFY_ON_COMPLETION = '1'
+  } else {
+    delete process.env.CODEXUI_DESKTOP_WECHAT_NOTIFY_ON_COMPLETION
+  }
+  if (options.desktopWeChatTargetName) {
+    process.env.CODEXUI_DESKTOP_WECHAT_TARGET_NAME = options.desktopWeChatTargetName
+  } else {
+    delete process.env.CODEXUI_DESKTOP_WECHAT_TARGET_NAME
+  }
+  if (options.desktopWeChatSourceBinding) {
+    process.env.CODEXUI_DESKTOP_WECHAT_SOURCE_BINDING = options.desktopWeChatSourceBinding
+  } else {
+    delete process.env.CODEXUI_DESKTOP_WECHAT_SOURCE_BINDING
+  }
+  if (options.desktopWeChatSourceIndex) {
+    process.env.CODEXUI_DESKTOP_WECHAT_SOURCE_INDEX = options.desktopWeChatSourceIndex
+  } else {
+    delete process.env.CODEXUI_DESKTOP_WECHAT_SOURCE_INDEX
+  }
+  if (options.hermesAgentNotifyOnCompletion) {
+    process.env.CODEXUI_HERMES_AGENT_NOTIFY_ON_COMPLETION = '1'
+  } else {
+    delete process.env.CODEXUI_HERMES_AGENT_NOTIFY_ON_COMPLETION
+  }
+  if (options.hermesWeixinNotifyOnCompletion) {
+    process.env.CODEXUI_HERMES_WEIXIN_NOTIFY_ON_COMPLETION = '1'
+  } else {
+    delete process.env.CODEXUI_HERMES_WEIXIN_NOTIFY_ON_COMPLETION
+  }
+  if (options.desktopAppAutoRefresh) {
+    process.env.CODEXUI_DESKTOP_APP_AUTO_REFRESH = '1'
+  } else {
+    delete process.env.CODEXUI_DESKTOP_APP_AUTO_REFRESH
   }
 
   const codexCommand = ensureCodexInstalled() ?? resolveCodexCommand()

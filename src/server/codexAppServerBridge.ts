@@ -13,6 +13,10 @@ import { writeFile } from 'node:fs/promises'
 import { handleSkillsRoutes, initializeSkillsSyncOnStartup } from './skillsRoutes.js'
 import { getDesktopAppRefreshStatus, requestDesktopAppRefresh } from './desktopAppRefresh.js'
 import { getTunnelStatus, updateTunnelConfig } from './tunnelStatus.js'
+import { queueHermesAgentCompletionMessage } from './hermesAgentNotifier.js'
+import { queueHermesWeixinCompletionMessage } from './hermesWeixinNotifier.js'
+import { writeCompletionNotifierLog } from './completionNotifierLog.js'
+import { queueDesktopWeChatFileHelperMessage } from './windowsWeChatNotifier.js'
 import { readFavoriteRecords, readPinnedThreadIds, writeFavoriteRecords, writePinnedThreadIds } from './webUiState.js'
 import { getSpawnInvocation } from '../utils/commandInvocation.js'
 import {
@@ -271,6 +275,7 @@ const APP_SERVER_RPC_DIAGNOSTIC_LIMIT = 20
 const APP_SERVER_THREAD_LIST_FRESH_CACHE_TTL_MS = 3 * 60_000
 const APP_SERVER_THREAD_LIST_STALE_CACHE_TTL_MS = 20 * 60_000
 const APP_SERVER_THREAD_LIST_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 30_000
+const SESSION_PATH_UPDATED_AT_CACHE_TTL_MS = 5_000
 const RUNTIME_SNAPSHOT_STALE_MS = 90_000
 const BRIDGE_HEARTBEAT_METHOD = 'bridge/heartbeat'
 const DEFAULT_WEB_BRIDGE_SETTINGS: WebBridgeSettings = {
@@ -286,6 +291,129 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null
+}
+
+type SessionPathUpdatedAtCacheEntry = {
+  checkedAtMs: number
+  updatedAtSeconds: number | null
+}
+
+const sessionPathUpdatedAtCache = new Map<string, SessionPathUpdatedAtCacheEntry>()
+
+function readUnixSecondsFromTimestampValue(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.max(0, Math.floor(value))
+  }
+  if (typeof value === 'string') {
+    const parsedAtMs = Date.parse(value)
+    if (Number.isFinite(parsedAtMs) && parsedAtMs > 0) {
+      return Math.max(0, Math.floor(parsedAtMs / 1000))
+    }
+  }
+  return null
+}
+
+async function readSessionPathUpdatedAtSeconds(sessionPath: string): Promise<number | null> {
+  const normalizedPath = sessionPath.trim()
+  if (!normalizedPath) return null
+
+  const now = Date.now()
+  const cached = sessionPathUpdatedAtCache.get(normalizedPath)
+  if (cached && now - cached.checkedAtMs <= SESSION_PATH_UPDATED_AT_CACHE_TTL_MS) {
+    return cached.updatedAtSeconds
+  }
+
+  let updatedAtSeconds: number | null = null
+  try {
+    const info = await stat(normalizedPath)
+    if (Number.isFinite(info.mtimeMs) && info.mtimeMs > 0) {
+      updatedAtSeconds = Math.max(0, Math.floor(info.mtimeMs / 1000))
+    }
+  } catch {}
+
+  sessionPathUpdatedAtCache.set(normalizedPath, {
+    checkedAtMs: now,
+    updatedAtSeconds,
+  })
+  return updatedAtSeconds
+}
+
+async function normalizeLegacyThreadRecord(
+  threadValue: unknown,
+  options: {
+    threadId?: string
+    preview?: string
+    sessionPath?: string
+    timestamp?: unknown
+    turns?: unknown[]
+    modelProvider?: string
+    cwd?: string
+    cliVersion?: string
+    source?: unknown
+    gitInfo?: unknown
+  } = {},
+): Promise<Record<string, unknown>> {
+  const thread = asRecord(threadValue) ?? {}
+  const sessionPath =
+    (typeof options.sessionPath === 'string' && options.sessionPath.trim().length > 0
+      ? options.sessionPath.trim()
+      : typeof thread.path === 'string' && thread.path.trim().length > 0
+        ? thread.path.trim()
+        : '')
+  const createdAt =
+    readUnixSecondsFromTimestampValue(thread.createdAt)
+    ?? readUnixSecondsFromTimestampValue(options.timestamp)
+    ?? 0
+  const updatedAt =
+    readUnixSecondsFromTimestampValue(thread.updatedAt)
+    ?? await readSessionPathUpdatedAtSeconds(sessionPath)
+    ?? createdAt
+  const turns =
+    Array.isArray(options.turns)
+      ? options.turns
+      : Array.isArray(thread.turns)
+        ? thread.turns
+        : []
+
+  return {
+    ...thread,
+    id:
+      (typeof options.threadId === 'string' && options.threadId.trim().length > 0
+        ? options.threadId.trim()
+        : typeof thread.id === 'string' && thread.id.trim().length > 0
+          ? thread.id.trim()
+          : ''),
+    preview:
+      typeof options.preview === 'string'
+        ? options.preview
+        : typeof thread.preview === 'string'
+          ? thread.preview
+          : '',
+    modelProvider:
+      typeof options.modelProvider === 'string'
+        ? options.modelProvider
+        : typeof thread.modelProvider === 'string'
+          ? thread.modelProvider
+          : '',
+    createdAt: createdAt > 0 ? createdAt : updatedAt,
+    updatedAt: updatedAt > 0 ? updatedAt : createdAt,
+    path: sessionPath || null,
+    cwd:
+      typeof options.cwd === 'string'
+        ? options.cwd
+        : typeof thread.cwd === 'string'
+          ? thread.cwd
+          : '',
+    cliVersion:
+      typeof options.cliVersion === 'string'
+        ? options.cliVersion
+        : typeof thread.cliVersion === 'string'
+          ? thread.cliVersion
+          : '',
+    source: options.source ?? thread.source ?? 'unknown',
+    gitInfo: options.gitInfo ?? thread.gitInfo ?? null,
+    turns,
+  }
 }
 
 function trimThreadTurnsInRpcResult(method: string, result: unknown): unknown {
@@ -325,8 +453,9 @@ function getErrorMessage(payload: unknown, fallback: string): string {
 }
 
 function toIsoFromUnixSeconds(value: unknown): string {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? new Date(value * 1000).toISOString()
+  const seconds = readUnixSecondsFromTimestampValue(value)
+  return typeof seconds === 'number' && seconds > 0
+    ? new Date(seconds * 1000).toISOString()
     : ''
 }
 
@@ -409,7 +538,12 @@ function readThreadInProgressFromThreadReadPayload(payload: unknown): boolean {
 function readThreadUpdatedAtIsoFromThreadReadPayload(payload: unknown): string {
   const root = asRecord(payload)
   const thread = asRecord(root?.thread)
-  return toIsoFromUnixSeconds(thread?.updatedAt)
+  return (
+    toIsoFromUnixSeconds(thread?.updatedAt)
+    || toIsoFromUnixSeconds(root?.updatedAt)
+    || toIsoFromUnixSeconds(thread?.timestamp)
+    || toIsoFromUnixSeconds(root?.timestamp)
+  )
 }
 
 function readNonNegativeNumber(value: unknown): number {
@@ -851,6 +985,73 @@ function getRpcTimeoutMs(method: string, params: unknown): number {
     return APP_SERVER_RPC_HEAVY_THREAD_TIMEOUT_MS
   }
   return APP_SERVER_RPC_TIMEOUT_MS
+}
+
+function shouldSendDesktopWeChatCompletion(payload: unknown): boolean {
+  const root = asRecord(payload)
+  const turn = asRecord(root?.turn)
+  const status = readStringByAliases(turn, 'status')
+  if (!status) return true
+  return status === 'completed' || status === 'success' || status === 'succeeded'
+}
+
+function formatDesktopWeChatCompletionMessage(threadId: string, atIso: string): string {
+  const parsedAtMs = Date.parse(atIso)
+  const timeText = Number.isFinite(parsedAtMs)
+    ? new Date(parsedAtMs).toLocaleString('zh-CN', { hour12: false })
+    : atIso
+
+  return [
+    'CX Codex 任务已完成',
+    `线程: ${threadId}`,
+    `时间: ${timeText}`,
+    '请回到 Codex 查看结果。',
+  ].join('\n')
+}
+
+function isCompletionNotificationMethod(method: string): boolean {
+  return method === 'turn/completed' || method === 'thread/completed'
+}
+
+function buildCompletionSummaryText(value: string): string {
+  const normalized = value.replace(/\s+/gu, ' ').trim()
+  if (!normalized) return ''
+  return normalized.length > 72 ? `${normalized.slice(0, 72).trimEnd()}...` : normalized
+}
+
+function formatHermesCompletionReminder(options: {
+  threadId: string
+  atIso: string
+  threadTitle?: string
+  preview?: string
+}): string {
+  const parsedAtMs = Date.parse(options.atIso)
+  const timeText = Number.isFinite(parsedAtMs)
+    ? new Date(parsedAtMs).toLocaleString('zh-CN', { hour12: false })
+    : options.atIso
+  const title = options.threadTitle?.trim() || ''
+  const preview = buildCompletionSummaryText(options.preview ?? '')
+
+  const lines = ['CX Codex 当前任务已完成']
+  if (title) {
+    lines.push(`任务：${title}`)
+  }
+  if (preview && preview !== title) {
+    lines.push(`摘要：${preview}`)
+  }
+  lines.push(`完成时间：${timeText}`)
+  lines.push('可直接回到 Codex / Hermes 查看结果。')
+  if (!title) {
+    lines.push(`线程：${options.threadId}`)
+  }
+  return lines.join('\n')
+}
+
+const DESKTOP_APP_AUTO_REFRESH_ENABLED_VALUES = new Set(['1', 'true', 'yes', 'on'])
+
+function shouldAutoRefreshDesktopAppFromBridge(): boolean {
+  const raw = process.env.CODEXUI_DESKTOP_APP_AUTO_REFRESH?.trim().toLowerCase() ?? ''
+  return process.platform === 'win32' && DESKTOP_APP_AUTO_REFRESH_ENABLED_VALUES.has(raw)
 }
 
 function getShareableRpcKey(method: string, params: unknown): string | null {
@@ -2243,9 +2444,10 @@ class AppServerProcess {
     }
 
     const request = this.enqueueRpc('thread/list', params)
-      .then((value) => {
-        this.writeCachedThreadListRpc(shareableKey, value)
-        return value
+      .then(async (value) => {
+        const normalizedValue = await this.normalizeThreadListRpcResult(value)
+        this.writeCachedThreadListRpc(shareableKey, normalizedValue)
+        return normalizedValue
       })
       .catch((error) => {
         logBridgeError('Background thread/list refresh failed', error)
@@ -2663,8 +2865,76 @@ class AppServerProcess {
         id,
         method,
         params,
-      } satisfies JsonRpcCall)
+        } satisfies JsonRpcCall)
     })
+  }
+
+  private async normalizeThreadListRpcResult(value: unknown): Promise<unknown> {
+    const record = asRecord(value)
+    const data = Array.isArray(record?.data) ? record.data : null
+    if (!record || !data) return value
+
+    const normalizedData = await Promise.all(data.map(async (row) => {
+      const thread = asRecord(row)
+      if (!thread) return row
+      return normalizeLegacyThreadRecord(thread)
+    }))
+
+    return {
+      ...record,
+      data: normalizedData,
+    }
+  }
+
+  private async buildThreadReadFromSummary(threadId: string): Promise<unknown> {
+    try {
+      const response = asRecord(await this.call('getConversationSummary', { conversationId: threadId }))
+      const summary = asRecord(response?.summary)
+      if (!summary) {
+        throw new Error('Missing conversation summary')
+      }
+
+      return {
+        thread: await normalizeLegacyThreadRecord({}, {
+          threadId,
+          preview: typeof summary.preview === 'string' ? summary.preview : '',
+          sessionPath: typeof summary.path === 'string' ? summary.path : '',
+          timestamp: summary.timestamp,
+          turns: [],
+          modelProvider: typeof summary.modelProvider === 'string' ? summary.modelProvider : '',
+          cwd: typeof summary.cwd === 'string' ? summary.cwd : '',
+          cliVersion: typeof summary.cliVersion === 'string' ? summary.cliVersion : '',
+          source: summary.source,
+          gitInfo: summary.gitInfo,
+        }),
+      }
+    } catch {
+      const resumed = asRecord(await this.call('thread/resume', { threadId }))
+      return {
+        thread: await normalizeLegacyThreadRecord(asRecord(resumed?.thread), {
+          threadId,
+          turns: [],
+        }),
+      }
+    }
+  }
+
+  private async buildThreadReadCompat(params: unknown): Promise<unknown> {
+    const record = asRecord(params)
+    const threadId = normalizeThreadId(record?.threadId)
+    if (!threadId) {
+      throw new Error('Missing threadId for thread/read')
+    }
+
+    if (record?.includeTurns !== true) {
+      return this.buildThreadReadFromSummary(threadId)
+    }
+
+    const resumed = asRecord(await this.call('thread/resume', { threadId }))
+    return {
+      ...resumed,
+      thread: await normalizeLegacyThreadRecord(asRecord(resumed?.thread), { threadId }),
+    }
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -2699,7 +2969,13 @@ class AppServerProcess {
 
     const shareableKey = getShareableRpcKey(method, params)
     if (!shareableKey) {
-      return this.enqueueRpc(method, params)
+      if (method === 'thread/read') {
+        return this.buildThreadReadCompat(params)
+      }
+      const rawValue = await this.enqueueRpc(method, params)
+      return method === 'thread/list'
+        ? this.normalizeThreadListRpcResult(rawValue)
+        : rawValue
     }
 
     if (method === 'thread/list') {
@@ -2717,12 +2993,19 @@ class AppServerProcess {
       return existingRequest
     }
 
-    const request = this.enqueueRpc(method, params)
-      .then((value) => {
+    const request = (
+      method === 'thread/read'
+        ? this.buildThreadReadCompat(params)
+        : this.enqueueRpc(method, params)
+    )
+      .then(async (value) => {
+        const normalizedValue = method === 'thread/list'
+          ? await this.normalizeThreadListRpcResult(value)
+          : value
         if (method === 'thread/list') {
-          this.writeCachedThreadListRpc(shareableKey, value)
+          this.writeCachedThreadListRpc(shareableKey, normalizedValue)
         }
-        return value
+        return normalizedValue
       })
       .finally(() => {
         this.sharedReadRpcByKey.delete(shareableKey)
@@ -3087,6 +3370,10 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
   const notificationReplayBuffer: BridgeNotificationEvent[] = []
   const bridgeNotificationListeners = new Set<(value: BridgeNotificationEvent) => void>()
   let notificationSeq = 0
+  const notifiedCompletionTurnIds = new Map<string, string>()
+  const notifiedCompletionThreadAtMs = new Map<string, number>()
+  let mergedThreadTitleCache: ThreadTitleCache = EMPTY_THREAD_TITLE_CACHE
+  let lastDesktopAppRefreshAtMs = 0
 
   async function getThreadSearchIndex(): Promise<ThreadSearchIndex> {
     if (threadSearchIndex) return threadSearchIndex
@@ -3147,9 +3434,134 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     }
   }
 
+  async function refreshMergedThreadTitleCache(): Promise<ThreadTitleCache> {
+    mergedThreadTitleCache = await readMergedThreadTitleCache()
+    return mergedThreadTitleCache
+  }
+
+  function getCachedThreadTitle(threadId: string): string {
+    return mergedThreadTitleCache.titles[threadId]?.trim() ?? ''
+  }
+
+  function maybeNotifyDesktopWeChatCompletion(event: BridgeNotificationEvent): void {
+    if (!isCompletionNotificationMethod(event.method)) return
+    if (!shouldSendDesktopWeChatCompletion(event.params)) return
+
+    const threadId = readThreadIdFromPayload(event.params)
+    if (!threadId) return
+
+    const turnId = readTurnIdFromPayload(event.params)
+    const now = Date.now()
+    if (turnId) {
+      if (notifiedCompletionTurnIds.has(turnId)) return
+      notifiedCompletionTurnIds.set(turnId, event.atIso)
+      if (notifiedCompletionTurnIds.size > 200) {
+        const oldestKey = notifiedCompletionTurnIds.keys().next().value
+        if (typeof oldestKey === 'string') {
+          notifiedCompletionTurnIds.delete(oldestKey)
+        }
+      }
+    } else {
+      const lastThreadCompletionAtMs = notifiedCompletionThreadAtMs.get(threadId) ?? 0
+      if (now - lastThreadCompletionAtMs < 15_000) return
+    }
+
+    notifiedCompletionThreadAtMs.set(threadId, now)
+    if (notifiedCompletionThreadAtMs.size > 200) {
+      const oldestThreadId = notifiedCompletionThreadAtMs.keys().next().value
+      if (typeof oldestThreadId === 'string') {
+        notifiedCompletionThreadAtMs.delete(oldestThreadId)
+      }
+    }
+
+    const titleFromPayload = readStringByAliases(asRecord(event.params), 'threadName', 'thread_name', 'title')
+    const turnRecord = asRecord(asRecord(event.params)?.turn)
+    const previewFromPayload =
+      readStringByAliases(turnRecord, 'summary', 'preview')
+      || readStringByAliases(asRecord(event.params), 'summary', 'preview')
+    const message = formatHermesCompletionReminder({
+      threadId,
+      atIso: event.atIso,
+      threadTitle: titleFromPayload || getCachedThreadTitle(threadId),
+      preview: previewFromPayload,
+    })
+
+    void writeCompletionNotifierLog('completion_event_detected', {
+      method: event.method,
+      threadId,
+      turnId,
+      atIso: event.atIso,
+      threadTitle: titleFromPayload || getCachedThreadTitle(threadId),
+      preview: previewFromPayload,
+    })
+
+    void queueDesktopWeChatFileHelperMessage(
+      message,
+    ).catch((error) => {
+      logBridgeError('Desktop WeChat completion notification failed', error, { threadId, turnId })
+    })
+
+    void queueHermesAgentCompletionMessage(
+      message,
+    ).then(() => {
+      void writeCompletionNotifierLog('hermes_agent_notify_sent', {
+        threadId,
+        turnId,
+      })
+    }).catch((error) => {
+      void writeCompletionNotifierLog('hermes_agent_notify_failed', {
+        threadId,
+        turnId,
+        error: getErrorMessage(error, 'Hermes Agent completion notification failed'),
+      })
+      logBridgeError('Hermes Agent completion notification failed', error, { threadId, turnId })
+    })
+
+    void queueHermesWeixinCompletionMessage(
+      message,
+    ).then(() => {
+      void writeCompletionNotifierLog('hermes_weixin_notify_sent', {
+        threadId,
+        turnId,
+      })
+    }).catch((error) => {
+      void writeCompletionNotifierLog('hermes_weixin_notify_failed', {
+        threadId,
+        turnId,
+        error: getErrorMessage(error, 'Hermes Weixin completion notification failed'),
+      })
+      logBridgeError('Hermes Weixin completion notification failed', error, { threadId, turnId })
+    })
+  }
+
+  function maybeRefreshDesktopAppForExternalTurn(event: BridgeNotificationEvent): void {
+    if (event.method !== 'turn/started' && event.method !== 'thread/started') return
+    if (!shouldAutoRefreshDesktopAppFromBridge()) return
+
+    const now = Date.now()
+    if (now - lastDesktopAppRefreshAtMs < 2500) return
+    lastDesktopAppRefreshAtMs = now
+
+    void requestDesktopAppRefresh().catch((error) => {
+      logBridgeError('Desktop app auto refresh failed', error, {
+        method: event.method,
+        threadId: readThreadIdFromPayload(event.params),
+      })
+    })
+  }
+
   const unsubscribeAppServerNotifications = appServer.onNotification((notification: { method: string; params: unknown }) => {
     const event = rememberNotificationEvent(notification)
+    if (
+      notification.method === 'thread/name/updated'
+      || notification.method === 'thread/created'
+      || notification.method === 'thread/forked'
+    ) {
+      void refreshMergedThreadTitleCache().catch(() => {})
+    }
     runtimeStateStore.observeEvent(event)
+    maybeRefreshDesktopAppForExternalTurn(event)
+    maybeNotifyDesktopWeChatCompletion(event)
     for (const listener of bridgeNotificationListeners) {
       listener(event)
     }
@@ -3159,6 +3571,8 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
     .catch((error) => {
       logBridgeError('Startup skills sync failed', error)
     })
+
+  void refreshMergedThreadTitleCache().catch(() => {})
   void appServer.warmup()
     .catch((error) => {
       logBridgeError('App server warmup failed', error)

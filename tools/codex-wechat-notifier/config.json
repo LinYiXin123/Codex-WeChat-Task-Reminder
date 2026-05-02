@@ -1,0 +1,10 @@
+{
+  "codexHome": "",
+  "sessionsRoot": "",
+  "sessionIndexPath": "",
+  "desktopWeChatTargetName": "新.",
+  "desktopWeChatSourceBinding": "root:0",
+  "desktopWeChatSourceIndex": 0,
+  "pollIntervalMs": 3000,
+  "autostartEntryName": "CodexWeChatNotifier"
+}

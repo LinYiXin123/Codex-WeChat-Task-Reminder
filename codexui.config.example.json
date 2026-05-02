@@ -7,5 +7,12 @@
   "projectPath": "C:\\Users\\your-user\\Documents\\Playground",
   "codexCommand": "C:\\path\\to\\codex.exe",
   "ripgrepCommand": "C:\\path\\to\\rg.exe",
-  "cloudflaredCommand": "C:\\Users\\your-user\\.local\\bin\\cloudflared.exe"
+  "cloudflaredCommand": "C:\\Users\\your-user\\.local\\bin\\cloudflared.exe",
+  "desktopWeChatNotifyOnCompletion": false,
+  "desktopWeChatTargetName": "新.",
+  "desktopWeChatSourceBinding": "root:0",
+  "desktopWeChatSourceIndex": 0,
+  "hermesAgentNotifyOnCompletion": false,
+  "hermesWeixinNotifyOnCompletion": false,
+  "desktopAppAutoRefresh": true
 }

@@ -13,6 +13,13 @@ export type LaunchConfigFile = {
   codexCommand?: string
   ripgrepCommand?: string
   cloudflaredCommand?: string
+  desktopWeChatNotifyOnCompletion?: boolean
+  desktopWeChatTargetName?: string
+  desktopWeChatSourceBinding?: string
+  desktopWeChatSourceIndex?: string | number
+  hermesAgentNotifyOnCompletion?: boolean
+  hermesWeixinNotifyOnCompletion?: boolean
+  desktopAppAutoRefresh?: boolean
 }
 
 export type LaunchCliOptions = {
@@ -37,6 +44,13 @@ export type ResolvedLaunchOptions = {
   codexCommand?: string
   ripgrepCommand?: string
   cloudflaredCommand?: string
+  desktopWeChatNotifyOnCompletion: boolean
+  desktopWeChatTargetName?: string
+  desktopWeChatSourceBinding?: string
+  desktopWeChatSourceIndex?: string
+  hermesAgentNotifyOnCompletion: boolean
+  hermesWeixinNotifyOnCompletion: boolean
+  desktopAppAutoRefresh: boolean
 }
 
 type LoadedLaunchConfig = {
@@ -72,6 +86,23 @@ function normalizePassword(value: unknown): string | boolean | undefined {
   return undefined
 }
 
+function normalizeIndex(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(Math.max(0, Math.trunc(value)))
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number.parseInt(value.trim(), 10)
+    if (Number.isFinite(parsed)) {
+      return String(Math.max(0, parsed))
+    }
+  }
+  return undefined
+}
+
+function normalizeBinding(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
+}
+
 function normalizeConfigShape(raw: unknown): LaunchConfigFile {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return {}
@@ -87,6 +118,13 @@ function normalizeConfigShape(raw: unknown): LaunchConfigFile {
     codexCommand: normalizeString(record.codexCommand),
     ripgrepCommand: normalizeString(record.ripgrepCommand),
     cloudflaredCommand: normalizeString(record.cloudflaredCommand),
+    desktopWeChatNotifyOnCompletion: normalizeBoolean(record.desktopWeChatNotifyOnCompletion),
+    desktopWeChatTargetName: normalizeString(record.desktopWeChatTargetName),
+    desktopWeChatSourceBinding: normalizeBinding(record.desktopWeChatSourceBinding),
+    desktopWeChatSourceIndex: normalizeIndex(record.desktopWeChatSourceIndex),
+    hermesAgentNotifyOnCompletion: normalizeBoolean(record.hermesAgentNotifyOnCompletion),
+    hermesWeixinNotifyOnCompletion: normalizeBoolean(record.hermesWeixinNotifyOnCompletion),
+    desktopAppAutoRefresh: normalizeBoolean(record.desktopAppAutoRefresh),
   }
 }
 
@@ -188,6 +226,13 @@ export async function resolveLaunchOptions(args: {
   const cloudflaredCommand = flagProvided(rawArgv, 'cloudflared-command')
     ? normalizeString(cliOptions.cloudflaredCommand)
     : config.cloudflaredCommand
+  const desktopWeChatNotifyOnCompletion = config.desktopWeChatNotifyOnCompletion === true
+  const desktopWeChatTargetName = config.desktopWeChatTargetName
+  const desktopWeChatSourceBinding = config.desktopWeChatSourceBinding
+  const desktopWeChatSourceIndex = normalizeIndex(config.desktopWeChatSourceIndex)
+  const hermesAgentNotifyOnCompletion = config.hermesAgentNotifyOnCompletion === true
+  const hermesWeixinNotifyOnCompletion = config.hermesWeixinNotifyOnCompletion === true
+  const desktopAppAutoRefresh = config.desktopAppAutoRefresh !== false
 
   return {
     configPath: loaded.path,
@@ -200,5 +245,12 @@ export async function resolveLaunchOptions(args: {
     codexCommand: config.codexCommand,
     ripgrepCommand: config.ripgrepCommand,
     cloudflaredCommand,
+    desktopWeChatNotifyOnCompletion,
+    desktopWeChatTargetName,
+    desktopWeChatSourceBinding,
+    desktopWeChatSourceIndex,
+    hermesAgentNotifyOnCompletion,
+    hermesWeixinNotifyOnCompletion,
+    desktopAppAutoRefresh,
   }
 }

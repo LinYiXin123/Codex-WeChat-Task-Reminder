@@ -163,6 +163,7 @@ Cloudflare Tunnel 一条命令：
 - MCP / 工具权限控制
 - Windows bootstrap 和发布包
 - 健康检查、回归脚本和浸泡脚本
+- 独立微信完成提醒包：`tools/codex-wechat-notifier`
 
 ## 项目边界
 
@@ -176,6 +177,7 @@ Cloudflare Tunnel 一条命令：
 ## 文档
 
 - 中文兼容页: [README.zh-CN.md](./README.zh-CN.md)
+- 独立微信提醒包: [tools/codex-wechat-notifier/README.md](./tools/codex-wechat-notifier/README.md)
 - 更新日志: [docs/changelog.zh-CN.md](./docs/changelog.zh-CN.md)
 - 发版说明: [RELEASE.md](./RELEASE.md)
 - 路线图: [docs/roadmap.zh-CN.md](./docs/roadmap.zh-CN.md)
