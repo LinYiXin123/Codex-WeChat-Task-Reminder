@@ -29,10 +29,11 @@
 
 ## 放在哪里最合适
 
-建议直接放在：
+建议放在非系统盘的固定目录，例如：
 
 ```text
 D:\CodexWeChatNotifier
+F:\Apps\CodexWeChatNotifier
 ```
 
 这样最清楚，也方便打包给别人。
@@ -77,13 +78,19 @@ D:\CodexWeChatNotifier
 
 ## 一步一步安装
 
-1. 把整个文件夹放到 `D:\CodexWeChatNotifier`
+1. 把整个文件夹放到 `D:\CodexWeChatNotifier` 或 `F:\Apps\CodexWeChatNotifier`
 2. 确认电脑微信已经登录
 3. 确认 `config.json` 里收消息的人写对了
 4. 双击或在 PowerShell 里运行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File D:\CodexWeChatNotifier\install.ps1
+```
+
+如果放在 F 盘：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File F:\Apps\CodexWeChatNotifier\install.ps1
 ```
 
 安装后会自动：
@@ -98,6 +105,12 @@ powershell -ExecutionPolicy Bypass -File D:\CodexWeChatNotifier\install.ps1
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File D:\CodexWeChatNotifier\bin\test-send.ps1
+```
+
+如果放在 F 盘：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File F:\Apps\CodexWeChatNotifier\bin\test-send.ps1
 ```
 
 如果你能在微信里收到消息，就说明已经通了。
@@ -161,3 +174,15 @@ powershell -ExecutionPolicy Bypass -File D:\CodexWeChatNotifier\uninstall.ps1
 - `logs\notifier-supervisor.log`
 
 如果出问题，优先看 `desktop-wechat-send.log`。
+
+## 和手机工作台一起用
+
+推荐组合：
+
+1. 电脑运行 `Codex-WeChat-Task-Reminder` 的 `7420` 服务。
+2. 手机通过局域网或 Tailscale 打开 Codex 工作台。
+3. 电脑微信保持登录。
+4. 本提醒包监听 Codex 完成事件。
+5. 长任务跑完后，即使你不盯着手机页面，也能在微信里收到完成提醒。
+
+这个提醒包只负责“完成后通知你”，不负责替代手机端控制界面；手机控制仍由 Android App 或浏览器连接 `7420` 完成。

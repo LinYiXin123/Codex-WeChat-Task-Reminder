@@ -1,12 +1,12 @@
-# codexui-server-bridge — Project Specification
+# Codex-WeChat-Task-Reminder — Project Specification
 
 ## Overview
 
-**codexui-server-bridge** is a lightweight, browser-based web UI for [OpenAI Codex](https://github.com/openai/codex). It mirrors the Codex Desktop experience and runs on top of the Codex `app-server`, allowing remote access to a local Codex instance from any browser.
+**Codex-WeChat-Task-Reminder** is a lightweight, browser-based and Android-friendly workbench for [OpenAI Codex](https://github.com/openai/codex). It runs on top of the Codex `app-server`, exposes a local Codex instance through a self-hosted Web UI, and adds a practical Chinese-user workflow around phone access, WeChat task-completion reminders, and localized skill display.
 
-- **Author:** Pavel Voronin
+- **Author:** LinYiXin123 and contributors
 - **License:** MIT
-- **Repository:** https://github.com/Qjzn/codexui-server-bridge
+- **Repository:** https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder
 
 ## Architecture
 

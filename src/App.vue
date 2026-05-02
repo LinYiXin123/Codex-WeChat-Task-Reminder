@@ -823,7 +823,7 @@ const ComposerRuntimeDropdown = defineAsyncComponent(() => import('./components/
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'codex-web-local.sidebar-collapsed.v1'
 const worktreeName = import.meta.env.VITE_WORKTREE_NAME ?? 'unknown'
 const appVersion = import.meta.env.VITE_APP_VERSION ?? 'unknown'
-const PROJECT_GITHUB_URL = 'https://github.com/Qjzn/codexui-server-bridge'
+const PROJECT_GITHUB_URL = 'https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder'
 const MOBILE_SHELL_BRAND_NAME = 'CX Codex'
 const MOBILE_SHELL_BRANDING_LOGO_URL = '/branding/cx-codex-logo.png'
 const CONTEXT_RING_RADIUS = 16

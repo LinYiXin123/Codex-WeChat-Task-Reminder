@@ -54,7 +54,7 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
   $OutputDir = Join-Path $repoRoot "artifacts"
 }
 
-$bundleName = "codexui-server-bridge-$Version"
+$bundleName = "Codex-WeChat-Task-Reminder-$Version"
 $stagingRoot = Join-Path $OutputDir $bundleName
 $zipPath = Join-Path $OutputDir "$bundleName.zip"
 $checksumPath = Join-Path $OutputDir "$bundleName.sha256"

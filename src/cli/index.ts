@@ -658,7 +658,7 @@ async function startServer(options: {
     '',
     'Codex Web Local is running!',
     `  Version:  ${version}`,
-    '  GitHub:   https://github.com/Qjzn/codexui-server-bridge',
+    '  GitHub:   https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder',
     '',
     `  Bind:     http://${host}:${String(port)}`,
   ]

@@ -1,5 +1,22 @@
 # 更新日志
 
+## 2.1.16
+
+发布时间：2026-05-03
+
+- 手机端技能列表新增中文显示支持：
+  - `skills/list` 会读取技能目录下 `agents/openai.yaml`
+  - 优先展示 `display_name` 和 `short_description`
+  - 技能搜索同时支持中文显示名、中文简介、原始英文名和原始英文简介
+  - 发送任务时仍保留原始 `name/path`，不影响 Codex 技能调用
+- 产品文档升级为 `Codex-WeChat-Task-Reminder`：
+  - README 新增产品海报、运行截图、架构图、Tailscale 手机连接说明、微信完成提醒说明和 20 句常用指令模板
+  - 中文入口、Android 文档、Windows 部署文档、Cloudflare Tunnel 文档和微信提醒包说明同步补充新手路径
+  - 公开安装脚本、Android 检查更新、CLI 提示、Issue 入口和 Release 文案改为指向 `LinYiXin123/Codex-WeChat-Task-Reminder`
+- 新增 README 产品海报素材：
+  - `docs/posters/codex-wechat-mobile-workbench-hero.png`
+  - 素材使用脱敏演示内容，不包含真实账号、密码、Token、私有 IP、个人路径或私人会话内容
+
 ## 2.1.15
 
 发布时间：2026-04-28

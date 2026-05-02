@@ -3,13 +3,13 @@
 仓库地址：
 
 ```text
-https://github.com/Qjzn/codexui-server-bridge
+https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder
 ```
 
 提示词：
 
 ```text
-打开并检查 https://github.com/Qjzn/codexui-server-bridge 这个仓库。
+打开并检查 https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder 这个仓库。
 请在这台机器上用最简单、最稳的方式部署这个项目。
 
 要求：
@@ -19,6 +19,8 @@ https://github.com/Qjzn/codexui-server-bridge
 - 尽量开启本机浏览器访问和局域网访问
 - 如果机器允许，配置开机或登录后自动启动
 - 完成后输出：本机访问地址、局域网访问地址、密码、重启命令
+- 如果已安装 Tailscale，请同时输出手机可填写的 Tailscale 地址
+- 如果要启用微信完成提醒，请按 `tools/codex-wechat-notifier` 说明完成测试发送
 
 直接执行部署，不要只给步骤说明。
 ```

@@ -692,3 +692,57 @@ This file tracks manual regression and feature verification steps.
 
 #### Rollback/Cleanup
 - 若需回退，恢复 `src/composables/useDesktopState.ts`、`src/server/codexAppServerBridge.ts`、`src/api/codexGateway.ts` 与 `src/App.vue`。
+
+---
+
+### Feature: 2.1.16 手机端中文技能显示
+
+#### Prerequisites
+- 当前构建已包含 `2.1.16` 代码。
+- 至少安装一个带 `agents/openai.yaml` 的技能，且 YAML 中包含 `display_name` 或 `short_description`。
+- `7420` 服务可正常访问，桌面端或 Android 端可打开技能选择器。
+
+#### Steps
+1. 启动服务并登录 Web UI。
+2. 打开任意会话输入框，输入 `/` 或打开技能选择器。
+3. 检查技能列表是否优先显示 YAML 中的中文 `display_name`。
+4. 使用中文关键词搜索技能，例如“文档”“部署”“代码”。
+5. 选中一个中文显示的技能并发送一条简单任务。
+6. 观察请求是否仍能正常进入 Codex，不因中文显示名导致技能路径丢失。
+7. 可选：调用 `/codex-api/rpc` 的 `skills/list`，确认返回项包含 `displayName` 或 `displayDescription`。
+
+#### Expected Results
+- 技能选择器显示中文名称和中文简介。
+- 搜索同时支持中文显示名、中文简介、原始英文名和原始英文简介。
+- 选中后的技能 chip 显示中文名。
+- 发送给 Codex 的技能仍保留原始 `name/path`，技能调用不回退、不报错。
+- 没有 `agents/openai.yaml` 的技能继续显示原始名称和描述。
+
+#### Rollback/Cleanup
+- 若需回退，恢复 `src/server/codexAppServerBridge.ts`、`src/api/codexGateway.ts`、`src/components/content/ComposerSkillPicker.vue` 和 `src/components/content/ThreadComposer.vue`。
+
+---
+
+### Feature: 2.1.16 产品化 README、海报和公开入口
+
+#### Prerequisites
+- 当前工作区已包含 README、海报、截图和 2.1.16 更新日志。
+- 不使用真实账号、真实路径、Token、公网地址、私有 IP 或私人会话截图。
+
+#### Steps
+1. 打开 `README.md`，确认首屏显示 `Codex WeChat Task Reminder` 和 `docs/posters/codex-wechat-mobile-workbench-hero.png`。
+2. 检查 README 是否包含工作原理、Windows 一键安装、Tailscale 手机连接、微信完成提醒、中文技能显示和 20 句常用指令模板。
+3. 打开 `README.zh-CN.md`，确认中文入口能跳转到主 README、Android 文档和微信提醒包。
+4. 搜索公开入口，确认 README、Windows 脚本、Android 检查更新、CLI 输出、Issue 入口和 Release 文案指向 `LinYiXin123/Codex-WeChat-Task-Reminder`。
+5. 打开 `.github/release-body.md` 和 `docs/changelog.zh-CN.md`，确认版本为 `2.1.16` 且描述本次用户可感知变化。
+6. 打开 `tools/codex-wechat-notifier/README.md`，确认包含非系统盘目录、测试发送和手机工作台组合说明。
+
+#### Expected Results
+- README 形成一套新手可照着部署的产品说明。
+- 海报和截图均为脱敏演示素材。
+- 公开安装和更新入口不再跳回旧上游仓库。
+- Release 文案能说明手机中文技能、微信提醒和手机工作台组合。
+- 微信提醒包文档明确“完成后通知”和“手机控制界面”的边界。
+
+#### Rollback/Cleanup
+- 若需回退，恢复 `README.md`、`README.zh-CN.md`、`.github/release-body.md`、`docs/changelog.zh-CN.md`、`docs/posters/`、相关部署文档和项目元数据。

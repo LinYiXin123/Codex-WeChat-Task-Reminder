@@ -1,13 +1,13 @@
 [CmdletBinding()]
 param(
-  [string]$InstallDir = "$env:LOCALAPPDATA\codexui-server-bridge",
+  [string]$InstallDir = "$env:LOCALAPPDATA\Codex-WeChat-Task-Reminder",
   [string]$WorkspacePath = "$env:USERPROFILE\CodexWorkspace",
   [int]$Port = 7420,
   [string]$BindHost = "0.0.0.0",
   [string]$Password = "",
   [switch]$NoPassword,
-  [string]$RepoOwner = "Qjzn",
-  [string]$RepoName = "codexui-server-bridge",
+  [string]$RepoOwner = "LinYiXin123",
+  [string]$RepoName = "Codex-WeChat-Task-Reminder",
   [string]$Branch = "main",
   [switch]$SkipStartupTask,
   [switch]$SkipWatchdogTask,

@@ -61,11 +61,11 @@
 
       <div v-if="selectedSkills.length > 0" class="thread-composer-skill-chips">
         <span v-for="skill in selectedSkills" :key="skill.path" class="thread-composer-skill-chip">
-          <span class="thread-composer-skill-chip-name">{{ skill.name }}</span>
+          <span class="thread-composer-skill-chip-name">{{ getSkillDisplayName(skill) }}</span>
           <button
             class="thread-composer-skill-chip-remove"
             type="button"
-            :aria-label="`移除技能 ${skill.name}`"
+            :aria-label="`移除技能 ${getSkillDisplayName(skill)}`"
             @click="removeSkill(skill.path)"
           >×</button>
         </span>
@@ -434,7 +434,13 @@ import ComposerDropdown from './ComposerDropdown.vue'
 import ComposerSearchDropdown from './ComposerSearchDropdown.vue'
 import ComposerSkillPicker from './ComposerSkillPicker.vue'
 
-type SkillItem = { name: string; description: string; path: string }
+type SkillItem = {
+  name: string
+  description: string
+  path: string
+  displayName?: string
+  displayDescription?: string
+}
 
 const props = defineProps<{
   activeThreadId: string
@@ -595,8 +601,8 @@ const selectedSkillPaths = computed(() => selectedSkills.value.map((s) => s.path
 const skillDropdownOptions = computed(() =>
   (props.skills ?? []).map((s) => ({
     value: s.path,
-    label: s.name,
-    description: s.description,
+    label: getSkillDisplayName(s),
+    description: getSkillDisplayDescription(s),
   })),
 )
 
@@ -1324,6 +1330,14 @@ function getMentionBadgeClass(path: string): string {
 function isMarkdownFile(path: string): boolean {
   const ext = getFileExtension(path)
   return ext === 'md' || ext === 'mdx'
+}
+
+function getSkillDisplayName(skill: SkillItem): string {
+  return skill.displayName?.trim() || skill.name
+}
+
+function getSkillDisplayDescription(skill: SkillItem): string {
+  return skill.displayDescription?.trim() || skill.description
 }
 
 function onSlashSkillSelect(skill: SkillItem): void {

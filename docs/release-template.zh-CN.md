@@ -6,25 +6,26 @@
 
 版本号使用纯数字语义版本，不使用英文后缀：
 
-- `2.1.x：Android 启动和同步稳定性修复`
-- `2.1.x：移动端恢复更稳，默认配置更安全`
-- `2.1.x：线程切换更快，发布包更完整`
-- `2.2.0：Codex Web 与 Android 工作台稳定版`
+- `2.1.x：手机端技能列表支持中文显示`
+- `2.1.x：微信完成提醒和手机工作台文档收口`
+- `2.1.x：Tailscale 手机跨网控制更容易配置`
+- `2.2.0：Codex 微信提醒与手机工作台稳定版`
 
 ## 正文模板
 
 ~~~md
-# codexui-server-bridge
+# Codex-WeChat-Task-Reminder
 
-Self-hosted OpenAI Codex Web UI and Android client bridge.
+Self-hosted Codex mobile workbench with WeChat task reminders and Chinese skills.
 
-把本机 Codex 变成可从浏览器、手机和远程入口访问的稳定工作台，适合 Windows、Android、局域网和自托管远程访问。
+把本机 Codex 变成电脑运行、手机控制、微信提醒、中文技能可读的个人 AI 工作台。
 
 ## 这版适合谁升级
 
 - 想把本机 Codex 放到手机上继续用的人
-- 想在 Windows / Windows Server 上稳定跑一个浏览器入口的人
-- Android 端遇到启动、重登、同步或“思考中”状态卡滞的人
+- 想在任务完成后通过微信收到提醒的人
+- 想让手机端技能列表显示中文的人
+- 想在 Windows 上稳定跑一个浏览器入口的人
 
 ## 本次版本重点
 
@@ -35,7 +36,7 @@ Self-hosted OpenAI Codex Web UI and Android client bridge.
 ## 快速安装
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1 | iex
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/LinYiXin123/Codex-WeChat-Task-Reminder/main/scripts/bootstrap-windows.ps1 | iex
 ```
 
 ## Android APK
@@ -43,6 +44,10 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercont
 如果 Release 资产包含 `cx-codex-android-<version>.apk`，可下载后安装。
 
 首次启动需要输入自己的 Codex Web 服务地址；项目默认不内置私人地址。
+
+## 微信提醒
+
+独立提醒包见 `tools/codex-wechat-notifier/README.md`。先确认 `bin\test-send.ps1` 能发出测试消息，再注册常驻和开机自启。
 
 ## 相关文档
 
@@ -59,6 +64,8 @@ Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercont
 - “密钥保存后可用于无感重登，减少 token 失效导致的同步中断。”
 - “任务结束后会清理已完成思考态，降低‘已完成但仍思考中’的误导。”
 - “长会话默认只加载最新内容，上滑再自动补历史，主内容优先出现。”
+- “手机端技能列表优先展示中文名和中文简介，实际调用仍保留原始技能路径。”
+- “微信完成提醒包支持放在非系统盘，并提供测试发送、状态查看和卸载脚本。”
 
 ## 不推荐写法
 

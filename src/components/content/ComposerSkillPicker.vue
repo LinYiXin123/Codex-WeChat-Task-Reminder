@@ -22,8 +22,8 @@
           @click="$emit('select', skill)"
           @pointerenter="highlightIndex = idx"
         >
-          <span class="skill-picker-name">{{ skill.name }}</span>
-          <span v-if="skill.description" class="skill-picker-desc">{{ skill.description }}</span>
+          <span class="skill-picker-name">{{ getSkillDisplayName(skill) }}</span>
+          <span v-if="getSkillDisplayDescription(skill)" class="skill-picker-desc">{{ getSkillDisplayDescription(skill) }}</span>
         </button>
       </li>
     </ul>
@@ -38,6 +38,8 @@ export type SkillOption = {
   name: string
   description: string
   path: string
+  displayName?: string
+  displayDescription?: string
 }
 
 const props = defineProps<{
@@ -61,7 +63,11 @@ const filtered = computed(() => {
   const q = query.value.toLowerCase().trim()
   if (!q) return props.skills
   return props.skills.filter(
-    (s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
+    (s) =>
+      s.name.toLowerCase().includes(q) ||
+      s.description.toLowerCase().includes(q) ||
+      getSkillDisplayName(s).toLowerCase().includes(q) ||
+      getSkillDisplayDescription(s).toLowerCase().includes(q),
   )
 })
 
@@ -81,6 +87,14 @@ function selectHighlighted(): void {
   const skill = filtered.value[highlightIndex.value]
   if (!skill) return
   emit('select', skill)
+}
+
+function getSkillDisplayName(skill: SkillOption): string {
+  return skill.displayName?.trim() || skill.name
+}
+
+function getSkillDisplayDescription(skill: SkillOption): string {
+  return skill.displayDescription?.trim() || skill.description
 }
 
 watch(() => props.visible, (v) => {

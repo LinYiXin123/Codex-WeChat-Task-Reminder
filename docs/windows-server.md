@@ -7,13 +7,13 @@ This project now supports a config-driven Windows deployment flow that works wel
 For most users, this is the easiest path:
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1 | iex
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/LinYiXin123/Codex-WeChat-Task-Reminder/main/scripts/bootstrap-windows.ps1 | iex
 ```
 
 Default behavior:
 
 - installs Node.js automatically if needed
-- downloads the latest repo to `%LOCALAPPDATA%\codexui-server-bridge`
+- downloads the latest repo to `%LOCALAPPDATA%\Codex-WeChat-Task-Reminder`
 - creates `%USERPROFILE%\CodexWorkspace`
 - creates `%USERPROFILE%\.local\bin\codexui-start.cmd`
 - creates an auto-start task at logon
@@ -25,7 +25,7 @@ You can rerun the same command later to change the port, password, or workspace.
 If you want custom options such as a fixed password:
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1'))) `
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/LinYiXin123/Codex-WeChat-Task-Reminder/main/scripts/bootstrap-windows.ps1'))) `
   -Port 7420 `
   -Password 'change-me'
 ```
@@ -33,13 +33,13 @@ If you want custom options such as a fixed password:
 If you want a temporary HTTPS address without router port mapping:
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1'))) `
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/LinYiXin123/Codex-WeChat-Task-Reminder/main/scripts/bootstrap-windows.ps1'))) `
   -EnableCloudflareTunnel
 ```
 
 This downloads `cloudflared.exe` to the user profile, enables `tunnel: true`, and prints the `trycloudflare.com` URL in `%USERPROFILE%\.codexui\logs\codexui.out.log`.
 
-If you prefer a downloadable bundle, grab the latest zip from [GitHub Releases](https://github.com/Qjzn/codexui-server-bridge/releases), extract it anywhere, and run:
+If you prefer a downloadable bundle, grab the latest zip from [GitHub Releases](https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder/releases), extract it anywhere, and run:
 
 ```powershell
 .\setup.ps1

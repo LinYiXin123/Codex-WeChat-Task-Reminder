@@ -1,22 +1,25 @@
 {
   "name": "codexapp",
-  "version": "2.1.15",
-  "description": "OpenAI Codex web UI and browser bridge for Windows, Linux, Android, LAN, and remote self-hosted access",
+  "version": "2.1.16",
+  "description": "Codex WeChat task reminder, Android mobile workbench, and self-hosted Codex web bridge for Windows",
   "type": "module",
   "license": "MIT",
   "author": "Pavel Voronin, Igor Levochkin, and contributors",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Qjzn/codexui-server-bridge.git"
+    "url": "git+https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder.git"
   },
-  "homepage": "https://github.com/Qjzn/codexui-server-bridge#readme",
+  "homepage": "https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder#readme",
   "bugs": {
-    "url": "https://github.com/Qjzn/codexui-server-bridge/issues"
+    "url": "https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder/issues"
   },
   "keywords": [
     "codex",
     "openai",
     "openai-codex",
+    "wechat",
+    "wechat-reminder",
+    "task-reminder",
     "codex-ui",
     "codex-web",
     "web-ui",

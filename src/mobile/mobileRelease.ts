@@ -1,5 +1,5 @@
-const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/Qjzn/codexui-server-bridge/releases/latest'
-const RELEASES_PAGE_URL = 'https://github.com/Qjzn/codexui-server-bridge/releases'
+const LATEST_RELEASE_API_URL = 'https://api.github.com/repos/LinYiXin123/Codex-WeChat-Task-Reminder/releases/latest'
+const RELEASES_PAGE_URL = 'https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder/releases'
 const LATEST_RELEASE_TIMEOUT_MS = 12_000
 
 export type MobileReleaseAsset = {

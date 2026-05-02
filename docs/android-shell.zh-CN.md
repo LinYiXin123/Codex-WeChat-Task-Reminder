@@ -1,6 +1,6 @@
 # Android 壳应用一期
 
-本项目的一期 Android 方案不是把 Node 桥接后端搬进手机，而是用 Capacitor 把现有 Web 前端封装成安卓壳，并连接一台已经运行 `codexui-server-bridge` 的远程地址。
+本项目的一期 Android 方案不是把 Node 桥接后端搬进手机，而是用 Capacitor 把现有 Web 前端封装成安卓壳，并连接一台已经运行 `Codex-WeChat-Task-Reminder` / Codex Web 服务的电脑。
 
 ## 目标
 
@@ -15,15 +15,16 @@
 - 已新增 Android 原生通知权限和任务通知桥接
 - App 回到前台、网络恢复或 WebView 重新载入时，会先回放持久化的服务端事件游标，再复用现有 Web 端自动补同步逻辑
 
-当前这版仍然依赖远程 `codexui-server-bridge`，不支持离线独立运行。
+当前这版仍然依赖远程电脑上的 Codex Web 服务，不支持离线独立运行。
 
 ## 使用方式
 
-1. 先准备一台可访问的 `codexui-server-bridge`
+1. 先准备一台可访问的 `Codex-WeChat-Task-Reminder` 服务
 
 例如局域网或公网地址：
 
 - `http://192.168.x.x:7420`
+- `http://100.x.y.z:7420`
 - `https://your-remote-host.example.com`
 
 2. 可选：在 PowerShell 中设置 Android 壳要预置的连接地址
@@ -33,6 +34,8 @@ $env:CAP_SERVER_URL = "https://your-remote-host.example.com:7420"
 ```
 
 默认发行 APK 不预置任何服务地址。首次进入 App 时需要输入连接地址，保存后会持久化到本机，后续启动会自动进入该地址。
+
+如果电脑和手机已经加入同一个 Tailscale 网络，优先填写电脑的 Tailscale IP 或 MagicDNS 名称，例如 `http://100.x.y.z:7420`。
 
 3. 生成 Android 工程
 
@@ -96,6 +99,7 @@ cd android
   - 可手动修改服务地址并保存重连
   - 私有预置包可恢复打包时写入的默认地址；公开发行包默认地址为空
 - Android 会在登录成功后持久化访问密钥；Cookie / token 失效或服务重启后，会优先使用本机密钥自动重登
+- 技能列表会优先显示 `agents/openai.yaml` 里的中文 `display_name` 和 `short_description`，同时保留原始技能路径用于调用
 - App 设置里已新增“App 更新”区块：
   - 可读取 GitHub 最新 Release
   - 可显示当前安装版本、最新版本和 APK 名称

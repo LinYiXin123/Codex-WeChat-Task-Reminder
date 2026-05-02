@@ -3,13 +3,13 @@
 Repository URL:
 
 ```text
-https://github.com/Qjzn/codexui-server-bridge
+https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder
 ```
 
 Prompt:
 
 ```text
-Open and inspect https://github.com/Qjzn/codexui-server-bridge.
+Open and inspect https://github.com/LinYiXin123/Codex-WeChat-Task-Reminder.
 Deploy this project on this machine using the simplest supported path.
 
 Requirements:

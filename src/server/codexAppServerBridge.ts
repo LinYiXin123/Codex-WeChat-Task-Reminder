@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
 import { mkdtemp, readFile, mkdir, stat } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -66,6 +67,17 @@ type PendingServerRequest = {
   method: string
   params: unknown
   receivedAtIso: string
+}
+
+type SkillDisplayMetadata = {
+  displayName: string
+  displayDescription: string
+}
+
+type CachedSkillDisplayMetadata = {
+  mtimeMs: number
+  size: number
+  metadata: SkillDisplayMetadata | null
 }
 
 type AppServerHealth = {
@@ -1336,7 +1348,7 @@ async function translateGithubDescriptionToChinese(text: string): Promise<string
   const response = await fetch(`https://translate.googleapis.com/translate_a/single?${query.toString()}`, {
     headers: {
       Accept: 'application/json, text/plain, */*',
-      'User-Agent': 'codexui-server-bridge',
+      'User-Agent': 'Codex-WeChat-Task-Reminder',
     },
   })
   if (!response.ok) {
@@ -1405,6 +1417,105 @@ async function listFilesWithRipgrep(cwd: string): Promise<string[]> {
 function getCodexHomeDir(): string {
   const codexHome = process.env.CODEX_HOME?.trim()
   return codexHome && codexHome.length > 0 ? codexHome : join(homedir(), '.codex')
+}
+
+const skillDisplayMetadataCache = new Map<string, CachedSkillDisplayMetadata>()
+
+function normalizeSkillPathForMetadata(rawPath: string): string {
+  const trimmed = rawPath.trim()
+  if (!trimmed) return ''
+  if (trimmed.startsWith('file://')) {
+    try {
+      return fileURLToPath(trimmed)
+    } catch {
+      return trimmed
+    }
+  }
+  return trimmed.replace(/\\/g, '/')
+}
+
+function getSkillDirectoryFromPath(rawPath: unknown): string {
+  if (typeof rawPath !== 'string') return ''
+  const normalizedPath = normalizeSkillPathForMetadata(rawPath)
+  if (!normalizedPath) return ''
+  const normalizedLower = normalizedPath.toLowerCase()
+  if (normalizedLower.endsWith('/skill.md')) {
+    return dirname(normalizedPath)
+  }
+  return normalizedPath
+}
+
+function readYamlInterfaceString(rawYaml: string, key: 'display_name' | 'short_description'): string {
+  const match = rawYaml.match(new RegExp(`^\\s*${key}:\\s*(?:"([^"]*)"|'([^']*)'|([^#\\r\\n]*))`, 'm'))
+  return (match?.[1] ?? match?.[2] ?? match?.[3] ?? '').trim()
+}
+
+async function readSkillDisplayMetadata(skillPath: unknown): Promise<SkillDisplayMetadata | null> {
+  const skillDir = getSkillDirectoryFromPath(skillPath)
+  if (!skillDir) return null
+
+  const yamlPath = join(skillDir, 'agents', 'openai.yaml')
+  try {
+    const yamlStat = await stat(yamlPath)
+    const cached = skillDisplayMetadataCache.get(yamlPath)
+    if (cached && cached.mtimeMs === yamlStat.mtimeMs && cached.size === yamlStat.size) {
+      return cached.metadata
+    }
+
+    const rawYaml = await readFile(yamlPath, 'utf8')
+    const displayName = readYamlInterfaceString(rawYaml, 'display_name')
+    const displayDescription = readYamlInterfaceString(rawYaml, 'short_description')
+    const metadata = displayName || displayDescription
+      ? { displayName, displayDescription }
+      : null
+    skillDisplayMetadataCache.set(yamlPath, {
+      mtimeMs: yamlStat.mtimeMs,
+      size: yamlStat.size,
+      metadata,
+    })
+    return metadata
+  } catch {
+    skillDisplayMetadataCache.set(yamlPath, {
+      mtimeMs: 0,
+      size: 0,
+      metadata: null,
+    })
+    return null
+  }
+}
+
+async function localizeSkillListRpcResult(value: unknown): Promise<unknown> {
+  const record = asRecord(value)
+  const data = Array.isArray(record?.data) ? record.data : null
+  if (!record || !data) return value
+
+  const localizedData = await Promise.all(data.map(async (entry) => {
+    const entryRecord = asRecord(entry)
+    const skills = Array.isArray(entryRecord?.skills) ? entryRecord.skills : null
+    if (!entryRecord || !skills) return entry
+
+    const localizedSkills = await Promise.all(skills.map(async (skill) => {
+      const skillRecord = asRecord(skill)
+      if (!skillRecord) return skill
+      const metadata = await readSkillDisplayMetadata(skillRecord.path)
+      if (!metadata) return skill
+      return {
+        ...skillRecord,
+        displayName: metadata.displayName || skillRecord.displayName,
+        displayDescription: metadata.displayDescription || skillRecord.displayDescription,
+      }
+    }))
+
+    return {
+      ...entryRecord,
+      skills: localizedSkills,
+    }
+  }))
+
+  return {
+    ...record,
+    data: localizedData,
+  }
 }
 
 async function runCommand(command: string, args: string[], options: { cwd?: string } = {}): Promise<void> {
@@ -2973,9 +3084,13 @@ class AppServerProcess {
         return this.buildThreadReadCompat(params)
       }
       const rawValue = await this.enqueueRpc(method, params)
-      return method === 'thread/list'
-        ? this.normalizeThreadListRpcResult(rawValue)
-        : rawValue
+      if (method === 'thread/list') {
+        return this.normalizeThreadListRpcResult(rawValue)
+      }
+      if (method === 'skills/list') {
+        return localizeSkillListRpcResult(rawValue)
+      }
+      return rawValue
     }
 
     if (method === 'thread/list') {
@@ -3001,6 +3116,8 @@ class AppServerProcess {
       .then(async (value) => {
         const normalizedValue = method === 'thread/list'
           ? await this.normalizeThreadListRpcResult(value)
+          : method === 'skills/list'
+            ? await localizeSkillListRpcResult(value)
           : value
         if (method === 'thread/list') {
           this.writeCachedThreadListRpc(shareableKey, normalizedValue)

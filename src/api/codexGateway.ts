@@ -1731,6 +1731,8 @@ export async function generateThreadTitle(prompt: string, cwd: string | null): P
 export type SkillInfo = {
   name: string
   description: string
+  displayName?: string
+  displayDescription?: string
   path: string
   scope: string
   enabled: boolean
@@ -1742,6 +1744,8 @@ type SkillsListResponseEntry = {
     name: string
     description: string
     shortDescription?: string
+    displayName?: string
+    displayDescription?: string
     path: string
     scope: string
     enabled: boolean
@@ -1763,6 +1767,8 @@ export async function getSkillsList(cwds?: string[]): Promise<SkillInfo[]> {
         skills.push({
           name: skill.name,
           description: skill.shortDescription || skill.description || '',
+          displayName: skill.displayName || '',
+          displayDescription: skill.displayDescription || '',
           path: skill.path,
           scope: skill.scope,
           enabled: skill.enabled,

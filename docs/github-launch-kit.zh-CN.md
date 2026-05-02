@@ -6,25 +6,25 @@
 
 推荐统一使用：
 
-把本机 Codex 变成可从浏览器、手机和远程入口访问的稳定工作台，重点面向 Windows、Android 和自托管远程访问。
+把本机 Codex 变成电脑运行、手机控制、微信提醒、中文技能可读的个人 AI 工作台，重点面向 Windows、Android、Tailscale 和自托管远程访问。
 
 英文版：
 
-Self-hosted OpenAI Codex Web UI and Android client bridge for Windows, mobile, LAN, and remote access.
+Self-hosted Codex mobile workbench with Android access, WeChat task reminders, Chinese skills, and Windows-friendly deployment.
 
 ## GitHub About
 
 中文短版：
 
-本机 Codex 的浏览器和 Android 工作台，适合 Windows、手机访问和自托管远程入口。
+电脑运行 Codex，手机远程控制，任务完成后微信提醒，技能列表优先显示中文。
 
 英文短版：
 
-Self-hosted OpenAI Codex Web UI and Android bridge for Windows, mobile, and remote access.
+Self-hosted Codex mobile workbench with WeChat task reminders and Chinese skill display.
 
 更强调远程访问：
 
-Run Codex locally, use it from your phone or browser, and expose it through your own LAN, VPN, tunnel, or reverse proxy.
+Run Codex locally, control it from your phone, receive WeChat completion reminders, and access it through LAN, Tailscale, VPN, tunnel, or reverse proxy.
 
 ## 仓库 Topics
 
@@ -32,6 +32,9 @@ Run Codex locally, use it from your phone or browser, and expose it through your
 
 - `codex`
 - `openai-codex`
+- `wechat`
+- `wechat-reminder`
+- `task-reminder`
 - `codex-web`
 - `codex-ui`
 - `codex-android`
@@ -54,12 +57,15 @@ Run Codex locally, use it from your phone or browser, and expose it through your
 长期保持这个顺序：
 
 1. 一句话定位
-2. 脱敏真实浏览器截图
+2. 产品海报
 3. 核心卖点
-4. 快速安装
-5. Android 客户端
-6. 远程访问
-7. 文档入口
+4. 运行截图
+5. 工作原理
+6. 快速安装
+7. 手机连接
+8. 微信完成提醒
+9. 中文技能说明
+10. 文档入口
 
 不要把首屏做成内部维护日志，也不要放带真实路径、真实会话或私人公网地址的截图。
 
@@ -69,6 +75,7 @@ Run Codex locally, use it from your phone or browser, and expose it through your
 - [chat-mobile.png](./screenshots/chat-mobile.png): 手机会话
 - [android-setup.png](./screenshots/android-setup.png): Android 首次连接
 - [github-trending.png](./screenshots/github-trending.png): GitHub 热门项目模块
+- [codex-wechat-mobile-workbench-hero.png](./posters/codex-wechat-mobile-workbench-hero.png): README 产品海报
 
 截图必须使用演示数据。
 
@@ -76,10 +83,10 @@ Run Codex locally, use it from your phone or browser, and expose it through your
 
 推荐格式：
 
-- `2.1.x: Android startup and sync stability`
-- `2.1.x: smoother mobile recovery and safer defaults`
-- `2.1.x: faster thread switching and better release packaging`
-- `2.2.0: stable Codex Web and Android bridge`
+- `2.1.x: Chinese skills for mobile Codex`
+- `2.1.x: Codex mobile workbench with WeChat reminders`
+- `2.1.x: Tailscale-ready Codex phone control`
+- `2.2.0: stable Codex WeChat mobile workbench`
 
 中文发布说明顺序：
 
@@ -96,21 +103,21 @@ Run Codex locally, use it from your phone or browser, and expose it through your
 
 中文：
 
-`codexui-server-bridge` 是一个把本机 OpenAI Codex 暴露到浏览器和 Android 手机上的自托管工作台。它重点解决 Windows / Windows Server 部署麻烦、移动端同步不稳、远程访问门槛高这几个问题。项目不试图替代官方 Codex，而是把“本地 Codex 如何稳定出现在浏览器和手机里”这条链路做稳。
+`Codex-WeChat-Task-Reminder` 是一个把本机 Codex 变成手机工作台和微信完成提醒的自托管项目。它重点解决 Windows 部署、Android 手机控制、Tailscale 跨网访问、长任务完成提醒和中文技能展示这些日常问题。项目不试图替代官方 Codex，而是把“电脑跑任务、手机随时看、微信提醒我、技能看中文”这条链路做顺。
 
 English:
 
-`codexui-server-bridge` is a self-hosted OpenAI Codex Web UI and Android client bridge. It focuses on Windows-friendly deployment, phone access, mobile sync recovery, and remote self-hosted access for local Codex.
+`Codex-WeChat-Task-Reminder` is a self-hosted Codex mobile workbench with Android access, WeChat completion reminders, Tailscale-friendly remote access, and Chinese skill display.
 
 ## 推广切入点
 
 优先讲这些问题：
 
 1. 如何把本机 Codex 放到手机上继续用
-2. Windows / Windows Server 怎么稳定跑一个 Codex Web 入口
-3. Codex Web UI 如何做自托管远程访问
-4. Android 上如何保持连接地址、密钥和会话状态
-5. 为什么轻量 browser bridge 比重型 SaaS 更适合个人和小团队
+2. Codex 长任务完成后如何用微信提醒自己
+3. Windows 怎么稳定跑一个 Codex Web 入口
+4. Tailscale 如何让手机跨网访问家里电脑
+5. 中文技能包如何让新手更容易理解和选择技能
 
 ## 不推荐表达
 
@@ -126,6 +133,9 @@ English:
 - Local Codex
 - Codex Web UI
 - Android client
+- WeChat task reminder
+- Chinese Codex skills
+- Tailscale access
 - Self-hosted remote access
 - Windows friendly
 - Stable mobile sync

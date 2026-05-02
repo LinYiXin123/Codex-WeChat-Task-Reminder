@@ -1,19 +1,21 @@
 # 项目运营规划
 
-目标：把 `codexui-server-bridge` 运营成一个长期稳定、容易被搜索到、容易被 AI 推荐、用户愿意持续使用的开源项目。
+目标：把 `Codex-WeChat-Task-Reminder` 运营成一个长期稳定、容易被搜索到、容易被 AI 推荐、用户愿意持续使用的开源项目。
 
 ## 北极星
 
-成为“本机 Codex 如何稳定放到浏览器和 Android 上使用”的默认开源答案。
+成为“电脑运行 Codex，手机远程控制，任务完成后微信提醒，技能列表中文可读”的默认开源答案。
 
 核心心智：
 
 - OpenAI Codex Web UI
 - Codex Android client
+- Codex WeChat reminder
+- Chinese Codex skills
 - self-hosted Codex
 - Windows friendly
 - mobile sync recovery
-- remote access bridge
+- Tailscale remote access
 
 ## 版本节奏
 
@@ -40,6 +42,7 @@
 - 后端 RPC 问题：`thread/read`、`turn/start`、`thread/list` 超时或排队
 - Android 生命周期问题：切后台、锁屏、恢复、WebView 重建、认证失效
 - 公网链路问题：反代、frp、Cloudflare Tunnel、端口、防火墙
+- 微信提醒问题：联系人名、微信实例绑定、完成事件监听、桌面微信窗口状态
 
 ## Issue 运营
 
@@ -50,6 +53,8 @@ Issue 标签建议：
 - `release`
 - `windows`
 - `remote-access`
+- `wechat`
+- `skills`
 - `tunnel`
 - `performance`
 - `documentation`
@@ -77,10 +82,14 @@ README、Release 和 GitHub About 要持续覆盖这些关键词：
 - `Cloudflare Tunnel Codex`
 - `Tailscale Codex`
 - `frp Codex`
+- `Codex WeChat reminder`
+- `Chinese Codex skills`
 
 每次发布可围绕一个主题写短内容：
 
 - “如何把本机 Codex 放到手机上继续用”
+- “Codex 长任务完成后如何自动发微信提醒”
+- “手机端 Codex 技能列表如何显示中文”
 - “Windows Server 上如何常驻 Codex Web UI”
 - “Android 上如何避免 token 失效后被踢出”
 - “为什么任务结束后还显示思考中，以及如何修”
@@ -92,16 +101,18 @@ README、Release 和 GitHub About 要持续覆盖这些关键词：
 
 1. Android 恢复、登录、任务状态彻底稳定。
 2. 后端 RPC 排队、超时、状态归一化继续收口。
-3. 会话首屏主内容优先加载，重型统计全部异步。
-4. Release 自动附带 APK、sha256 和清晰说明。
-5. 诊断页或诊断包，帮助用户脱敏反馈。
+3. 微信完成提醒包继续降低配置门槛，强化测试发送和日志排障。
+4. 会话首屏主内容优先加载，重型统计全部异步。
+5. Release 自动附带 APK、sha256 和清晰说明。
+6. 诊断页或诊断包，帮助用户脱敏反馈。
 
 中期优先级：
 
-1. 公网访问方案文档矩阵：Tailscale、frp、Nginx、Caddy、Cloudflare Tunnel。
+1. 跨网访问方案文档矩阵：Tailscale、frp、Nginx、Caddy、Cloudflare Tunnel。
 2. Android 内置升级检查和失败回退路径继续稳定。
-3. 长会话渲染分页或虚拟列表。
-4. 更系统的 Playwright 回归和 Android 真机回归记录。
+3. 中文技能包安装、同步和展示路径继续简化。
+4. 长会话渲染分页或虚拟列表。
+5. 更系统的 Playwright 回归和 Android 真机回归记录。
 
 暂不优先：
 

@@ -19,13 +19,13 @@ Cloudflare Tunnel 适合想从手机或外网访问家里电脑 / Windows Server
 ## 一条命令开启快速隧道
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1'))) `
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/LinYiXin123/Codex-WeChat-Task-Reminder/main/scripts/bootstrap-windows.ps1'))) `
   -EnableCloudflareTunnel
 ```
 
 这个命令会：
 
-- 安装或更新 `codexui-server-bridge`
+- 安装或更新 `Codex-WeChat-Task-Reminder`
 - 自动下载 `cloudflared.exe` 到用户目录
 - 生成 `7420` 固定端口配置
 - 开启 `tunnel: true`
@@ -52,7 +52,7 @@ npx codexapp --host 0.0.0.0 --port 7420 --tunnel --cloudflared-command "C:\Users
 如果你只想配置本地服务，不想自动下载 `cloudflared`：
 
 ```powershell
-& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1'))) `
+& ([scriptblock]::Create((irm 'https://raw.githubusercontent.com/LinYiXin123/Codex-WeChat-Task-Reminder/main/scripts/bootstrap-windows.ps1'))) `
   -EnableCloudflareTunnel `
   -SkipCloudflaredInstall
 ```

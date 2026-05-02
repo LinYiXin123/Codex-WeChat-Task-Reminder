@@ -4,7 +4,7 @@
 
 - `2.1`
 - `2.1.1`
-- `2.1.15`
+- `2.1.16`
 - `2.2.0`
 
 以后不要再使用 `bridge`、`beta`、`rc` 等英文后缀；补丁修复走 `2.1.x`，较大功能收口走 `2.2.0`。
@@ -21,18 +21,18 @@
 3. 打包 Release：
 
    ```powershell
-   npm.cmd run package:release -- -Version 2.1.15
+   npm.cmd run package:release -- -Version 2.1.16
    ```
 
 4. 如本机需要发布 APK，运行：
 
    ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\package-android-release.ps1 -Version 2.1.15
+   powershell -ExecutionPolicy Bypass -File .\scripts\package-android-release.ps1 -Version 2.1.16
    ```
 
 5. 检查 `artifacts/` 中是否生成：
-   - `codexui-server-bridge-<version>.zip`
-   - `codexui-server-bridge-<version>.sha256`
+   - `Codex-WeChat-Task-Reminder-<version>.zip`
+   - `Codex-WeChat-Task-Reminder-<version>.sha256`
    - `cx-codex-android-<version>.apk`
    - `cx-codex-android-<version>.apk.sha256`
 
@@ -42,8 +42,8 @@
 
 ```powershell
 git push publish main
-git tag 2.1.15
-git push publish 2.1.15
+git tag 2.1.16
+git push publish 2.1.16
 ```
 
 Release 工作流会自动完成：

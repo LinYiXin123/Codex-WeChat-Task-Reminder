@@ -1,50 +1,51 @@
-# codexui-server-bridge 2.1.15
+# Codex-WeChat-Task-Reminder 2.1.16
 
-Self-hosted OpenAI Codex Web UI and Android client bridge.
-
-把本机 Codex 变成可从浏览器、手机和远程入口访问的稳定工作台，适合 Windows、Android、局域网和自托管远程访问。
+电脑运行 Codex，手机远程控制，任务完成后微信提醒，并在手机端优先显示中文技能名。
 
 ## 这版适合谁升级
 
-- Android App 首次启动、输入连接地址或切后台恢复时不稳定的人。
-- 遇到任务已经完成但页面仍显示“思考中”的人。
-- 希望默认配置不包含任何本机地址、公网地址或私人密钥的人。
-- 想通过 GitHub Release 获取最新版 Web 包和 Android APK 的人。
+- 已经用手机连接电脑 Codex，但技能列表仍显示英文名的人。
+- 想把“Codex Web UI + Android + Tailscale + 微信提醒”整理成一套可复现方案的人。
+- 想给朋友或另一台电脑部署，但希望 README 和安装入口都指向本仓库的人。
 
 ## 本次版本重点
 
-- Android 启动更稳：
-  - 未配置连接地址时先完成原生 Activity 初始化，再显示原生连接页。
-  - APK 默认不内置私人服务地址，首次输入后保存在设备本地。
-  - 已保存密钥可用于认证失效后的无感重登。
-- 同步状态更可靠：
-  - 前台恢复会重新校准线程状态、最新消息、执行队列和思考态。
-  - 已完成任务不应继续显示停止按钮或“思考中”卡片。
-  - 长会话默认优先显示最新内容，上滑再补历史。
-- 公开文档更适合传播：
-  - README 改为产品化介绍，突出 Codex Web UI、Android、self-hosted、Windows 和 remote access。
-  - 旧截图已替换为脱敏浏览器截图。
-  - Release、GitHub 包装文案和版本命名统一到 `2.1.x`。
+- 手机端中文技能显示：
+  - `skills/list` 会读取技能目录下 `agents/openai.yaml`。
+  - 优先展示 `display_name` 和 `short_description`。
+  - 搜索支持中文显示名、中文简介、原始英文名和原始英文简介。
+  - 实际调用仍保留原始 `name/path`，避免破坏 Codex 技能调用。
+- 产品化 README：
+  - 新增产品海报和脱敏运行图。
+  - 整合电脑端、手机端、Tailscale、微信提醒、中文技能和 20 句常用指令。
+  - 新手可直接照着部署、测试和排障。
+- 公开链接收口：
+  - Windows bootstrap、Android 检查更新、CLI 提示、Issue 入口和 Release 文案指向 `LinYiXin123/Codex-WeChat-Task-Reminder`。
 
 ## 快速安装
 
 ```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/Qjzn/codexui-server-bridge/main/scripts/bootstrap-windows.ps1 | iex
+Set-ExecutionPolicy Bypass -Scope Process -Force; irm https://raw.githubusercontent.com/LinYiXin123/Codex-WeChat-Task-Reminder/main/scripts/bootstrap-windows.ps1 | iex
 ```
 
-## Android APK
+## Android / 手机
 
-如果本 Release 资产包含 `cx-codex-android-2.1.15.apk`，可下载后安装。
+Android APK 首次启动需要输入你自己的电脑服务地址，例如：
 
-首次启动需要输入你自己的 Codex Web 服务地址；项目默认不内置任何私人地址。密钥登录成功后会保存在设备本地，用于后续无感重登。
+```text
+http://100.x.y.z:7420
+http://your-pc.tailxxxxx.ts.net:7420
+```
 
-## 文档入口
+推荐电脑和手机都加入同一个 Tailscale 网络，再通过 Tailscale IP 或 MagicDNS 访问。
 
-- README: [README.md](./README.md)
-- 更新日志: [docs/changelog.zh-CN.md](./docs/changelog.zh-CN.md)
-- Android 壳: [docs/android-shell.zh-CN.md](./docs/android-shell.zh-CN.md)
-- 路线图: [docs/roadmap.zh-CN.md](./docs/roadmap.zh-CN.md)
-- Cloudflare Tunnel: [docs/cloudflare-tunnel.zh-CN.md](./docs/cloudflare-tunnel.zh-CN.md)
+## 微信提醒
+
+独立提醒包见：
+
+- `tools/codex-wechat-notifier/README.md`
+
+先运行 `bin\test-send.ps1`，确认桌面微信能收到测试消息，再注册常驻和开机自启。
 
 ## 隐私说明
 
